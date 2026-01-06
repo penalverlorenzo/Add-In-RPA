@@ -1,0 +1,117 @@
+<!-- Copyright (c) Microsoft Corporation. All rights reserved. Licensed under the MIT License. -->
+<!-- This file shows how to design a first-run page that provides a welcome screen to the user about the features of the add-in. -->
+
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Contoso Task Pane Add-in</title>
+
+    <!-- Office JavaScript API -->
+    <script type="text/javascript" src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+
+    <!-- For more information on Fluent UI, visit https://developer.microsoft.com/fluentui#/. -->
+    <link rel="stylesheet"
+        href="https://res-1.cdn.office.net/files/fabric-cdn-prod_20230815.002/office-ui-fabric-core/11.1.0/css/fabric.min.css" />
+
+    <!-- Template styles -->
+    <link href="taskpane.css" rel="stylesheet" type="text/css" />
+</head>
+
+<body class="ms-font-m ms-welcome ms-Fabric">
+    <main id="app-body" class="ms-welcome__main">
+        <h2>Extractor de Datos de Pasajero</h2>
+        <p style="margin-bottom:20px; color:#666;">Haz clic en el botón para extraer la información del correo:</p>
+
+        <button id="run" class="ms-Button">
+            <span class="ms-Button-label">📧 Extraer Información</span>
+        </button>
+
+        <!-- Loader -->
+        <div id="loader" style="display:none; text-align:center; padding:40px 20px;">
+            <div class="spinner"></div>
+            <p style="margin-top:20px; color:#666;">Extrayendo información del correo...</p>
+            <p style="font-size:0.9em; color:#999;">Por favor espera, esto puede tomar unos segundos</p>
+        </div>
+
+        <div id="results" style="display:none;">
+            <div style="text-align:right; margin-bottom:10px;">
+                <button id="reextract" class="ms-Button" style="font-size:0.85em; padding:6px 12px;">
+                    <span class="ms-Button-label">🔄 Re-extraer</span>
+                </button>
+            </div>
+            
+            <h3>Datos de Pasajeros</h3>
+            
+            <!-- Contenedor dinámico de pasajeros -->
+            <div id="pasajerosContainer"></div>
+
+            <button id="agregarPasajero" class="ms-Button btn-secondary">
+                <span class="ms-Button-label">+ Agregar Pasajero</span>
+            </button>
+
+            <!-- Sección de Datos de la Reserva -->
+            <div id="datosReservaSection" class="datos-reserva-section">
+                <h3>Datos de la Reserva</h3>
+                
+                <div class="form-group">
+                    <label>Tipo de Reserva: <span style="color: red;">*</span></label>
+                    <select id="tipoReserva" required>
+                        <option value="">Seleccione...</option>
+                        <option value="AGENCIAS [COAG]">Agencias [COAG]</option>
+                        <option value="DIRECTA">Directa</option>
+                        <option value="CORPORATIVA">Corporativa</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Estado: <span style="color: red;">*</span></label>
+                    <select id="estadoReserva" required>
+                        <option value="">Seleccione...</option>
+                        <option value="PENDIENTE DE CONFIRMACION [PC]">Pendiente de Confirmación [PC]</option>
+                        <option value="CONFIRMADA">Confirmada</option>
+                        <option value="CANCELADA">Cancelada</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Fecha de Viaje: <span style="color: red;">*</span></label>
+                    <input type="date" id="fechaViaje" required>
+                </div>
+
+                <div class="form-group">
+                    <label>Vendedor: <span style="color: red;">*</span></label>
+                    <select id="vendedor" required>
+                        <option value="">Seleccione...</option>
+                        <option value="TEST TEST">TEST TEST</option>
+                        <option value="VENDEDOR 1">Vendedor 1</option>
+                        <option value="VENDEDOR 2">Vendedor 2</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Cliente: <span style="color: red;">*</span></label>
+                    <select id="cliente" required>
+                        <option value="">Seleccione...</option>
+                        <option value="DESPEGAR - TEST - 1">DESPEGAR - TEST - 1</option>
+                        <option value="CLIENTE 1">Cliente 1</option>
+                        <option value="CLIENTE 2">Cliente 2</option>
+                    </select>
+                </div>
+            </div>
+
+            <button id="crearReserva" class="ms-Button btn-crear-reserva">
+                <span class="ms-Button-label">🚀 Crear Reserva en iTraffic</span>
+            </button>
+
+            <button id="guardar" class="ms-Button">
+                <span class="ms-Button-label">Guardar Todos los Datos</span>
+            </button>
+        </div>
+    </main>
+</body>
+
+</html>

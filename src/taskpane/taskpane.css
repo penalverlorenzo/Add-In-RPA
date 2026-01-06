@@ -1,0 +1,526 @@
+/* 
+ * Copyright (c) Microsoft Corporation. All rights reserved. Licensed under the MIT license.
+ * See LICENSE in the project root for license information.
+ */
+
+/* Reset y estilos base */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #333;
+  background-color: #ffffff;
+}
+
+/* Contenedor principal */
+.ms-welcome__main {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 100%;
+  padding: 20px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* Título principal */
+.ms-welcome__main h2 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin-bottom: 8px;
+  text-align: left;
+}
+
+.ms-welcome__main > p {
+  color: #666;
+  margin-bottom: 20px;
+  font-size: 0.9rem;
+}
+
+/* Botón principal - Diseño minimalista */
+.ms-Button {
+  width: 100%;
+  padding: 12px 20px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background-color: #2563eb;
+  color: white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.ms-Button:hover {
+  background-color: #1d4ed8;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  transform: translateY(-1px);
+}
+
+.ms-Button:active {
+  transform: translateY(0);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.ms-Button-label {
+  display: block;
+}
+
+/* Botón secundario (Agregar Pasajero) */
+.ms-Button.btn-secondary {
+  background-color: #6b7280;
+  margin-bottom: 12px;
+}
+
+.ms-Button.btn-secondary:hover {
+  background-color: #4b5563;
+}
+
+/* Separador minimalista */
+hr {
+  border: none;
+  border-top: 1px solid #e5e7eb;
+  margin: 20px 0;
+}
+
+/* Contenedor de resultados */
+#results {
+  width: 100%;
+  animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Título de sección */
+#results h3 {
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin-bottom: 16px;
+}
+
+/* Contenedor de pasajeros */
+#pasajerosContainer {
+  width: 100%;
+  margin-bottom: 20px;
+}
+
+/* Acordeón de pasajero - Diseño minimalista */
+.pasajero-acordeon {
+  margin-bottom: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  overflow: hidden;
+  background-color: #ffffff;
+  transition: box-shadow 0.2s ease;
+}
+
+.pasajero-acordeon:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+/* Cabecera del acordeón */
+.pasajero-header {
+  background-color: #f8fafc;
+  color: #1e293b;
+  padding: 14px 16px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.95rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: background-color 0.2s ease;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.pasajero-header:hover {
+  background-color: #f1f5f9;
+}
+
+.pasajero-titulo {
+  flex: 1;
+}
+
+.pasajero-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.pasajero-header .arrow {
+  font-size: 0.8rem;
+  transition: transform 0.3s ease;
+  color: #64748b;
+}
+
+/* Botón eliminar pasajero */
+.btn-eliminar-pasajero {
+  background-color: transparent;
+  border: none;
+  color: #ef4444;
+  font-size: 1.2rem;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-eliminar-pasajero:hover {
+  background-color: #fee2e2;
+  color: #dc2626;
+  transform: scale(1.1);
+}
+
+.btn-eliminar-pasajero:active {
+  transform: scale(0.95);
+}
+
+/* Contenido del acordeón */
+.pasajero-content {
+  padding: 20px 16px;
+  background-color: #ffffff;
+}
+
+/* Campos del formulario - Diseño minimalista */
+.pasajero-content > div {
+  margin-bottom: 16px;
+}
+
+.pasajero-content label {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 500;
+  font-size: 0.875rem;
+  color: #374151;
+}
+
+.pasajero-content input,
+.pasajero-content select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  color: #1f2937;
+  background-color: #ffffff;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.pasajero-content input:focus,
+.pasajero-content select:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.pasajero-content input:hover,
+.pasajero-content select:hover {
+  border-color: #9ca3af;
+}
+
+/* Input de tipo número - ocultar flechas */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+/* Sección de Datos de la Reserva */
+.datos-reserva-section {
+  width: 100%;
+  margin-top: 30px;
+  margin-bottom: 20px;
+  padding: 20px;
+  background-color: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+}
+
+.datos-reserva-section h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin-bottom: 20px;
+  margin-top: 0;
+}
+
+.form-group {
+  margin-bottom: 16px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 500;
+  font-size: 0.875rem;
+  color: #374151;
+}
+
+.form-group input,
+.form-group select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  color: #1f2937;
+  background-color: #ffffff;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.form-group input:focus,
+.form-group select:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.form-group input:hover,
+.form-group select:hover {
+  border-color: #9ca3af;
+}
+
+/* Botón de crear reserva */
+#crearReserva,
+.btn-crear-reserva {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  margin-bottom: 12px;
+  font-weight: 600;
+}
+
+#crearReserva:hover,
+.btn-crear-reserva:hover {
+  background: linear-gradient(135deg, #5568d3 0%, #6a3f8f 100%);
+  box-shadow: 0 6px 12px rgba(102, 126, 234, 0.3);
+}
+
+#crearReserva:disabled,
+.btn-crear-reserva:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: linear-gradient(135deg, #9ca3af 0%, #6b7280 100%);
+  pointer-events: none;
+}
+
+#crearReserva:disabled:hover,
+.btn-crear-reserva:disabled:hover {
+  box-shadow: none;
+  transform: none;
+}
+
+/* Botón de guardar */
+#guardar {
+  margin-top: 0;
+  background-color: #059669;
+}
+
+#guardar:hover {
+  background-color: #047857;
+}
+
+/* Responsivo - Tablets */
+@media (min-width: 768px) {
+  .ms-welcome__main {
+    padding: 24px;
+  }
+
+  .ms-welcome__main h2 {
+    font-size: 1.75rem;
+  }
+
+  .pasajero-content {
+    padding: 24px 20px;
+  }
+}
+
+/* Responsivo - Móviles pequeños */
+@media (max-width: 480px) {
+  .ms-welcome__main {
+    padding: 16px;
+  }
+
+  .ms-welcome__main h2 {
+    font-size: 1.25rem;
+  }
+
+  .pasajero-header {
+    padding: 12px 14px;
+    font-size: 0.9rem;
+  }
+
+  .pasajero-content {
+    padding: 16px 14px;
+  }
+
+  .pasajero-content input,
+  .pasajero-content select {
+    padding: 9px 10px;
+    font-size: 0.875rem;
+  }
+
+  .ms-Button {
+    padding: 11px 16px;
+    font-size: 0.9rem;
+  }
+}
+
+/* Scrollbar personalizado (solo webkit) */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Animación suave para transiciones */
+* {
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Animaciones para mensajes */
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-20px);
+  }
+}
+
+/* Estado de carga (opcional para futuro) */
+.loading {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+/* Mensaje de estado (opcional para futuro) */
+.status-message {
+  padding: 12px 16px;
+  border-radius: 6px;
+  margin-bottom: 16px;
+  font-size: 0.9rem;
+}
+
+.status-message.success {
+  background-color: #d1fae5;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
+}
+
+.status-message.error {
+  background-color: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+}
+
+.status-message.info {
+  background-color: #dbeafe;
+  color: #1e40af;
+  border: 1px solid #bfdbfe;
+}
+
+/* Loader / Spinner */
+.spinner {
+  border: 4px solid #f3f4f6;
+  border-top: 4px solid #667eea;
+  border-radius: 50%;
+  width: 50px;
+  height: 50px;
+  animation: spin 1s linear infinite;
+  margin: 0 auto;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Modo Lectura - Campos de solo lectura */
+.campo-lectura {
+  margin-bottom: 16px;
+  padding: 12px;
+  background-color: #f9fafb;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+}
+
+.campo-lectura label {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: #374151;
+}
+
+.campo-lectura p {
+  margin: 0;
+  padding: 0;
+  font-size: 0.95rem;
+  color: #1f2937;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+/* Estilo especial cuando el valor está vacío */
+.campo-lectura p:empty::before,
+.campo-lectura p:contains('-')::before {
+  color: #9ca3af;
+  font-style: italic;
+}
