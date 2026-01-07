@@ -1,0 +1,13 @@
+services:
+  rpa:
+    build: .
+    container_name: itraffic-rpa
+    ports:
+      - "3001:3001"
+    environment:
+      PORT: 3001
+      ITRAFFIC_HOME_URL: ${ITRAFFIC_HOME_URL}
+      ITRAFFIC_LOGIN_URL: ${ITRAFFIC_LOGIN_URL}
+      ITRAFFIC_USER: ${ITRAFFIC_USER}
+      ITRAFFIC_PASSWORD: ${ITRAFFIC_PASSWORD}
+    restart: unless-stopped
