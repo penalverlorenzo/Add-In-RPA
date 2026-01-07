@@ -10,7 +10,7 @@ RUN npx playwright install --with-deps
 
 COPY . .
 
-ENV PORT=3000
-EXPOSE 3000
+ENV PORT=3001
+EXPOSE 3001
 
 CMD ["node", "index.js"]
