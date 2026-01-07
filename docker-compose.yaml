@@ -4,7 +4,6 @@ services:
     container_name: itraffic-rpa
     ports:
       - "3001:3001"
-    environment:
-      env_file:
-        - .env
+    env_file:
+      - .env
     restart: unless-stopped
