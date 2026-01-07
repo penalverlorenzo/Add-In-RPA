@@ -200,7 +200,7 @@ az containerapp update \
     "AZURE_OPENAI_DEPLOYMENT=gpt-4o-mini" \
     "COSMOS_DB_ENDPOINT=secretref:cosmos-endpoint" \
     "COSMOS_DB_KEY=secretref:cosmos-key" \
-    "COSMOS_DB_DATABASE_ID=iTrafficDB"
+    "COSMOS_DB_DATABASE_ID=EmailClassifier"
 
 echo ""
 echo "✅ Variables de entorno configuradas"
