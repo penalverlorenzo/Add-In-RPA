@@ -30,10 +30,16 @@ async function loadRpaService() {
   try {
     // Importar desde la carpeta rpa local del proyecto
     const path = require('path');
+    const { pathToFileURL } = require('url');
     const rpaPath = path.join(__dirname, '..', 'rpa', 'rpaService.js');
-    const rpaModule = await import('file:///' + rpaPath.replace(/\\/g, '/'));
+    
+    // Convertir path a file URL correctamente para Windows y Linux
+    const fileUrl = pathToFileURL(rpaPath).href;
+    
+    console.log('🔄 Intentando cargar módulo RPA desde:', fileUrl);
+    const rpaModule = await import(fileUrl);
     runRpa = rpaModule.runRpa;
-    console.log('✅ Módulo RPA cargado exitosamente desde:', rpaPath);
+    console.log('✅ Módulo RPA cargado exitosamente');
   } catch (error) {
     console.error('❌ Error al cargar módulo RPA:', error.message);
     console.error('   Stack:', error.stack);
