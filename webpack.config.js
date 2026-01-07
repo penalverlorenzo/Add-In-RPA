@@ -3,9 +3,14 @@
 const devCerts = require("office-addin-dev-certs");
 const CopyWebpackPlugin = require("copy-webpack-plugin");
 const HtmlWebpackPlugin = require("html-webpack-plugin");
+const webpack = require("webpack");
 
 const urlDev = "https://localhost:3000/";
-const urlProd = "https://www.contoso.com/"; // CHANGE THIS TO YOUR PRODUCTION DEPLOYMENT LOCATION
+// URL de producción - se puede sobrescribir con variable de entorno FRONTEND_URL
+const urlProd = process.env.FRONTEND_URL || "https://your-app.azurestaticapps.net/";
+// URL del backend API - se puede sobrescribir con variable de entorno BACKEND_URL
+const apiUrlDev = "http://localhost:3001";
+const apiUrlProd = process.env.BACKEND_URL || "https://your-backend.azurecontainerapps.io";
 
 async function getHttpsOptions() {
   const httpsOptions = await devCerts.getHttpsServerOptions();
@@ -14,6 +19,8 @@ async function getHttpsOptions() {
 
 module.exports = async (env, options) => {
   const dev = options.mode === "development";
+  const apiUrl = dev ? apiUrlDev : apiUrlProd;
+  
   const config = {
     devtool: "source-map",
     entry: {
@@ -51,6 +58,11 @@ module.exports = async (env, options) => {
       ],
     },
     plugins: [
+      // Inyectar variables de entorno globales
+      new webpack.DefinePlugin({
+        'RPA_API_URL': JSON.stringify(apiUrl),
+        'process.env.NODE_ENV': JSON.stringify(dev ? 'development' : 'production')
+      }),
       new HtmlWebpackPlugin({
         filename: "taskpane.html",
         template: "./src/taskpane/taskpane.html",

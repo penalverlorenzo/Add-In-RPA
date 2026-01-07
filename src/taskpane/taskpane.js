@@ -149,7 +149,7 @@ Office.onReady((info) => {
  */
 async function cargarDatosMaestros() {
   try {
-    const response = await fetch('http://localhost:3001/api/master-data');
+    const response = await fetch('http://20.3.142.67:3001/api/master-data');
     
     if (!response.ok) {
       console.warn('⚠️ No se pudieron cargar los datos maestros, usando valores por defecto');
@@ -453,7 +453,7 @@ async function run() {
  * Llama al servicio de extracción con IA
  */
 async function extraerDatosConIA(emailContent) {
-  const response = await fetch('http://localhost:3001/api/extract', {
+  const response = await fetch('http://20.3.142.67:3001/api/extract', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

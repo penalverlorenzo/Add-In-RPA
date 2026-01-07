@@ -3,8 +3,11 @@
  * Este archivo maneja la comunicación entre el add-in de Outlook y el servidor RPA
  */
 
-// URL del servidor RPA (ajusta según tu configuración)
-const RPA_SERVICE_URL = 'http://localhost:3001/api/rpa/create-reservation';
+// URL del servidor RPA (se configura dinámicamente según el entorno)
+// En producción, esta URL se inyecta durante el build de webpack
+const RPA_SERVICE_URL = typeof RPA_API_URL !== 'undefined' 
+  ? RPA_API_URL + '/api/rpa/create-reservation'
+  : 'http://localhost:3001/api/rpa/create-reservation';
 
 /**
  * Transforma los datos del formulario al formato esperado por el RPA
@@ -99,7 +102,11 @@ export async function crearReservaEnITraffic(pasajeros, datosReserva = {}) {
  */
 export async function verificarServicioRPA() {
   try {
-    const response = await fetch(RPA_SERVICE_URL.replace('/create-reservation', '/health'), {
+    const healthUrl = typeof RPA_API_URL !== 'undefined'
+      ? RPA_API_URL + '/api/rpa/health'
+      : 'http://localhost:3001/api/rpa/health';
+      
+    const response = await fetch(healthUrl, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -108,6 +115,7 @@ export async function verificarServicioRPA() {
     
     return response.ok;
   } catch (error) {
+    console.error('Error verificando servicio RPA:', error);
     return false;
   }
 }

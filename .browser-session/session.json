@@ -1,0 +1,25 @@
+{
+  "cookies": [
+    {
+      "name": "ASP.NET_SessionId",
+      "value": "r3bvaryu5gz3pj1vlso30v0q",
+      "domain": "aymara.itraffic.com.ar",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": true,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": ".ASPXAUTH",
+      "value": "0703EB8B1AF52843E8A987D267635C276B6EF4E5DFE7889121AE2DF183A2BF8536C3B700D251F63749043A93E50C9C928A1F0E4E6E3468D51D398E4DB3781E4A21279D9241DDB26440A9983E74D45610B6C8A6FCA3588534BA29E32343D4D186",
+      "domain": "aymara.itraffic.com.ar",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": true,
+      "secure": false,
+      "sameSite": "Lax"
+    }
+  ],
+  "origins": []
+}

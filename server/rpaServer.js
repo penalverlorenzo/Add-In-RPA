@@ -9,9 +9,20 @@ const express = require('express');
 const cors = require('cors');
 const { extractReservationData } = require('../services/extractionService');
 const masterDataService = require('../services/masterDataService');
+const config = require('./config');
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+
+// Validar configuración al iniciar (solo en producción)
+if (config.isProduction()) {
+  try {
+    config.validate();
+    console.log('✅ Configuración validada correctamente');
+  } catch (error) {
+    console.error('❌ Error en configuración:', error.message);
+    process.exit(1);
+  }
+}
 
 // Función para importar dinámicamente el RPA (ES modules)
 let runRpa;
@@ -30,14 +41,22 @@ async function loadRpaService() {
 }
 
 // Middleware
-app.use(cors());
-app.use(express.json());
+app.use(cors({
+  origin: config.corsOrigin,
+  credentials: true,
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Ruta de health check
 app.get('/api/rpa/health', (req, res) => {
   res.json({ 
     status: 'ok', 
     message: 'Servicio RPA disponible',
+    environment: config.nodeEnv,
+    rpaLoaded: !!runRpa,
     timestamp: new Date().toISOString()
   });
 });
@@ -228,13 +247,15 @@ app.use((error, req, res, next) => {
 
 // Cargar el módulo RPA e iniciar servidor
 loadRpaService().then(() => {
-  app.listen(PORT, () => {
-    console.log(`🚀 Servidor RPA escuchando en http://localhost:${PORT}`);
+  app.listen(config.port, () => {
+    console.log(`🚀 Servidor RPA escuchando en puerto ${config.port}`);
+    console.log(`🌍 Entorno: ${config.nodeEnv}`);
+    console.log(`🔒 CORS habilitado para: ${config.corsOrigin}`);
     console.log(`📡 Endpoints disponibles:`);
-    console.log(`   - GET  http://localhost:${PORT}/api/rpa/health`);
-    console.log(`   - GET  http://localhost:${PORT}/api/master-data`);
-    console.log(`   - POST http://localhost:${PORT}/api/extract`);
-    console.log(`   - POST http://localhost:${PORT}/api/rpa/create-reservation`);
+    console.log(`   - GET  /api/rpa/health`);
+    console.log(`   - GET  /api/master-data`);
+    console.log(`   - POST /api/extract`);
+    console.log(`   - POST /api/rpa/create-reservation`);
   });
 }).catch(error => {
   console.error('❌ Error al iniciar servidor:', error);
