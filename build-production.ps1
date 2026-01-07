@@ -3,7 +3,7 @@
 
 Write-Host "🏗️  Construyendo Add-in para Producción..." -ForegroundColor Cyan
 
-# URLs de producción
+# URLs de producción CORREGIDAS (sin https:// duplicado)
 $env:FRONTEND_URL = "https://gentle-ground-0e6ae2a1e.1.azurestaticapps.net"
 $env:BACKEND_URL = "https://ca-addin-rpa-backend-1.nicemushroom-236103a4.brazilsouth.azurecontainerapps.io"
 
