@@ -5,12 +5,26 @@ const CopyWebpackPlugin = require("copy-webpack-plugin");
 const HtmlWebpackPlugin = require("html-webpack-plugin");
 const webpack = require("webpack");
 
+// ============================================================================
+// 🚀 CONFIGURACIÓN DE PRODUCCIÓN (Por defecto)
+// ============================================================================
+// Este proyecto está configurado para PRODUCCIÓN por defecto.
+// Las URLs apuntan a los servicios desplegados en Azure.
+
+// 📝 Para probar LOCALMENTE:
+// 1. Cambia las URLs de producción por las de desarrollo (comentadas abajo)
+// 2. Ejecuta: npm run dev-server
+// 3. NO OLVIDES revertir los cambios antes de hacer commit
+
+// URLs de PRODUCCIÓN (Azure)
+const urlProd = "https://gentle-ground-0e6ae2a1e.1.azurestaticapps.net/";
+const apiUrlProd = "https://ca-addin-rpa-backend-1.nicemushroom-236103a4.brazilsouth.azurecontainerapps.io";
+
+// URLs de DESARROLLO LOCAL (descomentadas solo para pruebas locales)
 const urlDev = "https://localhost:3000/";
-// URL de producción - se puede sobrescribir con variable de entorno FRONTEND_URL
-const urlProd = process.env.FRONTEND_URL || "https://your-app.azurestaticapps.net/";
-// URL del backend API - se puede sobrescribir con variable de entorno BACKEND_URL
 const apiUrlDev = "http://localhost:3001";
-const apiUrlProd = process.env.BACKEND_URL || "https://your-backend.azurecontainerapps.io";
+
+// ============================================================================
 
 async function getHttpsOptions() {
   const httpsOptions = await devCerts.getHttpsServerOptions();
@@ -19,7 +33,10 @@ async function getHttpsOptions() {
 
 module.exports = async (env, options) => {
   const dev = options.mode === "development";
-  const apiUrl = dev ? apiUrlDev : apiUrlProd;
+  
+  // SIEMPRE usar URLs de producción (incluso en modo development)
+  // Para desarrollo local, cambia manualmente las URLs arriba
+  const apiUrl = apiUrlProd;
   
   const config = {
     devtool: "source-map",
@@ -59,9 +76,10 @@ module.exports = async (env, options) => {
     },
     plugins: [
       // Inyectar variables de entorno globales
+      // RPA_API_URL será reemplazado en el código con la URL del backend de producción
       new webpack.DefinePlugin({
         'RPA_API_URL': JSON.stringify(apiUrl),
-        'process.env.NODE_ENV': JSON.stringify(dev ? 'development' : 'production')
+        'process.env.NODE_ENV': JSON.stringify('production')
       }),
       new HtmlWebpackPlugin({
         filename: "taskpane.html",

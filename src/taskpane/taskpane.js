@@ -149,7 +149,12 @@ Office.onReady((info) => {
  */
 async function cargarDatosMaestros() {
   try {
-    const response = await fetch('http://20.3.142.67:3001/api/master-data');
+    // Usar la variable global RPA_API_URL inyectada por webpack
+    const masterDataUrl = typeof RPA_API_URL !== 'undefined'
+      ? RPA_API_URL + '/api/master-data'
+      : 'http://localhost:3001/api/master-data';
+    
+    const response = await fetch(masterDataUrl);
     
     if (!response.ok) {
       console.warn('⚠️ No se pudieron cargar los datos maestros, usando valores por defecto');
@@ -453,7 +458,12 @@ async function run() {
  * Llama al servicio de extracción con IA
  */
 async function extraerDatosConIA(emailContent) {
-  const response = await fetch('http://20.3.142.67:3001/api/extract', {
+  // Usar la variable global RPA_API_URL inyectada por webpack
+  const extractUrl = typeof RPA_API_URL !== 'undefined'
+    ? RPA_API_URL + '/api/extract'
+    : 'http://localhost:3001/api/extract';
+  
+  const response = await fetch(extractUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
