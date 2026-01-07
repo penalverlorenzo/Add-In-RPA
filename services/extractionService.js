@@ -3,8 +3,8 @@
  * Extracts structured reservation information from email chains using Azure OpenAI
  */
 
-const { AzureOpenAI } = require('openai');
-const config = require('../config');
+import { AzureOpenAI } from 'openai';
+import config from '../config/index.js';
 
 let openaiClient = null;
 
@@ -657,7 +657,7 @@ function normalizeDocumentType(docType) {
     return docTypeMap[normalized] || 'DNI';
 }
 
-module.exports = {
+export {
     extractReservationData,
     validateExtractionResult,
     EXTRACTION_SYSTEM_PROMPT

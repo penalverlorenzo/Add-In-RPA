@@ -3,9 +3,10 @@
  * Loads environment variables from .env file
  */
 
-require('dotenv').config();
+import dotenv from 'dotenv';
+dotenv.config();
 
-module.exports = {
+export default {
     // Azure OpenAI Configuration
     openai: {
         apiKey: process.env.AZURE_OPENAI_API_KEY,

@@ -3,8 +3,8 @@
  * Manages reference data: Sellers, Clients, Statuses, Reservation Types, Genders, Document Types, Countries
  */
 
-const { CosmosClient } = require('@azure/cosmos');
-const config = require('../config');
+import { CosmosClient } from '@azure/cosmos';
+import config from '../config/index.js';
 
 let client = null;
 let database = null;
@@ -193,7 +193,7 @@ async function getAllCountries() {
     }
 }
 
-module.exports = {
+export default {
     getAllSellers,
     getAllClients,
     getAllStatuses,

@@ -5,23 +5,42 @@
  * IMPORTANTE: Asegúrate de que la ruta al RPA sea correcta según tu estructura de carpetas
  */
 
-const express = require('express');
-const cors = require('cors');
-const { extractReservationData } = require('../services/extractionService');
-const masterDataService = require('../services/masterDataService');
-const config = require('./config');
+import express from 'express';
+import cors from 'cors';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { extractReservationData } from '../services/extractionService.js';
+import masterDataService from '../services/masterDataService.js';
+import config from '../config/index.js';
+
+// ES Modules equivalent of __dirname
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 
 // Validar configuración al iniciar (solo en producción)
-if (config.isProduction()) {
-  try {
-    config.validate();
-    console.log('✅ Configuración validada correctamente');
-  } catch (error) {
-    console.error('❌ Error en configuración:', error.message);
+const isProduction = process.env.NODE_ENV === 'production';
+if (isProduction) {
+  const required = [
+    { name: 'ITRAFFIC_LOGIN_URL', value: config.itraffic.loginUrl },
+    { name: 'ITRAFFIC_USER', value: config.itraffic.user },
+    { name: 'ITRAFFIC_PASSWORD', value: config.itraffic.password },
+    { name: 'AZURE_OPENAI_API_KEY', value: config.openai.apiKey },
+    { name: 'AZURE_OPENAI_ENDPOINT', value: config.openai.endpoint },
+    { name: 'COSMOS_DB_ENDPOINT', value: config.cosmosDb.endpoint },
+    { name: 'COSMOS_DB_KEY', value: config.cosmosDb.key }
+  ];
+  
+  const missing = required.filter(r => !r.value);
+  
+  if (missing.length > 0) {
+    const missingNames = missing.map(m => m.name).join(', ');
+    console.error(`❌ Faltan variables de entorno requeridas: ${missingNames}`);
     process.exit(1);
   }
+  
+  console.log('✅ Configuración validada correctamente');
 }
 
 // Función para importar dinámicamente el RPA (ES modules)
@@ -29,15 +48,10 @@ let runRpa;
 async function loadRpaService() {
   try {
     // Importar desde la carpeta rpa local del proyecto
-    const path = require('path');
-    const { pathToFileURL } = require('url');
     const rpaPath = path.join(__dirname, '..', 'rpa', 'rpaService.js');
     
-    // Convertir path a file URL correctamente para Windows y Linux
-    const fileUrl = pathToFileURL(rpaPath).href;
-    
-    console.log('🔄 Intentando cargar módulo RPA desde:', fileUrl);
-    const rpaModule = await import(fileUrl);
+    console.log('🔄 Intentando cargar módulo RPA desde:', rpaPath);
+    const rpaModule = await import('../rpa/rpaService.js');
     runRpa = rpaModule.runRpa;
     console.log('✅ Módulo RPA cargado exitosamente');
   } catch (error) {
@@ -48,7 +62,7 @@ async function loadRpaService() {
 
 // Middleware
 app.use(cors({
-  origin: config.corsOrigin,
+  origin: config.server.corsOrigin,
   credentials: true,
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
@@ -61,7 +75,7 @@ app.get('/api/rpa/health', (req, res) => {
   res.json({ 
     status: 'ok', 
     message: 'Servicio RPA disponible',
-    environment: config.nodeEnv,
+    environment: process.env.NODE_ENV || 'development',
     rpaLoaded: !!runRpa,
     timestamp: new Date().toISOString()
   });
@@ -253,10 +267,10 @@ app.use((error, req, res, next) => {
 
 // Cargar el módulo RPA e iniciar servidor
 loadRpaService().then(() => {
-  app.listen(config.port, () => {
-    console.log(`🚀 Servidor RPA escuchando en puerto ${config.port}`);
-    console.log(`🌍 Entorno: ${config.nodeEnv}`);
-    console.log(`🔒 CORS habilitado para: ${config.corsOrigin}`);
+  app.listen(config.server.port, () => {
+    console.log(`🚀 Servidor RPA escuchando en puerto ${config.server.port}`);
+    console.log(`🌍 Entorno: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`🔒 CORS habilitado para: ${config.server.corsOrigin}`);
     console.log(`📡 Endpoints disponibles:`);
     console.log(`   - GET  /api/rpa/health`);
     console.log(`   - GET  /api/master-data`);
@@ -268,5 +282,5 @@ loadRpaService().then(() => {
   process.exit(1);
 });
 
-module.exports = app;
+export default app;
 
