@@ -1,15 +1,15 @@
 version: "3.9"
+
 services:
   rpa:
     build: .
-    image: itraffic-rpa
+    container_name: itraffic-rpa
     ports:
       - "3000:3000"
     environment:
-      - ITRAFFIC_HOME_URL=${ITRAFFIC_HOME_URL}
-      - ITRAFFIC_LOGIN_URL=${ITRAFFIC_LOGIN_URL}
-      - ITRAFFIC_USER=${ITRAFFIC_USER}
-      - ITRAFFIC_PASSWORD=${ITRAFFIC_PASSWORD}
-      - PORT=3000
-
+      PORT: 3000
+      ITRAFFIC_HOME_URL: ${ITRAFFIC_HOME_URL}
+      ITRAFFIC_LOGIN_URL: ${ITRAFFIC_LOGIN_URL}
+      ITRAFFIC_USER: ${ITRAFFIC_USER}
+      ITRAFFIC_PASSWORD: ${ITRAFFIC_PASSWORD}
     restart: unless-stopped
