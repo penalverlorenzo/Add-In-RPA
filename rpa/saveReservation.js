@@ -1,4 +1,4 @@
-import { takeScreenshot } from "./utils/screenshot";
+import { takeScreenshot } from "./utils/screenshot.js";
 
 export async function saveReservation(page) {
     await page.locator('.button-inner', { hasText: 'Guardar' }).click();
