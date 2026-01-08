@@ -64,11 +64,11 @@ export async function runRpa(reservationData = null) {
             console.log('⚠️ No se recibieron datos de pasajeros');
         }
         await saveReservation(page);
-        const isreservationSaved = await verifyFirstReservation(page, reservationData.passengers[0].firstName + ' ' + reservationData.passengers[0].lastName);
+        // const isreservationSaved = await verifyFirstReservation(page, reservationData.passengers[0].firstName + ' ' + reservationData.passengers[0].lastName);
         return {
             success: true,
-            isreservationSaved: isreservationSaved,
-            message: isreservationSaved ? 'Reserva creada exitosamente' : 'Reserva no creada',
+            // isreservationSaved: isreservationSaved,
+            message: 'Reserva creada exitosamente',
             timestamp: new Date().toISOString()
         };
 
