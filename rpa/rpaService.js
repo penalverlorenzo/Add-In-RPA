@@ -6,6 +6,8 @@ import { navigateToDashboard } from './dashboard.js';
 import { newReservation } from './newReservation.js';
 import { newPassenger } from './newPassenger.js';
 import { dataPassenger } from './dataPassenger.js';
+import { saveReservation } from './saveReservation.js';
+import { verifyFirstReservation } from './verifyFirstReservation.js';
 
 /**
  * Ejecuta el RPA de iTraffic
@@ -61,10 +63,12 @@ export async function runRpa(reservationData = null) {
         } else {
             console.log('⚠️ No se recibieron datos de pasajeros');
         }
-
+        await saveReservation(page);
+        const isreservationSaved = await verifyFirstReservation(page, reservationData.passengers[0].firstName + ' ' + reservationData.passengers[0].lastName);
         return {
             success: true,
-            message: 'Reserva creada exitosamente',
+            isreservationSaved: isreservationSaved,
+            message: isreservationSaved ? 'Reserva creada exitosamente' : 'Reserva no creada',
             timestamp: new Date().toISOString()
         };
 
@@ -76,4 +80,3 @@ export async function runRpa(reservationData = null) {
         console.log('🧹 Browser cerrado');
     }
 }
-
