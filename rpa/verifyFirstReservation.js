@@ -3,7 +3,7 @@ export async function verifyFirstReservation(page, expectedPassengerName) {
 
   // Esperar a que la grilla exista
   await page.waitForSelector('.slick-row', { timeout: 15000 });
-
+  await page.locator('#slickgrid_346395Idreserva').first().click();
   // Tomar la primera fila
   const firstPassengerName = await page.evaluate(() => {
     const firstRow = document.querySelector('.slick-row');
