@@ -1,3 +1,5 @@
+import { takeScreenshot } from "./utils/screenshot.js";
+
 export async function verifyFirstReservation(page, expectedPassengerName) {
   console.log('🔎 Verificando primera reserva en la grilla...');
 
