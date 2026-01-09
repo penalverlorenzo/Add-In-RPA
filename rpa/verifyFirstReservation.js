@@ -25,24 +25,26 @@ export async function verifyFirstReservation(page, expectedPassengerName) {
   }
   console.log(`🧾 ID de la reserva en primera fila: "${firstReservationId}"`);
   console.log(`🧾 Pasajero en primera fila: "${firstPassengerName}"`);
-  console.log(`🎯 Pasajero esperado: "${expectedPassengerName}"`);
-  if (reservationId <= 1){
+  console.log(`🎯 Pasajero esperado: "${expectedPassengerName[0]},${expectedPassengerName[1]}"`);
+  if (firstReservationId <= 1){
     await page.locator('.slick-header-column').filter({ hasText: 'Id' }).first().click();
     await page.waitForTimeout(2000);
     await takeScreenshot(page, '18-verifyFirstReservation-01-reservation-id-clicked-' + firstReservationId);
   }
   await page.waitForTimeout(1000);
   const normalizedGrid = firstPassengerName.toLowerCase();
-  const normalizedExpected = expectedPassengerName.toLowerCase();
-
-  if (!normalizedGrid.includes(normalizedExpected)) {
+  const normalizedExpected = expectedPassengerName.map(name => name.toLowerCase());
+  await takeScreenshot(page, '18-verifyFirstReservation-02-normalized-grid-compared');
+  
+  if (!normalizedGrid.includes(normalizedExpected[0]) && !normalizedGrid.includes(normalizedExpected[1])) {
     console.error(
       `❌ La primera reserva NO coincide.
-      Esperado: "${expectedPassengerName}"
+      Esperado: "${expectedPassengerName[0]} o ${expectedPassengerName[1]}"
       Encontrado: "${firstPassengerName}"`
     );
     return false;
   }
+  await takeScreenshot(page, '18-verifyFirstReservation-03-normalized-grid-compared-success');
 
   console.log('✅ La primera reserva coincide con el pasajero ingresado');
   return true;

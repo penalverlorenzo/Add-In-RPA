@@ -64,7 +64,9 @@ export async function runRpa(reservationData = null) {
             console.log('⚠️ No se recibieron datos de pasajeros');
         }
         await saveReservation(page);
-        const isreservationSaved = await verifyFirstReservation(page, reservationData.passengers[0].firstName + ' ' + reservationData.passengers[0].lastName);
+        const expectedPassengerName = reservationData.passengers[0].firstName + ' ' + reservationData.passengers[0].lastName;
+        const expectedPassangerReverseName = reservationData.passengers[0].lastName + ' ' + reservationData.passengers[0].firstName;
+        const isreservationSaved = await verifyFirstReservation(page, [expectedPassengerName, expectedPassangerReverseName]);
         return {
             success: true,
             isreservationSaved: isreservationSaved,
