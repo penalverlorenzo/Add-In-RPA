@@ -3,7 +3,7 @@ export async function verifyFirstReservation(page, expectedPassengerName) {
 
   // Esperar a que la grilla exista
   await page.waitForSelector('.slick-row', { timeout: 15000 });
-  await page.locator('#slickgrid_346395Idreserva').first().click();
+  await page.locator('.slick-header-column').filter({ hasText: 'Id' }).first().click();
   // Tomar la primera fila
   const firstPassengerName = await page.evaluate(() => {
     const firstRow = document.querySelector('.slick-row');
@@ -27,7 +27,7 @@ export async function verifyFirstReservation(page, expectedPassengerName) {
   console.log(`🧾 Pasajero en primera fila: "${firstPassengerName}"`);
   console.log(`🎯 Pasajero esperado: "${expectedPassengerName}"`);
   if (reservationId <= 1){
-    await page.locator('#slickgrid_346395Idreserva').first().click();
+    await page.locator('.slick-header-column').filter({ hasText: 'Id' }).first().click();
     await page.waitForTimeout(2000);
     await takeScreenshot(page, '18-verifyFirstReservation-01-reservation-id-clicked-' + firstReservationId);
   }
