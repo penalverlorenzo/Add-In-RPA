@@ -24,7 +24,7 @@ jobs:
             set -e
             cd ${{ secrets.APP_PATH }}
             echo "📥 Pulling changes..."
-            git pull origin main
+            git pull cantera main
 
             echo "🐳 Building containers..."
             docker compose build
