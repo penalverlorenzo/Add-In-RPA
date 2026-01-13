@@ -32,7 +32,7 @@ function formatDateForInput(dateStr) {
  * @param {string} service.estado - Código del estado (ej: "RQ", "AR", "OK", etc.)
  * @param {string} itemText - Texto del botón para agregar el item (default: 'Agregar Servicio')
  */
-export async function addServiceToReservation(page, service, itemText = 'Agregar Servicio') {
+export async function addItemToReservation(page, service, itemText = 'Agregar Servicio') {
     console.log(`👤 Procesando servicio: ${service.servicio || service.descripcion || 'Sin descripción'}`);
     
     // Click en el botón para agregar el servicio
