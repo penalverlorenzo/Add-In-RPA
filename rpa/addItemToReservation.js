@@ -135,7 +135,27 @@ export async function addItemToReservation(page, service, itemText = 'Agregar Se
     
     await takeScreenshot(page, '18-addItemToReservation-05-all-fields-completed');
     console.log('✅ Item agregado con todos los campos completados');
-    await page.locator('.tool-button.save-and-close-button', { hasText: 'Guardar' }).click();
+    
+    // Buscar el botón Guardar dentro del diálogo del item
+    // El diálogo contiene los campos que acabamos de llenar (con Det_rvaEditorDialog en sus IDs)
+    // Buscamos el diálogo que contiene el campo de estado y luego el botón dentro de él
+    console.log('💾 Buscando botón Guardar...');
+    
+    // Buscar el diálogo que contiene el campo de estado del item
+    // El campo de estado tiene el patrón Det_rvaEditorDialog, así que el diálogo debe contenerlo
+    const estadoField = page.locator('div[id^="s2id_"][id*="Det_rvaEditorDialog"][id*="Estadoope"]');
+    await estadoField.waitFor({ state: 'visible', timeout: 10000 });
+    
+    // Buscar el diálogo que contiene este campo usando filter con has
+    const dialogLocator = page.locator('.ui-dialog:visible')
+        .filter({ has: estadoField })
+        .first();
+    
+    // Buscar el botón Guardar dentro del diálogo encontrado
+    const saveButton = dialogLocator.locator('.tool-button.save-and-close-button', { hasText: 'Guardar' });
+    await saveButton.waitFor({ state: 'visible', timeout: 10000 });
+    await saveButton.click();
+    
     await takeScreenshot(page, '18-addItemToReservation-06-saved');
     await page.waitForTimeout(1000);
     console.log('✅ Item guardado');
