@@ -35,14 +35,22 @@ export default {
         key: process.env.COSMOS_DB_KEY,
         databaseId: process.env.COSMOS_DB_DATABASE_ID || 'iTrafficDB',
         containers: {
-            sellers: 'Sellers',
-            clients: 'Clients',
-            statuses: 'Statuses',
-            reservationTypes: 'ReservationTypes',
-            genders: 'Genders',
-            documentTypes: 'DocumentTypes',
-            countries: 'Countries'
+          users: 'Users',
+          rules: 'Rules',
+          classifications: 'Classifications',
+          categories: 'Categories',
+          extractions: 'Extractions',
+          // Master data containers for RPA
+          sellers: 'Sellers',
+          clients: 'Clients',
+          currencies: 'Currencies',
+          statuses: 'Statuses',
+          reservationTypes: 'ReservationTypes',
+          // Passenger data containers
+          genders: 'Genders',
+          documentTypes: 'DocumentTypes',
+          countries: 'Countries',
+          contacts: 'Contacts'
         }
     }
 };
-
