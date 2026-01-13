@@ -107,4 +107,8 @@ export async function addServiceToReservation(page, service, itemText = 'Agregar
     
     await takeScreenshot(page, '18-addItemToReservation-05-all-fields-completed');
     console.log('✅ Item agregado con todos los campos completados');
+    await page.locator('.tool-button.save-and-close-button', { hasText: 'Guardar' }).click();
+    await takeScreenshot(page, '18-addItemToReservation-06-saved');
+    await page.waitForTimeout(1000);
+    console.log('✅ Item guardado');
 }
