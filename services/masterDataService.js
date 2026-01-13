@@ -240,6 +240,39 @@ async function saveReservation(reservation) {
     }
 }
 
+async function getUserById(userId) {
+    const { database } = getCosmosClient();
+    if (!database) return null;
+
+    try {
+        const container = database.container(config.cosmosDb.containers.users);
+        const { resource } = await container.item(userId, userId).read();
+        return resource;
+    } catch (error) {
+        if (error.code === 404) return null;
+        throw error;
+    }
+}
+
+async function getUserByEmail(email) {
+    const { database } = getCosmosClient();
+    if (!database) return null;
+
+    try {
+        const container = database.container(config.cosmosDb.containers.users);
+        const { resources } = await container.items
+            .query({
+                query: 'SELECT * FROM c WHERE c.email = @email',
+                parameters: [{ name: '@email', value: email }]
+            })
+            .fetchAll();
+        
+        return resources.length > 0 ? resources[0] : null;
+    } catch (error) {
+        console.error('Error getting user by email:', error);
+        return null;
+    }
+}
 export default {
     getAllSellers,
     getAllClients,
@@ -250,5 +283,7 @@ export default {
     getAllCountries,
     createCategory,
     saveReservation,
-    saveExtraction
+    saveExtraction,
+    getUserById,
+    getUserByEmail
 };

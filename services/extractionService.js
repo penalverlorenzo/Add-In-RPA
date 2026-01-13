@@ -782,9 +782,55 @@ function normalizeDocumentType(docType) {
     
     return docTypeMap[normalized] || 'DNI';
 }
+function calculateQualityScore(data) {
+    let score = 0;
+    let maxScore = 0;
+
+    // Passengers (most important)
+    maxScore += 30;
+    if (data.passengers && data.passengers.length > 0) {
+        score += 20; // Has passengers
+        const completePassengers = data.passengers.filter(p => 
+            p.firstName && p.lastName && p.documentNumber
+        ).length;
+        score += (completePassengers / data.passengers.length) * 10;
+    }
+
+    // Provider
+    maxScore += 15;
+    if (data.provider) score += 15;
+
+    // Hotel
+    maxScore += 10;
+    if (data.hotel) score += 10;
+
+    // Dates
+    maxScore += 15;
+    if (data.checkIn) score += 7.5;
+    if (data.checkOut) score += 7.5;
+
+    // Flights
+    maxScore += 15;
+    if (data.flights && data.flights.length > 0) {
+        score += 15;
+    }
+
+    // Services
+    maxScore += 10;
+    if (data.services && data.services.length > 0) {
+        score += 10;
+    }
+
+    // Contact
+    maxScore += 5;
+    if (data.contactEmail) score += 5;
+
+    return Math.round((score / maxScore) * 100) / 100; // Normalize to 0-1
+}
 
 export {
     extractReservationData,
     validateExtractionResult,
+    calculateQualityScore,
     EXTRACTION_SYSTEM_PROMPT
 };

@@ -9,7 +9,7 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { extractReservationData } from '../services/extractionService.js';
+import { extractReservationData, calculateQualityScore } from '../services/extractionService.js';
 import masterDataService from '../services/masterDataService.js';
 import config from '../config/index.js';
 
@@ -149,9 +149,28 @@ app.get('/api/master-data', async (req, res) => {
 app.post('/api/extract', async (req, res) => {
   try {
     console.log('🤖 Petición recibida para extracción con IA');
-    
+    const startTime = Date.now();
     const { emailContent, userId } = req.body;
-    
+    let user;
+  try {
+    user = await masterDataService.getUserById(userId);
+  } catch (err) {
+    throw new Error('Database error verifying user');
+  }
+
+  if (!user) {
+    const error = new Error('User not found');
+    error.status = 404;
+    throw error;
+  }
+
+  if (!user.isServiceEnabled) {
+    const error = new Error('Service not enabled for this user');
+    error.status = 403;
+    throw error;
+  }
+
+  logger.log(`✅ User authorized: ${user.email}`);
     // Validar que se recibió contenido del email
     if (!emailContent || emailContent.trim().length < 50) {
       return res.status(400).json({
@@ -182,12 +201,25 @@ app.post('/api/extract', async (req, res) => {
       documentTypes: documentTypes.map(d => ({ code: d.code, name: d.name })),
       countries: countries.map(c => c.name)
     };
-    
+    const processingTimeMs = Date.now() - startTime;
     console.log('📋 Datos maestros obtenidos para contexto de IA');
-    
     // Extraer datos con IA, pasando los datos maestros como contexto
     const extractedData = await extractReservationData(emailContent, userId || 'outlook-user', masterData);
-    await masterDataService.saveExtraction(extractedData);
+    const qualityScore = calculateQualityScore(extractedData);
+    extractedData.qualityScore = qualityScore;
+    await masterDataService.saveExtraction({
+      id: `extraction-${userId}-${Date.now()}`,
+      userId,
+      userEmail: user.email,
+      conversationId: conversationId || null,
+      extractedData,
+      emailContentLength: emailContent.length,
+      qualityScore,
+      confidence: extractedData.confidence,
+      passengersCount: extractedData.passengers?.length || 0,
+      extractedAt: new Date().toISOString(),
+      processingTimeMs
+    });
     console.log('✅ Extracción completada exitosamente');
     console.log(`   Pasajeros extraídos: ${extractedData.passengers?.length || 0}`);
     
