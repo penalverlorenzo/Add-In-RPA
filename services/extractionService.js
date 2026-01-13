@@ -372,6 +372,23 @@ function validateTime(timeStr) {
     return timeRegex.test(timeStr) ? timeStr : null;
 }
 
+function sanitizeIATACode(code) {
+    if (!code || typeof code !== 'string') return null;
+    
+    const cleaned = code.trim().toUpperCase();
+    const iataRegex = /^[A-Z]{3}$/;
+    
+    return iataRegex.test(cleaned) ? cleaned : null;
+}
+
+function validateEmail(email) {
+    if (!email || typeof email !== 'string') return null;
+    
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const trimmed = email.trim().toLowerCase();
+    
+    return emailRegex.test(trimmed) ? trimmed : null;
+}
 /**
  * Validate and normalize extracted reservation data
  * @param {Object} data - Raw extraction result from OpenAI
@@ -511,6 +528,12 @@ function validateExtractionResult(data) {
     return validated;
 }
 
+function validateConfidence(score) {
+    if (typeof score !== 'number') return 0.5;
+    if (score < 0) return 0;
+    if (score > 1) return 1;
+    return score;
+}
 /**
  * Helper: Sanitize string values
  */
