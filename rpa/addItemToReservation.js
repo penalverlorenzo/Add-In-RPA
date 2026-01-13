@@ -37,6 +37,7 @@ export async function addItemToReservation(page, service, itemText = 'Agregar Se
     
     // Click en el botón para agregar el item
     // El botón tiene estructura: div.tool-button.add-button > div.button-outer > span.button-inner (con el texto)
+    // Normalizar el texto (quitar espacios al inicio y final)
     console.log(`🔘 Buscando botón: "${itemText}"`);
     
     // Buscar el div.tool-button.add-button que contiene un span.button-inner con el texto
@@ -44,8 +45,22 @@ export async function addItemToReservation(page, service, itemText = 'Agregar Se
     const buttonLocator = page.locator('div.tool-button.add-button')
         .filter({ has: page.locator('span.button-inner', { hasText: itemText }) });
     
-    await buttonLocator.waitFor({ state: 'visible', timeout: 30000 });
-    await buttonLocator.click();
+    // Esperar a que el elemento esté en el DOM (attached) en lugar de visible
+    // ya que puede estar oculto inicialmente
+    await buttonLocator.waitFor({ state: 'attached', timeout: 30000 });
+    
+    // Hacer scroll al elemento para asegurar que sea visible
+    await buttonLocator.evaluate(el => el.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+    await page.waitForTimeout(500);
+    
+    // Intentar hacer click, si falla por visibilidad, usar force: true
+    try {
+        await buttonLocator.waitFor({ state: 'visible', timeout: 5000 });
+        await buttonLocator.click();
+    } catch (error) {
+        console.log(`⚠️ Elemento no visible, usando force: true`);
+        await buttonLocator.click({ force: true });
+    }
     
     await page.waitForTimeout(2000);
     await takeScreenshot(page, '18-addItemToReservation-01-item-added');

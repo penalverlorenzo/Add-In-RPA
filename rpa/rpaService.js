@@ -65,14 +65,14 @@ export async function runRpa(reservationData = null) {
         }
         if (reservationData && reservationData.hotel) {
             console.log(`\n🏨 Procesando hotel ${reservationData.hotel.destino}`);
-            await addItemToReservation(page, reservationData.hotel, ' Agregar Hotel');
+            await addItemToReservation(page, reservationData.hotel, 'Agregar Hotel');
             console.log('✅ Hotel guardado');
         }
         if (reservationData && reservationData.services && reservationData.services.length > 0) {
             for (let i = 0; i < reservationData.services.length; i++) {
                 const service = reservationData.services[i];
                 console.log(`\n👤 Procesando servicio ${i + 1} de ${reservationData.services.length}`);
-                await addItemToReservation(page, service, ' Agregar Servicio');
+                await addItemToReservation(page, service, 'Agregar Servicio');
                 console.log('✅ Servicio guardado');
             }
         }
