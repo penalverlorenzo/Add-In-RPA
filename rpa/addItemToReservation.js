@@ -70,9 +70,10 @@ export async function addItemToReservation(page, service, itemText = 'Agregar Se
     if (service.destino) {
         console.log(`🌍 Seleccionando destino: ${service.destino}`);
         
-        // El selector del select de destino tiene el patrón: id*="Destino" o label con texto "Destino"
-        // Buscamos el contenedor Select2 que corresponde al campo de destino
-        const destinoSelector = 'div[id^="s2id_"][id*="Destino"]';
+        // El selector del select de destino debe ser específico para el diálogo del item
+        // El patrón del diálogo es: Det_rvaEditorDialog (no Det_rvaoWidgetEditor)
+        // Esto evita conflictos con otros selects de destino en la página
+        const destinoSelector = 'div[id^="s2id_"][id*="Det_rvaEditorDialog"][id*="Destino"]';
         
         // Buscar por el nombre del destino (ej: "Mendoza" encontrará opciones que contengan "Mendoza")
         await select2BySearch(page, destinoSelector, service.destino);
@@ -119,9 +120,10 @@ export async function addItemToReservation(page, service, itemText = 'Agregar Se
     if (service.estado) {
         console.log(`📋 Seleccionando estado: ${service.estado}`);
         
-        // El selector del select de estado tiene el patrón: id*="Estadoope"
-        // Usamos un selector que busque el contenedor Select2 con ese patrón
-        const estadoSelector = 'div[id^="s2id_"][id*="Estadoope"]';
+        // El selector del select de estado debe ser específico para el diálogo del item
+        // El patrón del diálogo es: Det_rvaEditorDialog (no Det_rvaoWidgetEditor)
+        // Esto evita conflictos con otros selects de estado en la página
+        const estadoSelector = 'div[id^="s2id_"][id*="Det_rvaEditorDialog"][id*="Estadoope"]';
         
         // Buscar por el código del estado (ej: "AR" encontrará "AR - FAVOR RESERVAR [AR]")
         await select2BySearch(page, estadoSelector, service.estado);
