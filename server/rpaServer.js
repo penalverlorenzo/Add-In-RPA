@@ -154,6 +154,9 @@ app.post('/api/extract', async (req, res) => {
     let user;
   try {
     user = await masterDataService.getUserById(userId);
+    if (!user) {
+      user = await masterDataService.getUserByEmail(userId);
+    }
   } catch (err) {
     throw new Error('Database error verifying user');
   }
