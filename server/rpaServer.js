@@ -173,7 +173,7 @@ app.post('/api/extract', async (req, res) => {
     throw error;
   }
 
-  console.log(`✅ User authorized: ${user.email}`);
+  console.log(`✅ User authorized: ${user.email} ${req?.body?.conversationId || 'no conversation id'}`);
     // Validar que se recibió contenido del email
     if (!emailContent || emailContent.trim().length < 50) {
       return res.status(400).json({
