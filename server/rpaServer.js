@@ -187,7 +187,7 @@ app.post('/api/extract', async (req, res) => {
     
     // Extraer datos con IA, pasando los datos maestros como contexto
     const extractedData = await extractReservationData(emailContent, userId || 'outlook-user', masterData);
-    
+    await masterDataService.saveExtraction(extractedData);
     console.log('✅ Extracción completada exitosamente');
     console.log(`   Pasajeros extraídos: ${extractedData.passengers?.length || 0}`);
     
@@ -283,4 +283,3 @@ loadRpaService().then(() => {
 });
 
 export default app;
-

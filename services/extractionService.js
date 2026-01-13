@@ -364,6 +364,14 @@ async function extractReservationData(emailContent, userId = 'unknown', masterDa
     }
 }
 
+
+function validateTime(timeStr) {
+    if (!timeStr || typeof timeStr !== 'string') return null;
+    
+    const timeRegex = /^\d{2}:\d{2}$/;
+    return timeRegex.test(timeStr) ? timeStr : null;
+}
+
 /**
  * Validate and normalize extracted reservation data
  * @param {Object} data - Raw extraction result from OpenAI
@@ -372,11 +380,40 @@ async function extractReservationData(emailContent, userId = 'unknown', masterDa
 function validateExtractionResult(data) {
     const validated = {
         passengers: [],
+        // iTraffic Fields
+        codigo: null,
         reservationType: null,
         status: null,
-        client: null,
+        estadoDeuda: null,
+        reservationDate: null,
         travelDate: null,
-        seller: null
+        tourEndDate: null,
+        dueDate: null,
+        seller: null,
+        client: null,
+        contact: null,
+        currency: null,
+        exchangeRate: 0,
+        commission: 0,
+        netAmount: 0,
+        grossAmount: 0,
+        tripName: null,
+        productCode: null,
+        adults: 0,
+        children: 0,
+        infants: 0,
+        
+        // Legacy/Standard Fields
+        provider: null,
+        reservationCode: null,
+        hotel: null,
+        checkIn: null,
+        checkOut: null,
+        flights: [],
+        services: [],
+        contactEmail: null,
+        contactPhone: null,
+        confidence: 0.5
     };
 
     // Validate passengers
@@ -384,19 +421,85 @@ function validateExtractionResult(data) {
         validated.passengers = data.passengers
             .filter(p => p.firstName || p.lastName) // Must have at least a name
             .map(p => ({
-                lastName: sanitizeString(p.lastName),
                 firstName: sanitizeString(p.firstName),
-                paxType: validatePassengerType(p.paxType),
-                birthDate: validateDate(p.birthDate),
-                nationality: normalizeNationality(p.nationality),
-                sex: validateSex(p.sex),
+                lastName: sanitizeString(p.lastName),
+                documentType: sanitizeString(p.documentType),
                 documentNumber: sanitizeString(p.documentNumber),
-                documentType: normalizeDocumentType(p.documentType),
-                cuilCuit: sanitizeString(p.cuilCuit),
-                direccion: sanitizeString(p.direccion),
-                telefono: sanitizeString(p.telefono)
+                nationality: sanitizeString(p.nationality),
+                dateOfBirth: validateDate(p.dateOfBirth),
+                passengerType: validatePassengerType(p.passengerType),
+                phoneNumber: sanitizeString(p.phoneNumber)
             }));
     }
+
+    // Validate basic fields (Legacy/Standard)
+    validated.provider = sanitizeString(data.provider);
+    validated.reservationCode = sanitizeString(data.reservationCode);
+    validated.hotel = sanitizeString(data.hotel);
+    validated.checkIn = validateDate(data.checkIn);
+    validated.checkOut = validateDate(data.checkOut);
+
+    // Validate iTraffic fields
+    validated.codigo = sanitizeString(data.codigo);
+    validated.reservationType = sanitizeString(data.reservationType);
+    validated.status = sanitizeString(data.status);
+    validated.estadoDeuda = sanitizeString(data.estadoDeuda);
+
+    // Date logic: Default reservationDate to today, travelDate to checkIn, tourEndDate to checkOut
+    const today = new Date().toISOString().split('T')[0];
+    validated.reservationDate = validateDate(data.reservationDate) || today;
+    validated.travelDate = validateDate(data.travelDate) || validated.checkIn;
+    validated.tourEndDate = validateDate(data.tourEndDate) || validated.checkOut;
+
+    validated.dueDate = validateDate(data.dueDate);
+    validated.seller = sanitizeString(data.seller);
+    validated.client = sanitizeString(data.client);
+    validated.contact = sanitizeString(data.contact);
+    validated.currency = sanitizeString(data.currency);
+    validated.exchangeRate = typeof data.exchangeRate === 'number' ? data.exchangeRate : 0;
+    validated.commission = typeof data.commission === 'number' ? data.commission : 0;
+    validated.netAmount = typeof data.netAmount === 'number' ? data.netAmount : 0;
+    validated.grossAmount = typeof data.grossAmount === 'number' ? data.grossAmount : 0;
+    validated.tripName = sanitizeString(data.tripName);
+    validated.productCode = sanitizeString(data.productCode);
+    validated.adults = typeof data.adults === 'number' ? data.adults : 0;
+    validated.children = typeof data.children === 'number' ? data.children : 0;
+    validated.infants = typeof data.infants === 'number' ? data.infants : 0;
+
+    // Validate flights
+    if (Array.isArray(data.flights) && data.flights.length > 0) {
+        validated.flights = data.flights
+            .filter(f => f.flightNumber && f.origin && f.destination)
+            .map(f => ({
+                flightNumber: sanitizeString(f.flightNumber),
+                airline: sanitizeString(f.airline),
+                origin: sanitizeIATACode(f.origin),
+                destination: sanitizeIATACode(f.destination),
+                departureDate: validateDate(f.departureDate),
+                departureTime: validateTime(f.departureTime),
+                arrivalDate: validateDate(f.arrivalDate),
+                arrivalTime: validateTime(f.arrivalTime)
+            }));
+    }
+
+    // Validate services
+    if (Array.isArray(data.services) && data.services.length > 0) {
+        validated.services = data.services
+            .filter(s => s.description)
+            .map(s => ({
+                type: validateServiceType(s.type),
+                description: sanitizeString(s.description),
+                date: validateDate(s.date),
+                location: sanitizeString(s.location)
+            }));
+    }
+
+    // Validate contact info
+    validated.contactEmail = validateEmail(data.contactEmail);
+    validated.contactPhone = sanitizeString(data.contactPhone);
+
+    // Validate confidence score
+    validated.confidence = validateConfidence(data.confidence);
 
     // Validate RPA fields
     validated.reservationType = sanitizeString(data.reservationType) || 'AGENCIAS [COAG]';
@@ -662,4 +765,3 @@ export {
     validateExtractionResult,
     EXTRACTION_SYSTEM_PROMPT
 };
-

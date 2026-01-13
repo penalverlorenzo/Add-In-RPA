@@ -192,6 +192,53 @@ async function getAllCountries() {
         return [];
     }
 }
+async function saveExtraction(extraction) {
+    const { database } = getCosmosClient();
+    if (!database) throw new Error('Cosmos DB not configured');
+
+    try {
+        // Use configured Extractions container
+        const container = database.container(config.cosmosDb.containers.extractions);
+        const { resource } = await container.items.create(extraction);
+        return resource;
+    } catch (error) {
+        console.error('Error saving extraction:', error);
+        throw error;
+    }
+}
+
+async function createCategory(category) {
+    const { database } = getCosmosClient();
+    if (!database) throw new Error('Cosmos DB not configured');
+
+    const container = database.container(config.cosmosDb.containers.categories);
+    
+    const categoryToSave = {
+        id: category.id || `cat_${Date.now()}`,
+        userId: 'default', // Global categories
+        ...category,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+    };
+
+    const { resource } = await container.items.create(categoryToSave);
+    return resource;
+}
+
+async function saveReservation(reservation) {
+    const { database } = getCosmosClient();
+    if (!database) throw new Error('Cosmos DB not configured');
+
+    try {
+        // Save in Classifications container with type='extraction'
+        const container = database.container(config.cosmosDb.containers.classifications);
+        const { resource } = await container.items.create(reservation);
+        return resource;
+    } catch (error) {
+        console.error('Error saving reservation:', error);
+        throw error;
+    }
+}
 
 export default {
     getAllSellers,
@@ -200,6 +247,8 @@ export default {
     getAllReservationTypes,
     getAllGenders,
     getAllDocumentTypes,
-    getAllCountries
+    getAllCountries,
+    createCategory,
+    saveReservation,
+    saveExtraction
 };
-
