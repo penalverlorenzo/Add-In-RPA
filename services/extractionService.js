@@ -318,36 +318,18 @@ Responde ÚNICAMENTE con JSON válido en este formato exacto:
     "descripcion": "string | null",
     "estado": "LI | OK | WL | RM | NN | RQ | LK | RE | MQ | CL | CA | CX | EM | EN | AR | HK | PE | NO | NC | PF | AO | CO | GX | EO | KL | MI | VO | null"
   },
-  "servicio": {
-    "destino": "string | null",
-    "in": "YYYY-MM-DD | null",
-    "out": "YYYY-MM-DD | null",
-    "nts": 0,
-    "basePax": 0,
-    "servicio": "string | null",
-    "descripcion": "string | null",
-    "estado": "LI | OK | WL | RM | NN | RQ | LK | RE | MQ | CL | CA | CX | EM | EN | AR | HK | PE | NO | NC | PF | AO | CO | GX | EO | KL | MI | VO | null"
-  },
-  "eventual": {
-    "destino": "string | null",
-    "in": "YYYY-MM-DD | null",
-    "out": "YYYY-MM-DD | null",
-    "nts": 0,
-    "basePax": 0,
-    "servicio": "string | null",
-    "descripcion": "string | null",
-    "estado": "LI | OK | WL | RM | NN | RQ | LK | RE | MQ | CL | CA | CX | EM | EN | AR | HK | PE | NO | NC | PF | AO | CO | GX | EO | KL | MI | VO | null"
-  },
-  "programa": {
-    "destino": "string | null",
-    "in": "YYYY-MM-DD | null",
-    "out": "YYYY-MM-DD | null",
-    "nts": 0,
-    "basePax": 0,
-    "servicio": "string | null",
-    "descripcion": "string | null",
-    "estado": "LI | OK | WL | RM | NN | RQ | LK | RE | MQ | CL | CA | CX | EM | EN | AR | HK | PE | NO | NC | PF | AO | CO | GX | EO | KL | MI | VO | null"
-  },
+  "services": [
+    {
+      "destino": "string | null",
+      "in": "YYYY-MM-DD | null",
+      "out": "YYYY-MM-DD | null",
+      "nts": 0,
+      "basePax": 0,
+      "servicio": "string | null",
+      "descripcion": "string | null",
+      "estado": "LI | OK | WL | RM | NN | RQ | LK | RE | MQ | CL | CA | CX | EM | EN | AR | HK | PE | NO | NC | PF | AO | CO | GX | EO | KL | MI | VO | null"
+    }
+  ],
   "flights": [
     {
       "flightNumber": "string",
@@ -373,11 +355,13 @@ El campo "confidence" debe reflejar tu nivel de confianza en la extracción (0.0
 
 IMPORTANTE: 
 - El campo "detailType" debe identificar el tipo principal de detalle solicitado o confirmado en el email
-- Solo completa el objeto correspondiente al detailType identificado (hotel, servicio, eventual, o programa)
+- Si el detalle es "hotel", completa el objeto "hotel" con la estructura unificada
+- Si el detalle es "servicio", "eventual" o "programa", agrégalo al array "services" con la estructura unificada
 - Todos los tipos de detalle usan la misma estructura: destino, in, out, nts, basePax, servicio, descripcion, estado
 - El campo "estado" DEBE ser uno de los códigos válidos listados arriba
 - Calcula "nts" (noches) como la diferencia en días entre "out" e "in" si ambas fechas están disponibles
-- Si el email menciona múltiples tipos de detalles, identifica el principal o el más relevante
+- Si el email menciona múltiples servicios/eventuales/programas, agrégalos todos al array "services"
+- Si el email menciona un hotel, usa el objeto "hotel" (solo uno)
 - Si no se puede identificar un tipo de detalle claro, deja detailType como null y completa solo los campos que encuentres
 
 NO incluyas ningún texto adicional fuera del JSON. NO incluyas markdown code blocks.`  
@@ -579,21 +563,17 @@ function validateExtractionResult(data) {
         // Legacy/Standard Fields
         provider: null,
         reservationCode: null,
-        hotel: null, // Legacy: string field for backward compatibility (hotel name)
-        checkIn: null, // Legacy: separate field for backward compatibility
-        checkOut: null, // Legacy: separate field for backward compatibility
+        hotel: null, // Unified structure for hotel detail (object) or null
+        checkIn: null, // Legacy: separate field for backward compatibility (extracted from hotel.in)
+        checkOut: null, // Legacy: separate field for backward compatibility (extracted from hotel.out)
         flights: [],
-        services: [],
+        services: [], // Array of unified detail objects (servicio, eventual, programa)
         contactEmail: null,
         contactPhone: null,
         confidence: 0.5,
         
-        // Detail Type Fields (unified structure)
-        detailType: null,
-        hotelDetail: null, // Unified structure for hotel detail (object)
-        servicio: null, // Unified structure for servicio detail (object)
-        eventual: null, // Unified structure for eventual detail (object)
-        programa: null // Unified structure for programa detail (object)
+        // Detail Type Field
+        detailType: null
     };
 
     // Validate passengers
@@ -656,21 +636,6 @@ function validateExtractionResult(data) {
             }));
     }
 
-    // Validate services
-    if (Array.isArray(data.services) && data.services.length > 0) {
-        validated.services = data.services
-            .filter(s => s.description)
-            .map(s => ({
-                type: validateServiceType(s.type),
-                description: sanitizeString(s.description),
-                date: validateDate(s.date),
-                time: validateTime(s.time),
-                location: sanitizeString(s.location),
-                quantity: typeof s.quantity === 'number' ? s.quantity : 0,
-                passengers: sanitizeString(s.passengers)
-            }));
-    }
-    
     // Validate detail type and related fields (unified structure)
     validated.detailType = validateDetailType(data.detailType);
     
@@ -705,29 +670,46 @@ function validateExtractionResult(data) {
         };
     };
     
-    // Validate hotel detail (unified structure)
-    validated.hotelDetail = validateUnifiedDetail(data.hotel);
+    // Validate hotel (unified structure as object)
+    validated.hotel = validateUnifiedDetail(data.hotel);
     
-    // Legacy support: populate legacy fields from hotel detail if available
-    if (validated.hotelDetail) {
-        validated.hotel = validated.hotelDetail.destino; // Use destino as hotel name for legacy (string)
-        validated.checkIn = validated.hotelDetail.in;
-        validated.checkOut = validated.hotelDetail.out;
+    // Legacy support: populate legacy fields from hotel if available
+    if (validated.hotel) {
+        validated.checkIn = validated.hotel.in;
+        validated.checkOut = validated.hotel.out;
     } else {
-        // Legacy support: if hotel is a string or checkIn/checkOut are separate fields
-        validated.hotel = sanitizeString(data.hotel);
+        // Legacy support: if checkIn/checkOut are separate fields
         validated.checkIn = validateDate(data.checkIn);
         validated.checkOut = validateDate(data.checkOut);
     }
     
-    // Validate servicio detail (unified structure)
-    validated.servicio = validateUnifiedDetail(data.servicio);
+    // Validate services (array of unified detail objects)
+    // Combine servicio, eventual, programa from old format, or use services array from new format
+    const servicesArray = [];
     
-    // Validate eventual detail (unified structure)
-    validated.eventual = validateUnifiedDetail(data.eventual);
+    // New format: services is already an array
+    if (Array.isArray(data.services) && data.services.length > 0) {
+        data.services.forEach(service => {
+            const validatedService = validateUnifiedDetail(service);
+            if (validatedService) servicesArray.push(validatedService);
+        });
+    }
     
-    // Validate programa detail (unified structure)
-    validated.programa = validateUnifiedDetail(data.programa);
+    // Old format: check for servicio, eventual, programa as separate objects
+    if (data.servicio && typeof data.servicio === 'object') {
+        const validatedService = validateUnifiedDetail(data.servicio);
+        if (validatedService) servicesArray.push(validatedService);
+    }
+    if (data.eventual && typeof data.eventual === 'object') {
+        const validatedService = validateUnifiedDetail(data.eventual);
+        if (validatedService) servicesArray.push(validatedService);
+    }
+    if (data.programa && typeof data.programa === 'object') {
+        const validatedService = validateUnifiedDetail(data.programa);
+        if (validatedService) servicesArray.push(validatedService);
+    }
+    
+    validated.services = servicesArray;
     
     // Date logic: Default reservationDate to today, travelDate to checkIn, tourEndDate to checkOut
     // This must be after hotel validation so checkIn/checkOut are available
