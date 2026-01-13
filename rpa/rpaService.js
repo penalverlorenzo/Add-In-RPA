@@ -7,7 +7,7 @@ import { newReservation } from './newReservation.js';
 import { newPassenger } from './newPassenger.js';
 import { dataPassenger } from './dataPassenger.js';
 import { saveReservation } from './saveReservation.js';
-import { verifyFirstReservation } from './verifyFirstReservation.js';
+import { addItemToReservation } from './addItemToReservation.js';
 
 /**
  * Ejecuta el RPA de iTraffic
@@ -62,6 +62,19 @@ export async function runRpa(reservationData = null) {
             }
         } else {
             console.log('⚠️ No se recibieron datos de pasajeros');
+        }
+        if (reservationData && reservationData.hotel) {
+            console.log(`\n🏨 Procesando hotel ${reservationData.hotel.destino}`);
+            await addItemToReservation(page, reservationData.hotel, 'Agregar Hotel');
+            console.log('✅ Hotel guardado');
+        }
+        if (reservationData && reservationData.services && reservationData.services.length > 0) {
+            for (let i = 0; i < reservationData.services.length; i++) {
+                const service = reservationData.services[i];
+                console.log(`\n👤 Procesando servicio ${i + 1} de ${reservationData.services.length}`);
+                await addItemToReservation(page, service, 'Agregar Servicio');
+                console.log('✅ Servicio guardado');
+            }
         }
         await saveReservation(page);
         return {
