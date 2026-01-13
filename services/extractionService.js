@@ -22,7 +22,7 @@ function getOpenAIClient() {
 /**
  * System prompt for reservation data extraction
  */
-/* const EXTRACTION_SYSTEM_PROMPT = `Eres un asistente especializado en extraer información estructurada de emails relacionados con reservas turísticas.
+const EXTRACTION_SYSTEM_PROMPT = `Eres un asistente especializado en extraer información estructurada de emails relacionados con reservas turísticas.
 
 CONTEXTO:
 - Empresa receptora: AYMARA (empresa proveedora de servicios turísticos en Mendoza, Argentina)
@@ -59,47 +59,124 @@ Extrae la siguiente información de los emails, prestando especial atención a l
      * "MEXICO" para: México, mexicano/a, MEX, MX
      * "ESPAÑA" para: España, español/a, ESP, ES
      * "ESTADOS UNIDOS" para: Estados Unidos, estadounidense, USA, US
-     * Si no estás seguro, usa dejalo vacio
-   - birthDate: Fecha de nacimiento (formato DD/MM/YYYY)
+     * Si no estás seguro, dejalo vacio
+   - dateOfBirth: Fecha de nacimiento (formato YYYY-MM-DD)
    - sex: Sexo del pasajero. DEBE ser un CÓDIGO:
      * "M" para: masculino, hombre, male, macho, M
      * "F" para: femenino, mujer, female, F
      * Si no estás seguro, dejalo vacio
    - cuilCuit: CUIT/CUIL del pasajero (si está disponible)
    - direccion: Dirección del pasajero (si está disponible)
-   - telefono: Teléfono del pasajero (si está disponible)
-   - paxType: Tipo de pasajero. DEBE ser un CÓDIGO:
-     * "ADU" para: adulto, adult, mayor
+   - phoneNumber: Teléfono del pasajero (si está disponible). Busca formatos como "NRO DE CONTACTO", "CEL", "TEL", "WHATSAPP", etc.
+   - passengerType: Tipo de pasajero. DEBE ser un CÓDIGO:
+     * "ADU" para: adulto, adult, mayor, ADT
      * "CHD" para: niño, child, menor, kid
      * "INF" para: infante, infant, bebé, baby
      * Si no se especifica, usa "ADU"
 
 2. DATOS DE RESERVA (ITRAFFIC):
+   - codigo: Código interno o número de expediente (si aparece)
    - reservationType: Tipo de reserva. Ejemplos:
-     * "AGENCIAS" para agencias
-     * "MAYORISTA" para mayoristas
-     * "DIRECTO" para directo
-     Si no estás seguro, dejalo vacio
-   - status: Estado de la reserva. Analiza el contenido del email para determinar:
-     * "CONFIRMACION [FI]" si el email menciona: "confirmada", "confirmado", "confirmed", "confirmar", "confirmação", "reserva confirmada", "booking confirmed"
-     * "CANCELADO [CX]" si el email menciona: "cancelada", "cancelado", "cancelled", "cancelar", "cancelamento", "reserva cancelada"
-     * "PENDIENTE DE CONFIRMACION [PC]" si el email menciona: "pendiente", "pending", "aguardando", "a confirmar", "por confirmar", "solicitud", "cotización", "presupuesto"
-     * Si el email solicita confirmación o es una consulta inicial, usa "PENDIENTE DE CONFIRMACION [PC]"
-     * Si el email confirma la reserva o dice que está todo OK, usa "CONFIRMACION [FI]"
+     * "AGENCIAS [COAG]" para agencias
+     * "MAYORISTA [COMA]" para mayoristas
+     * "DIRECTO [CODI]" para directo
+     * "CORPORATIVA [COCO]" para corporativa
+     * Si no estás seguro, dejalo vacio
+   - status: Estado de la reserva. Analiza el CONTEXTO COMPLETO, TONO e INTENCIÓN del email para determinar el estado correcto:
+     * "CONFIRMACION [FI]" si el email AFIRMA o CONFIRMA algo: "confirmamos la reserva", "reserva confirmada", "confirmo la reserva", "todo listo", "reserva aprobada", "confirmado", incluye vouchers/códigos/números de reserva
+     * "CANCELADO [CX]" si el email CANCELA algo: "cancelar la reserva", "necesito cancelar", "cancelo la reserva", "reserva cancelada", "se canceló"
+     * "PENDIENTE DE CONFIRMACION [PC]" si el email PREGUNTA o SOLICITA algo: "¿puedes confirmar?", "necesito confirmación", "confirmar disponibilidad", "solicito cotización", "consulta de disponibilidad", "cotización", "presupuesto", "solicitud de reserva", "quiero reservar"
      * Si no encuentras indicadores claros, usa "PENDIENTE DE CONFIRMACION [PC]"
-   - travelDate: Fecha de inicio del viaje (formato DD/MM/YYYY, ej: "15/01/2026")
+   - estadoDeuda: Estado de deuda (ej: "Pagada", "Pendiente", "Parcial")
+   - reservationDate: Fecha de alta de la reserva (YYYY-MM-DD)
+   - travelDate: Fecha de inicio del viaje (YYYY-MM-DD)
+   - tourEndDate: Fecha de fin del viaje (YYYY-MM-DD)
+   - dueDate: Fecha de vencimiento de la reserva (YYYY-MM-DD)
    - seller: Vendedor o agente responsable. Busca en la firma del email (ej: "Atentamente, Nombre" o "Equipe...").
    - client: Cliente a facturar. DEBE ser el nombre de la Agencia/Operador que envía el email, NO el pasajero.
      Busca nombres como "DESPEGAR", "ALMUNDO", "GRAYLINE", nombre de la agencia remitente, etc.
      Si no encuentras el nombre de la agencia, dejalo vacio
+   - contact: Nombre de la persona de contacto en la agencia/cliente
+   - currency: Moneda de la transacción (ej: "USD", "ARS", "EUR", "BRL"). Si no está explícita, intenta deducirla por el país de la agencia (ej: CVC Brasil -> BRL).
+   - exchangeRate: Tipo de cambio (si se menciona explícitamente)
+   - commission: Porcentaje de comisión (si se menciona)
+   - netAmount: Monto neto (si se menciona)
+   - grossAmount: Monto bruto (si se menciona)
+   - tripName: Nombre del viaje o referencia. Usa el ASUNTO del correo si no hay un nombre de grupo específico.
+   - productCode: Código de producto (si aparece)
+   - adults: Cantidad de adultos
+   - children: Cantidad de menores
+   - infants: Cantidad de infantes
+
+3. TIPO DE DETALLE Y INFORMACIÓN RESPECTIVA:
+   DEBES identificar el tipo de detalle que se está solicitando o confirmando en el email. Analiza el contenido para determinar si es:
+   
+   - "hotel": Cuando el email menciona alojamiento, hotel, hospedaje, check-in, check-out, habitación, room, accommodation
+     * Información a extraer:
+       - hotel: Nombre del hotel
+       - checkIn: Fecha de entrada (YYYY-MM-DD)
+       - checkOut: Fecha de salida (YYYY-MM-DD)
+       - roomType: Tipo de habitación (si se menciona: single, double, triple, suite, etc.)
+       - nights: Cantidad de noches (si se menciona)
+   
+   - "servicio": Cuando el email menciona servicios adicionales como transfers, excursiones, comidas, tours, actividades
+     * Información a extraer (Array de objetos):
+       - type: Tipo de servicio ("transfer", "excursion", "meal", "tour", "activity", "other")
+       - description: Descripción detallada del servicio
+       - date: Fecha del servicio (YYYY-MM-DD)
+       - time: Hora del servicio (HH:MM) si se menciona
+       - location: Ubicación o punto de encuentro
+       - quantity: Cantidad de servicios (si aplica)
+       - passengers: Pasajeros incluidos en el servicio (si se especifica)
+   
+   - "eventual": Cuando el email menciona eventos, actividades especiales, fiestas, celebraciones, eventos corporativos
+     * Información a extraer:
+       - eventName: Nombre del evento
+       - eventType: Tipo de evento (ej: "conferencia", "seminario", "fiesta", "celebración", "evento corporativo")
+       - eventDate: Fecha del evento (YYYY-MM-DD)
+       - eventTime: Hora del evento (HH:MM) si se menciona
+       - eventLocation: Ubicación del evento
+       - eventDescription: Descripción del evento
+       - participants: Cantidad de participantes (si se menciona)
+   
+   - "programa": Cuando el email menciona programas de viaje, paquetes turísticos, itinerarios completos, circuitos
+     * Información a extraer:
+       - programName: Nombre del programa o paquete
+       - programType: Tipo de programa (ej: "paquete turístico", "circuito", "itinerario", "tour completo")
+       - startDate: Fecha de inicio del programa (YYYY-MM-DD)
+       - endDate: Fecha de fin del programa (YYYY-MM-DD)
+       - programDescription: Descripción del programa
+       - includedServices: Lista de servicios incluidos (array de strings)
+       - duration: Duración del programa (ej: "3 días", "1 semana")
+       - destinations: Destinos incluidos (array de strings)
+
+4. VUELOS (Array de objetos):
+   - flightNumber: Número de vuelo (ej: "G3 7486")
+   - airline: Aerolínea. Si no está explícita, intenta deducirla por el código de vuelo (ej: G3->GOL, AR->Aerolíneas Argentinas, LA->LATAM, JA->JetSmart).
+   - origin: Origen (código IATA de 3 letras, ej: "GRU")
+   - destination: Destino (código IATA)
+   - departureDate: Fecha de salida (YYYY-MM-DD)
+   - departureTime: Hora de salida (HH:MM)
+   - arrivalDate: Fecha de llegada (YYYY-MM-DD)
+   - arrivalTime: Hora de llegada (HH:MM)
+
+5. CONTACTO:
+   - contactEmail: Email de contacto. Busca en el campo "De:" (From) o en instrucciones como "Enviar factura a".
+   - contactPhone: Teléfono de contacto. Busca etiquetas como "NRO DE CONTACTO", "CELULAR", "MOVIL", "PHONE", "TEL", etc. Ejemplo: "NRO DE CONTACTO :5491161534201"
 
 REGLAS IMPORTANTES:
 - Si un dato no está presente, usa null en lugar de inventar información
 - Extrae TODOS los pasajeros mencionados en el email
-- Las fechas DEBEN estar en formato DD/MM/YYYY
+- Las fechas DEBEN estar en formato ISO 8601 (YYYY-MM-DD)
+- Los códigos de aeropuerto DEBEN ser códigos IATA de 3 letras en MAYÚSCULAS
 - Busca información en todo el hilo de emails (incluyendo forwards)
 - Presta atención a tablas, listas y formatos estructurados
 - Ignora firmas de email, disclaimers y contenido no relacionado con la reserva
+- reservationType y status SIEMPRE deben incluir el código entre corchetes [XX] cuando corresponda
+- sex debe ser CÓDIGO: "M" o "F"
+- passengerType debe ser CÓDIGO: "ADU", "CHD" o "INF"
+- documentType debe ser CÓDIGO: "DNI", "PAS", "CI", "LE", "LC"
+- nationality debe ser NOMBRE COMPLETO en MAYÚSCULAS: "ARGENTINA", "BRASIL", "CHILE", etc.
 
 DETECCIÓN INTELIGENTE DEL ESTADO DE LA RESERVA:
 Analiza el CONTEXTO COMPLETO, TONO e INTENCIÓN del email para determinar el estado correcto.
@@ -112,7 +189,7 @@ CONFIRMACION [FI] - Usa cuando la INTENCIÓN es:
 - Enviar información definitiva con vouchers, códigos, números de reserva
 - El tono es afirmativo y definitivo (no pregunta, no solicita)
 - Responde afirmativamente a una solicitud previa
-- Ejemplos de frases: "confirmar reserva", "confirmame esta reserva", "te confirmo", "está confirmado"
+- Ejemplos de frases: "te confirmo", "está confirmado", "confirmamos"
 
 PENDIENTE DE CONFIRMACION [PC] - Usa cuando la INTENCIÓN es:
 - Solicitar confirmación: "¿puedes confirmar?", "necesito confirmación", "confirmar disponibilidad"
@@ -120,7 +197,7 @@ PENDIENTE DE CONFIRMACION [PC] - Usa cuando la INTENCIÓN es:
 - Pedir presupuesto: "cotización", "presupuesto", "cuánto cuesta"
 - Enviar una solicitud que espera respuesta: "solicitud de reserva", "quiero reservar"
 - El tono es interrogativo o de solicitud (pregunta, pide, consulta)
-- Ejemplos de frases: "¿me confirmas?", "necesito que confirmes", "por favor confirmar"
+- Ejemplos de frases: "¿me confirmas?", "necesito que confirmes", "por favor confirmar", "confirmame esta reserva"
 
 CANCELADO [CX] - Usa cuando la INTENCIÓN es:
 - Cancelar una reserva existente: "cancelar la reserva", "necesito cancelar", "cancelo la reserva"
@@ -136,174 +213,14 @@ REGLAS DE INTERPRETACIÓN:
    - "¿Puedes confirmar?" (pregunta) → PENDIENTE DE CONFIRMACION [PC]
    - "Por favor confirmar" (solicitud) → PENDIENTE DE CONFIRMACION [PC]
 
-EJEMPLOS REALES:
+EJEMPLOS DE DETECCIÓN DE ESTADO (Analiza el CONTEXTO COMPLETO):
 - Email dice: "Confirmar reserva" (título) + "Les confirmamos..." (cuerpo) → CONFIRMACION [FI]
 - Email dice: "Confirmar reserva" (título) + "¿Pueden confirmar?" (cuerpo) → PENDIENTE DE CONFIRMACION [PC]
 - Email dice: "Confirmame esta reserva por favor" → PENDIENTE DE CONFIRMACION [PC]
 - Email dice: "Te confirmo la reserva" → CONFIRMACION [FI]
 - Email dice: "Reserva confirmada" → CONFIRMACION [FI]
-
-FORMATO DE RESPUESTA:
-Responde ÚNICAMENTE con JSON válido en este formato exacto:
-
-{
-    "reservationType": "AGENCIAS [COAG]",
-    "status": "PENDIENTE DE CONFIRMACION [PC]",
-    "client": "DESPEGAR - TEST - 1",
-    "travelDate": "2026-01-15",
-    "seller": "TEST TEST",
-    "passengers": [{
-        "firstName": "Maria",
-        "lastName": "Gonzalez",
-        "paxType": "ADU",
-        "birthDate": "1990-01-15",
-        "nationality": "ARGENTINA",
-        "sex": "F",
-        "documentNumber": "12345678",
-        "documentType": "DNI",
-        "cuilCuit": "27123456789",
-        "direccion": "Calle Falsa 123",
-        "telefono": "1234567890"
-    }]
-}
-
-IMPORTANTE: 
-- reservationType y status SIEMPRE deben incluir el código entre corchetes [XX]
-- travelDate y birthDate DEBEN estar en formato DD/MM/YYYY
-- client debe ser el nombre de la AGENCIA, no del pasajero
-- sex debe ser CÓDIGO: "M" o "F"
-- paxType debe ser CÓDIGO: "ADU", "CHD" o "INF"
-- documentType debe ser CÓDIGO: "DNI", "PAS", "CI", "LE", "LC"
-- nationality debe ser NOMBRE COMPLETO en MAYÚSCULAS: "ARGENTINA", "BRASIL", "CHILE", etc.
-
-EJEMPLOS DE MAPEO DE NACIONALIDAD:
-- Email dice "argentino" → nationality: "ARGENTINA"
-- Email dice "brasileño" → nationality: "BRASIL"
-- Email dice "chilena" → nationality: "CHILE"
-- Email dice "ARG" → nationality: "ARGENTINA"
-
-EJEMPLOS DE MAPEO DE TIPO DE DOCUMENTO:
-- Email dice "DNI: 12345678" → documentType: "DNI"
-- Email dice "Pasaporte: AB123456" → documentType: "PAS"
-- Email dice "Documento: 12345678" → documentType: "DNI"
-
-EJEMPLOS DE DETECCIÓN DE ESTADO (Analiza el CONTEXTO COMPLETO):
-
-Ejemplo 1:
-Email: "Asunto: Confirmar reserva | Cuerpo: Les confirmamos la reserva para 2 pasajeros..."
-Análisis: El verbo "confirmamos" es afirmativo → INTENCIÓN: Confirmar
-→ status: "CONFIRMADA [CO]"
-
-Ejemplo 2:
-Email: "Asunto: Confirmar reserva | Cuerpo: ¿Pueden confirmarme la disponibilidad?"
-Análisis: Es una pregunta "¿Pueden...?" → INTENCIÓN: Solicitar confirmación
-→ status: "PENDIENTE DE CONFIRMACION [PC]"
-
-Ejemplo 3:
-Email: "Confirmame esta reserva por favor"
-Análisis: "Confirmame" es imperativo solicitando acción → INTENCIÓN: Solicitar
-→ status: "PENDIENTE DE CONFIRMACION [PC]"
-
-Ejemplo 4:
-Email: "Te confirmo la reserva para el día 5 de junio"
-Análisis: "Te confirmo" es afirmativo → INTENCIÓN: Confirmar
-→ status: "CONFIRMADA [CO]"
-
-Ejemplo 5:
-Email: "Solicito cotización para 2 pasajeros"
-Análisis: "Solicito" indica consulta inicial → INTENCIÓN: Solicitar
-→ status: "PENDIENTE DE CONFIRMACION [PC]"
-
-Ejemplo 6:
-Email: "Reserva confirmada. Adjunto voucher."
-Análisis: "Reserva confirmada" es afirmativo + incluye voucher → INTENCIÓN: Confirmar
-→ status: "CONFIRMADA [CO]"
-
-Ejemplo 7:
-Email: "Necesito cancelar la reserva del día 10"
-Análisis: "cancelar" → INTENCIÓN: Cancelar
-→ status: "CANCELADA [CA]"
-
-NO incluyas ningún texto adicional fuera del JSON. NO incluyas markdown code blocks.`;
- */
-const EXTRACTION_SYSTEM_PROMPT = `Eres un asistente especializado en extraer información estructurada de emails relacionados con reservas turísticas.
-
-CONTEXTO:
-- Empresa receptora: AYMARA (empresa proveedora de servicios turísticos en Mendoza, Argentina)
-- Los emails provienen de agencias/operadoras que derivan pasajeros
-- Los emails pueden contener hilos de conversación (múltiples forwards)
-- Los datos pueden estar en español, portugués o inglés
-- Formato de salida: JSON estrictamente estructurado
-
-TAREA:
-Extrae la siguiente información de los emails, prestando especial atención a los campos requeridos por el sistema "iTraffic":
-
-1. PASAJEROS (Array de objetos):
-   - firstName: Primer nombre
-   - lastName: Apellido(s)
-   - documentType: Tipo de documento (DNI, Pasaporte, etc.). Si dice "Documento:", asume que es el tipo si no se especifica otro.
-   - documentNumber: Número de documento
-   - nationality: Nacionalidad
-   - dateOfBirth: Fecha de nacimiento (formato YYYY-MM-DD)
-   - phoneNumber: Teléfono del pasajero (si está disponible). Busca formatos como "NRO DE CONTACTO", "CEL", "TEL", "WHATSAPP", etc.
-   - passengerType: "ADT" (adulto), "CHD" (niño), "INF" (infante)
-
-2. DATOS DE RESERVA (ITRAFFIC):
-   - codigo: Código interno o número de expediente (si aparece)
-   - reservationType: Tipo de reserva (ej: "Mayorista", "Agencia", "Directo", "Corporativo")
-   - status: Estado de la reserva (ej: "Confirmada", "Pendiente", "Cancelada", "Presupuesto")
-   - estadoDeuda: Estado de deuda (ej: "Pagada", "Pendiente", "Parcial")
-   - reservationDate: Fecha de alta de la reserva (YYYY-MM-DD)
-   - travelDate: Fecha de inicio del viaje (YYYY-MM-DD)
-   - tourEndDate: Fecha de fin del viaje (YYYY-MM-DD)
-   - dueDate: Fecha de vencimiento de la reserva (YYYY-MM-DD)
-   - seller: Vendedor o agente responsable. Busca en la firma del email (ej: "Atentamente, Nombre" o "Equipe...").
-   - client: Cliente a facturar (Nombre de la Agencia, Operador o Pasajero principal)
-   - contact: Nombre de la persona de contacto en la agencia/cliente
-   - currency: Moneda de la transacción (ej: "USD", "ARS", "EUR", "BRL"). Si no está explícita, intenta deducirla por el país de la agencia (ej: CVC Brasil -> BRL).
-   - exchangeRate: Tipo de cambio (si se menciona explícitamente)
-   - commission: Porcentaje de comisión (si se menciona)
-   - netAmount: Monto neto (si se menciona)
-   - grossAmount: Monto bruto (si se menciona)
-   - tripName: Nombre del viaje o referencia. Usa el ASUNTO del correo si no hay un nombre de grupo específico.
-   - productCode: Código de producto (si aparece)
-   - adults: Cantidad de adultos
-   - children: Cantidad de menores
-   - infants: Cantidad de infantes
-
-3. ALOJAMIENTO:
-   - hotel: Nombre del hotel
-   - checkIn: Fecha de entrada (formato YYYY-MM-DD)
-   - checkOut: Fecha de salida (formato YYYY-MM-DD)
-
-4. VUELOS (Array de objetos):
-   - flightNumber: Número de vuelo (ej: "G3 7486")
-   - airline: Aerolínea. Si no está explícita, intenta deducirla por el código de vuelo (ej: G3->GOL, AR->Aerolíneas Argentinas, LA->LATAM, JA->JetSmart).
-   - origin: Origen (código IATA de 3 letras, ej: "GRU")
-   - destination: Destino (código IATA)
-   - departureDate: Fecha de salida (YYYY-MM-DD)
-   - departureTime: Hora de salida (HH:MM)
-   - arrivalDate: Fecha de llegada (YYYY-MM-DD)
-   - arrivalTime: Hora de llegada (HH:MM)
-
-5. SERVICIOS ADICIONALES (Array de objetos):
-   - type: Tipo de servicio ("transfer", "excursion", "meal", "other")
-   - description: Descripción del servicio
-   - date: Fecha del servicio (YYYY-MM-DD)
-   - location: Ubicación (si aplica)
-
-6. CONTACTO:
-   - contactEmail: Email de contacto. Busca en el campo "De:" (From) o en instrucciones como "Enviar factura a".
-   - contactPhone: Teléfono de contacto. Busca etiquetas como "NRO DE CONTACTO", "CELULAR", "MOVIL", "PHONE", "TEL", etc. Ejemplo: "NRO DE CONTACTO :5491161534201"
-
-REGLAS IMPORTANTES:
-- Si un dato no está presente, usa null en lugar de inventar información
-- Extrae TODOS los pasajeros mencionados en el email
-- Las fechas DEBEN estar en formato ISO 8601 (YYYY-MM-DD)
-- Los códigos de aeropuerto DEBEN ser códigos IATA de 3 letras en MAYÚSCULAS
-- Busca información en todo el hilo de emails (incluyendo forwards)
-- Presta atención a tablas, listas y formatos estructurados
-- Ignora firmas de email, disclaimers y contenido no relacionado con la reserva
+- Email dice: "Solicito cotización para 2 pasajeros" → PENDIENTE DE CONFIRMACION [PC]
+- Email dice: "Necesito cancelar la reserva del día 10" → CANCELADO [CX]
 
 FORMATO DE RESPUESTA:
 Responde ÚNICAMENTE con JSON válido en este formato exacto:
@@ -313,12 +230,15 @@ Responde ÚNICAMENTE con JSON válido en este formato exacto:
     {
       "firstName": "string",
       "lastName": "string",
-      "documentType": "string | null",
+      "documentType": "DNI | PAS | CI | LE | LC | null",
       "documentNumber": "string | null",
-      "nationality": "string | null",
+      "nationality": "ARGENTINA | BRASIL | CHILE | ... | null",
       "dateOfBirth": "YYYY-MM-DD | null",
+      "sex": "M | F | null",
+      "cuilCuit": "string | null",
+      "direccion": "string | null",
       "phoneNumber": "string | null",
-      "passengerType": "ADT | CHD | INF"
+      "passengerType": "ADU | CHD | INF"
     }
   ],
   "codigo": "string | null",
@@ -344,9 +264,44 @@ Responde ÚNICAMENTE con JSON válido en este formato exacto:
   "infants": 0,
   "provider": "string | null",
   "reservationCode": "string | null",
+  "detailType": "hotel | servicio | eventual | programa | null",
+  "hotel": {
   "hotel": "string | null",
   "checkIn": "YYYY-MM-DD | null",
   "checkOut": "YYYY-MM-DD | null",
+    "roomType": "string | null",
+    "nights": 0
+  },
+  "services": [
+    {
+      "type": "transfer | excursion | meal | tour | activity | other",
+      "description": "string",
+      "date": "YYYY-MM-DD | null",
+      "time": "HH:MM | null",
+      "location": "string | null",
+      "quantity": 0,
+      "passengers": "string | null"
+    }
+  ],
+  "eventual": {
+    "eventName": "string | null",
+    "eventType": "string | null",
+    "eventDate": "YYYY-MM-DD | null",
+    "eventTime": "HH:MM | null",
+    "eventLocation": "string | null",
+    "eventDescription": "string | null",
+    "participants": 0
+  },
+  "programa": {
+    "programName": "string | null",
+    "programType": "string | null",
+    "startDate": "YYYY-MM-DD | null",
+    "endDate": "YYYY-MM-DD | null",
+    "programDescription": "string | null",
+    "includedServices": ["string"],
+    "duration": "string | null",
+    "destinations": ["string"]
+  },
   "flights": [
     {
       "flightNumber": "string",
@@ -359,14 +314,6 @@ Responde ÚNICAMENTE con JSON válido en este formato exacto:
       "arrivalTime": "HH:MM | null"
     }
   ],
-  "services": [
-    {
-      "type": "transfer | excursion | meal | other",
-      "description": "string",
-      "date": "YYYY-MM-DD | null",
-      "location": "string | null"
-    }
-  ],
   "contactEmail": "string | null",
   "contactPhone": "string | null",
   "confidence": 0.85
@@ -377,6 +324,12 @@ El campo "confidence" debe reflejar tu nivel de confianza en la extracción (0.0
 - 0.7-0.9: Información mayormente clara con algunos datos faltantes
 - 0.5-0.7: Información parcial o ambigua
 - < 0.5: Información muy limitada o confusa
+
+IMPORTANTE: 
+- El campo "detailType" debe identificar el tipo principal de detalle solicitado o confirmado en el email
+- Solo completa los objetos correspondientes al detailType identificado (hotel, services, eventual, o programa)
+- Si el email menciona múltiples tipos de detalles, identifica el principal o el más relevante
+- Si no se puede identificar un tipo de detalle claro, deja detailType como null y completa solo los campos que encuentres
 
 NO incluyas ningún texto adicional fuera del JSON. NO incluyas markdown code blocks.`  
 
@@ -584,7 +537,39 @@ function validateExtractionResult(data) {
         services: [],
         contactEmail: null,
         contactPhone: null,
-        confidence: 0.5
+        confidence: 0.5,
+        
+        // Detail Type Fields
+        detailType: null,
+        hotel: null, // Legacy: string field for backward compatibility
+        checkIn: null, // Legacy: separate field for backward compatibility
+        checkOut: null, // Legacy: separate field for backward compatibility
+        hotelDetail: {
+            hotel: null,
+            checkIn: null,
+            checkOut: null,
+            roomType: null,
+            nights: 0
+        },
+        eventual: {
+            eventName: null,
+            eventType: null,
+            eventDate: null,
+            eventTime: null,
+            eventLocation: null,
+            eventDescription: null,
+            participants: 0
+        },
+        programa: {
+            programName: null,
+            programType: null,
+            startDate: null,
+            endDate: null,
+            programDescription: null,
+            includedServices: [],
+            duration: null,
+            destinations: []
+        }
     };
 
     // Validate passengers
@@ -598,6 +583,9 @@ function validateExtractionResult(data) {
                 documentNumber: sanitizeString(p.documentNumber),
                 nationality: sanitizeString(p.nationality),
                 dateOfBirth: validateDate(p.dateOfBirth),
+                sex: sanitizeString(p.sex),
+                cuilCuit: sanitizeString(p.cuilCuit),
+                direccion: sanitizeString(p.direccion),
                 passengerType: validatePassengerType(p.passengerType),
                 phoneNumber: sanitizeString(p.phoneNumber)
             }));
@@ -606,21 +594,12 @@ function validateExtractionResult(data) {
     // Validate basic fields (Legacy/Standard)
     validated.provider = sanitizeString(data.provider);
     validated.reservationCode = sanitizeString(data.reservationCode);
-    validated.hotel = sanitizeString(data.hotel);
-    validated.checkIn = validateDate(data.checkIn);
-    validated.checkOut = validateDate(data.checkOut);
 
     // Validate iTraffic fields
     validated.codigo = sanitizeString(data.codigo);
     validated.reservationType = sanitizeString(data.reservationType);
     validated.status = sanitizeString(data.status);
     validated.estadoDeuda = sanitizeString(data.estadoDeuda);
-
-    // Date logic: Default reservationDate to today, travelDate to checkIn, tourEndDate to checkOut
-    const today = new Date().toISOString().split('T')[0];
-    validated.reservationDate = validateDate(data.reservationDate) || today;
-    validated.travelDate = validateDate(data.travelDate) || validated.checkIn;
-    validated.tourEndDate = validateDate(data.tourEndDate) || validated.checkOut;
 
     validated.dueDate = validateDate(data.dueDate);
     validated.seller = sanitizeString(data.seller);
@@ -661,8 +640,82 @@ function validateExtractionResult(data) {
                 type: validateServiceType(s.type),
                 description: sanitizeString(s.description),
                 date: validateDate(s.date),
-                location: sanitizeString(s.location)
+                time: validateTime(s.time),
+                location: sanitizeString(s.location),
+                quantity: typeof s.quantity === 'number' ? s.quantity : 0,
+                passengers: sanitizeString(s.passengers)
             }));
+    }
+    
+    // Validate detail type and related fields
+    validated.detailType = validateDetailType(data.detailType);
+    
+    // Validate hotel detail (new structure from prompt)
+    if (data.hotel && typeof data.hotel === 'object') {
+        validated.hotelDetail = {
+            hotel: sanitizeString(data.hotel.hotel),
+            checkIn: validateDate(data.hotel.checkIn),
+            checkOut: validateDate(data.hotel.checkOut),
+            roomType: sanitizeString(data.hotel.roomType),
+            nights: typeof data.hotel.nights === 'number' ? data.hotel.nights : 0
+        };
+        // Also populate legacy fields for backward compatibility
+        validated.hotel = validated.hotelDetail.hotel;
+        validated.checkIn = validated.hotelDetail.checkIn;
+        validated.checkOut = validated.hotelDetail.checkOut;
+    } else {
+        // Legacy support: if hotel is a string or checkIn/checkOut are separate fields
+        validated.hotel = sanitizeString(data.hotel);
+        validated.checkIn = validateDate(data.checkIn);
+        validated.checkOut = validateDate(data.checkOut);
+        // Create hotelDetail from legacy fields if hotel exists
+        if (validated.hotel) {
+            validated.hotelDetail = {
+                hotel: validated.hotel,
+                checkIn: validated.checkIn,
+                checkOut: validated.checkOut,
+                roomType: null,
+                nights: 0
+            };
+        }
+    }
+    
+    // Date logic: Default reservationDate to today, travelDate to checkIn, tourEndDate to checkOut
+    // This must be after hotel validation so checkIn/checkOut are available
+    const today = new Date().toISOString().split('T')[0];
+    validated.reservationDate = validateDate(data.reservationDate) || today;
+    validated.travelDate = validateDate(data.travelDate) || validated.checkIn;
+    validated.tourEndDate = validateDate(data.tourEndDate) || validated.checkOut;
+    
+    // Validate eventual
+    if (data.eventual && typeof data.eventual === 'object') {
+        validated.eventual = {
+            eventName: sanitizeString(data.eventual.eventName),
+            eventType: sanitizeString(data.eventual.eventType),
+            eventDate: validateDate(data.eventual.eventDate),
+            eventTime: validateTime(data.eventual.eventTime),
+            eventLocation: sanitizeString(data.eventual.eventLocation),
+            eventDescription: sanitizeString(data.eventual.eventDescription),
+            participants: typeof data.eventual.participants === 'number' ? data.eventual.participants : 0
+        };
+    }
+    
+    // Validate programa
+    if (data.programa && typeof data.programa === 'object') {
+        validated.programa = {
+            programName: sanitizeString(data.programa.programName),
+            programType: sanitizeString(data.programa.programType),
+            startDate: validateDate(data.programa.startDate),
+            endDate: validateDate(data.programa.endDate),
+            programDescription: sanitizeString(data.programa.programDescription),
+            includedServices: Array.isArray(data.programa.includedServices) 
+                ? data.programa.includedServices.map(s => sanitizeString(s)).filter(s => s !== null)
+                : [],
+            duration: sanitizeString(data.programa.duration),
+            destinations: Array.isArray(data.programa.destinations)
+                ? data.programa.destinations.map(d => sanitizeString(d)).filter(d => d !== null)
+                : []
+        };
     }
 
     // Validate contact info
@@ -895,8 +948,18 @@ function normalizeNationality(nationality) {
 }
 
 function validateServiceType(type) {
-    const validTypes = ['transfer', 'excursion', 'meal', 'other'];
+    const validTypes = ['transfer', 'excursion', 'meal', 'tour', 'activity', 'other'];
     return validTypes.includes(type) ? type : 'other';
+}
+
+/**
+ * Helper: Validate detail type
+ */
+function validateDetailType(type) {
+    const validTypes = ['hotel', 'servicio', 'eventual', 'programa'];
+    if (!type || typeof type !== 'string') return null;
+    const normalized = type.trim().toLowerCase();
+    return validTypes.includes(normalized) ? normalized : null;
 }
 /**
  * Helper: Normalize document type to match master data codes
