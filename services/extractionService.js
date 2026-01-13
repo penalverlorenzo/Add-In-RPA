@@ -112,43 +112,59 @@ Extrae la siguiente información de los emails, prestando especial atención a l
    DEBES identificar el tipo de detalle que se está solicitando o confirmando en el email. Analiza el contenido para determinar si es:
    
    - "hotel": Cuando el email menciona alojamiento, hotel, hospedaje, check-in, check-out, habitación, room, accommodation
-     * Información a extraer:
-       - hotel: Nombre del hotel
-       - checkIn: Fecha de entrada (YYYY-MM-DD)
-       - checkOut: Fecha de salida (YYYY-MM-DD)
-       - roomType: Tipo de habitación (si se menciona: single, double, triple, suite, etc.)
-       - nights: Cantidad de noches (si se menciona)
    
-   - "servicio": Cuando el email menciona servicios adicionales como transfers, excursiones, comidas, tours, actividades
-     * Información a extraer (Array de objetos):
-       - type: Tipo de servicio ("transfer", "excursion", "meal", "tour", "activity", "other")
-       - description: Descripción detallada del servicio
-       - date: Fecha del servicio (YYYY-MM-DD)
-       - time: Hora del servicio (HH:MM) si se menciona
-       - location: Ubicación o punto de encuentro
-       - quantity: Cantidad de servicios (si aplica)
-       - passengers: Pasajeros incluidos en el servicio (si se especifica)
+   - "servicio": Cuando el email menciona servicios adicionales como transfers, excursiones, comidas, tours, actividades, servicios turísticos
    
    - "eventual": Cuando el email menciona eventos, actividades especiales, fiestas, celebraciones, eventos corporativos
-     * Información a extraer:
-       - eventName: Nombre del evento
-       - eventType: Tipo de evento (ej: "conferencia", "seminario", "fiesta", "celebración", "evento corporativo")
-       - eventDate: Fecha del evento (YYYY-MM-DD)
-       - eventTime: Hora del evento (HH:MM) si se menciona
-       - eventLocation: Ubicación del evento
-       - eventDescription: Descripción del evento
-       - participants: Cantidad de participantes (si se menciona)
    
    - "programa": Cuando el email menciona programas de viaje, paquetes turísticos, itinerarios completos, circuitos
-     * Información a extraer:
-       - programName: Nombre del programa o paquete
-       - programType: Tipo de programa (ej: "paquete turístico", "circuito", "itinerario", "tour completo")
-       - startDate: Fecha de inicio del programa (YYYY-MM-DD)
-       - endDate: Fecha de fin del programa (YYYY-MM-DD)
-       - programDescription: Descripción del programa
-       - includedServices: Lista de servicios incluidos (array de strings)
-       - duration: Duración del programa (ej: "3 días", "1 semana")
-       - destinations: Destinos incluidos (array de strings)
+   
+   IMPORTANTE: Todos los tipos de detalle (hotel, servicio, eventual, programa) utilizan la MISMA estructura de datos:
+   
+   Para cada detalle, extrae la siguiente información:
+   - destino: Destino o ubicación (Texto). Para hotel: nombre del hotel o ciudad. Para servicio: ubicación del servicio. Para eventual: ubicación del evento. Para programa: destino principal del programa.
+   - in: Fecha de inicio/entrada (YYYY-MM-DD). Para hotel: fecha de check-in. Para servicio: fecha del servicio. Para eventual: fecha del evento. Para programa: fecha de inicio.
+   - out: Fecha de fin/salida (YYYY-MM-DD). Para hotel: fecha de check-out. Para servicio: fecha de fin del servicio (si aplica). Para eventual: fecha de fin del evento (si aplica). Para programa: fecha de fin.
+   - nts: Cantidad de noches (número). Calcula la diferencia entre "out" e "in" en días. Si no se puede calcular, deja 0.
+   - basePax: Pasajeros base o cantidad de pasajeros (número). Extrae la cantidad de pasajeros mencionados para este detalle específico.
+   - servicio: Nombre o tipo del servicio (Texto). Para hotel: tipo de habitación o categoría. Para servicio: tipo de servicio (transfer, excursión, etc.). Para eventual: tipo de evento. Para programa: tipo de programa.
+   - descripcion: Descripción detallada del detalle (Texto). Incluye información adicional relevante.
+   - estado: Estado del detalle. DEBE ser un CÓDIGO válido de la siguiente lista:
+     * "LI" - LIBERADO [LI]
+     * "OK" - CONFIRMADO [OK]
+     * "WL" - LISTA DE ESPERA [WL]
+     * "RM" - FAVOR MODIFICAR [RM]
+     * "NN" - FAVOR RESERVAR [NN]
+     * "RQ" - REQUERIDO [RQ]
+     * "LK" - RVA OK S/LIQUIDAR [LK]
+     * "RE" - RECHAZADO [RE]
+     * "MQ" - MODIFICACION REQUERIDA [MQ]
+     * "CL" - FAVOR CANCELAR [CL]
+     * "CA" - CANCELACION SOLICITADA [CA]
+     * "CX" - CANCELADO [CX]
+     * "EM" - EMITIDO [EM]
+     * "EN" - ENTREGADO [EN]
+     * "AR" - FAVOR RESERVAR [AR]
+     * "HK" - OK CUPO [HK]
+     * "PE" - PENALIDAD [PE]
+     * "NO" - NEGADO [NO]
+     * "NC" - NO CONFORMIDAD [NC]
+     * "PF" - PENDIENTE DE FC. COMISION [PF]
+     * "AO" - REQUERIR ON LINE [AO]
+     * "CO" - CANCELAR ONLINE [CO]
+     * "GX" - GASTOS CANCELACION ONLINE [GX]
+     * "EO" - EN TRAFICO [EO]
+     * "KL" - REQUERIDO CUPO [KL]
+     * "MI" - RESERVA MIGRADA [MI]
+     * "VO" - VOID [VO]
+     
+     Analiza el contexto del email para determinar el estado más apropiado:
+     - Si el email confirma algo → "OK"
+     - Si el email solicita reservar → "NN" o "AR"
+     - Si el email solicita modificar → "RM" o "MQ"
+     - Si el email cancela → "CX" o "CA"
+     - Si el email está pendiente → "RQ"
+     - Si no estás seguro, usa "RQ" (REQUERIDO)
 
 4. VUELOS (Array de objetos):
    - flightNumber: Número de vuelo (ej: "G3 7486")
@@ -266,41 +282,44 @@ Responde ÚNICAMENTE con JSON válido en este formato exacto:
   "reservationCode": "string | null",
   "detailType": "hotel | servicio | eventual | programa | null",
   "hotel": {
-  "hotel": "string | null",
-  "checkIn": "YYYY-MM-DD | null",
-  "checkOut": "YYYY-MM-DD | null",
-    "roomType": "string | null",
-    "nights": 0
+    "destino": "string | null",
+    "in": "YYYY-MM-DD | null",
+    "out": "YYYY-MM-DD | null",
+    "nts": 0,
+    "basePax": 0,
+    "servicio": "string | null",
+    "descripcion": "string | null",
+    "estado": "LI | OK | WL | RM | NN | RQ | LK | RE | MQ | CL | CA | CX | EM | EN | AR | HK | PE | NO | NC | PF | AO | CO | GX | EO | KL | MI | VO | null"
   },
-  "services": [
-    {
-      "type": "transfer | excursion | meal | tour | activity | other",
-      "description": "string",
-      "date": "YYYY-MM-DD | null",
-      "time": "HH:MM | null",
-      "location": "string | null",
-      "quantity": 0,
-      "passengers": "string | null"
-    }
-  ],
+  "servicio": {
+    "destino": "string | null",
+    "in": "YYYY-MM-DD | null",
+    "out": "YYYY-MM-DD | null",
+    "nts": 0,
+    "basePax": 0,
+    "servicio": "string | null",
+    "descripcion": "string | null",
+    "estado": "LI | OK | WL | RM | NN | RQ | LK | RE | MQ | CL | CA | CX | EM | EN | AR | HK | PE | NO | NC | PF | AO | CO | GX | EO | KL | MI | VO | null"
+  },
   "eventual": {
-    "eventName": "string | null",
-    "eventType": "string | null",
-    "eventDate": "YYYY-MM-DD | null",
-    "eventTime": "HH:MM | null",
-    "eventLocation": "string | null",
-    "eventDescription": "string | null",
-    "participants": 0
+    "destino": "string | null",
+    "in": "YYYY-MM-DD | null",
+    "out": "YYYY-MM-DD | null",
+    "nts": 0,
+    "basePax": 0,
+    "servicio": "string | null",
+    "descripcion": "string | null",
+    "estado": "LI | OK | WL | RM | NN | RQ | LK | RE | MQ | CL | CA | CX | EM | EN | AR | HK | PE | NO | NC | PF | AO | CO | GX | EO | KL | MI | VO | null"
   },
   "programa": {
-    "programName": "string | null",
-    "programType": "string | null",
-    "startDate": "YYYY-MM-DD | null",
-    "endDate": "YYYY-MM-DD | null",
-    "programDescription": "string | null",
-    "includedServices": ["string"],
-    "duration": "string | null",
-    "destinations": ["string"]
+    "destino": "string | null",
+    "in": "YYYY-MM-DD | null",
+    "out": "YYYY-MM-DD | null",
+    "nts": 0,
+    "basePax": 0,
+    "servicio": "string | null",
+    "descripcion": "string | null",
+    "estado": "LI | OK | WL | RM | NN | RQ | LK | RE | MQ | CL | CA | CX | EM | EN | AR | HK | PE | NO | NC | PF | AO | CO | GX | EO | KL | MI | VO | null"
   },
   "flights": [
     {
@@ -327,7 +346,10 @@ El campo "confidence" debe reflejar tu nivel de confianza en la extracción (0.0
 
 IMPORTANTE: 
 - El campo "detailType" debe identificar el tipo principal de detalle solicitado o confirmado en el email
-- Solo completa los objetos correspondientes al detailType identificado (hotel, services, eventual, o programa)
+- Solo completa el objeto correspondiente al detailType identificado (hotel, servicio, eventual, o programa)
+- Todos los tipos de detalle usan la misma estructura: destino, in, out, nts, basePax, servicio, descripcion, estado
+- El campo "estado" DEBE ser uno de los códigos válidos listados arriba
+- Calcula "nts" (noches) como la diferencia en días entre "out" e "in" si ambas fechas están disponibles
 - Si el email menciona múltiples tipos de detalles, identifica el principal o el más relevante
 - Si no se puede identificar un tipo de detalle claro, deja detailType como null y completa solo los campos que encuentres
 
@@ -530,46 +552,21 @@ function validateExtractionResult(data) {
         // Legacy/Standard Fields
         provider: null,
         reservationCode: null,
-        hotel: null,
-        checkIn: null,
-        checkOut: null,
+        hotel: null, // Legacy: string field for backward compatibility (hotel name)
+        checkIn: null, // Legacy: separate field for backward compatibility
+        checkOut: null, // Legacy: separate field for backward compatibility
         flights: [],
         services: [],
         contactEmail: null,
         contactPhone: null,
         confidence: 0.5,
         
-        // Detail Type Fields
+        // Detail Type Fields (unified structure)
         detailType: null,
-        hotel: null, // Legacy: string field for backward compatibility
-        checkIn: null, // Legacy: separate field for backward compatibility
-        checkOut: null, // Legacy: separate field for backward compatibility
-        hotelDetail: {
-            hotel: null,
-            checkIn: null,
-            checkOut: null,
-            roomType: null,
-            nights: 0
-        },
-        eventual: {
-            eventName: null,
-            eventType: null,
-            eventDate: null,
-            eventTime: null,
-            eventLocation: null,
-            eventDescription: null,
-            participants: 0
-        },
-        programa: {
-            programName: null,
-            programType: null,
-            startDate: null,
-            endDate: null,
-            programDescription: null,
-            includedServices: [],
-            duration: null,
-            destinations: []
-        }
+        hotelDetail: null, // Unified structure for hotel detail (object)
+        servicio: null, // Unified structure for servicio detail (object)
+        eventual: null, // Unified structure for eventual detail (object)
+        programa: null // Unified structure for programa detail (object)
     };
 
     // Validate passengers
@@ -647,38 +644,63 @@ function validateExtractionResult(data) {
             }));
     }
     
-    // Validate detail type and related fields
+    // Validate detail type and related fields (unified structure)
     validated.detailType = validateDetailType(data.detailType);
     
-    // Validate hotel detail (new structure from prompt)
-    if (data.hotel && typeof data.hotel === 'object') {
-        validated.hotelDetail = {
-            hotel: sanitizeString(data.hotel.hotel),
-            checkIn: validateDate(data.hotel.checkIn),
-            checkOut: validateDate(data.hotel.checkOut),
-            roomType: sanitizeString(data.hotel.roomType),
-            nights: typeof data.hotel.nights === 'number' ? data.hotel.nights : 0
+    // Helper function to validate unified detail structure
+    const validateUnifiedDetail = (detailData) => {
+        if (!detailData || typeof detailData !== 'object') return null;
+        
+        const inDate = validateDate(detailData.in);
+        const outDate = validateDate(detailData.out);
+        
+        // Calculate nights if both dates are available
+        let nights = 0;
+        if (inDate && outDate) {
+            const inDateObj = new Date(inDate);
+            const outDateObj = new Date(outDate);
+            const diffTime = outDateObj - inDateObj;
+            nights = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            if (nights < 0) nights = 0;
+        } else if (typeof detailData.nts === 'number') {
+            nights = detailData.nts;
+        }
+        
+        return {
+            destino: sanitizeString(detailData.destino),
+            in: inDate,
+            out: outDate,
+            nts: nights,
+            basePax: typeof detailData.basePax === 'number' ? detailData.basePax : 0,
+            servicio: sanitizeString(detailData.servicio),
+            descripcion: sanitizeString(detailData.descripcion),
+            estado: validateDetailEstado(detailData.estado)
         };
-        // Also populate legacy fields for backward compatibility
-        validated.hotel = validated.hotelDetail.hotel;
-        validated.checkIn = validated.hotelDetail.checkIn;
-        validated.checkOut = validated.hotelDetail.checkOut;
+    };
+    
+    // Validate hotel detail (unified structure)
+    validated.hotelDetail = validateUnifiedDetail(data.hotel);
+    
+    // Legacy support: populate legacy fields from hotel detail if available
+    if (validated.hotelDetail) {
+        validated.hotel = validated.hotelDetail.destino; // Use destino as hotel name for legacy (string)
+        validated.checkIn = validated.hotelDetail.in;
+        validated.checkOut = validated.hotelDetail.out;
     } else {
         // Legacy support: if hotel is a string or checkIn/checkOut are separate fields
         validated.hotel = sanitizeString(data.hotel);
         validated.checkIn = validateDate(data.checkIn);
         validated.checkOut = validateDate(data.checkOut);
-        // Create hotelDetail from legacy fields if hotel exists
-        if (validated.hotel) {
-            validated.hotelDetail = {
-                hotel: validated.hotel,
-                checkIn: validated.checkIn,
-                checkOut: validated.checkOut,
-                roomType: null,
-                nights: 0
-            };
-        }
     }
+    
+    // Validate servicio detail (unified structure)
+    validated.servicio = validateUnifiedDetail(data.servicio);
+    
+    // Validate eventual detail (unified structure)
+    validated.eventual = validateUnifiedDetail(data.eventual);
+    
+    // Validate programa detail (unified structure)
+    validated.programa = validateUnifiedDetail(data.programa);
     
     // Date logic: Default reservationDate to today, travelDate to checkIn, tourEndDate to checkOut
     // This must be after hotel validation so checkIn/checkOut are available
@@ -686,37 +708,6 @@ function validateExtractionResult(data) {
     validated.reservationDate = validateDate(data.reservationDate) || today;
     validated.travelDate = validateDate(data.travelDate) || validated.checkIn;
     validated.tourEndDate = validateDate(data.tourEndDate) || validated.checkOut;
-    
-    // Validate eventual
-    if (data.eventual && typeof data.eventual === 'object') {
-        validated.eventual = {
-            eventName: sanitizeString(data.eventual.eventName),
-            eventType: sanitizeString(data.eventual.eventType),
-            eventDate: validateDate(data.eventual.eventDate),
-            eventTime: validateTime(data.eventual.eventTime),
-            eventLocation: sanitizeString(data.eventual.eventLocation),
-            eventDescription: sanitizeString(data.eventual.eventDescription),
-            participants: typeof data.eventual.participants === 'number' ? data.eventual.participants : 0
-        };
-    }
-    
-    // Validate programa
-    if (data.programa && typeof data.programa === 'object') {
-        validated.programa = {
-            programName: sanitizeString(data.programa.programName),
-            programType: sanitizeString(data.programa.programType),
-            startDate: validateDate(data.programa.startDate),
-            endDate: validateDate(data.programa.endDate),
-            programDescription: sanitizeString(data.programa.programDescription),
-            includedServices: Array.isArray(data.programa.includedServices) 
-                ? data.programa.includedServices.map(s => sanitizeString(s)).filter(s => s !== null)
-                : [],
-            duration: sanitizeString(data.programa.duration),
-            destinations: Array.isArray(data.programa.destinations)
-                ? data.programa.destinations.map(d => sanitizeString(d)).filter(d => d !== null)
-                : []
-        };
-    }
 
     // Validate contact info
     validated.contactEmail = validateEmail(data.contactEmail);
@@ -960,6 +951,20 @@ function validateDetailType(type) {
     if (!type || typeof type !== 'string') return null;
     const normalized = type.trim().toLowerCase();
     return validTypes.includes(normalized) ? normalized : null;
+}
+
+/**
+ * Helper: Validate detail estado (status code)
+ */
+function validateDetailEstado(estado) {
+    const validEstados = [
+        'LI', 'OK', 'WL', 'RM', 'NN', 'RQ', 'LK', 'RE', 'MQ', 'CL', 'CA', 'CX',
+        'EM', 'EN', 'AR', 'HK', 'PE', 'NO', 'NC', 'PF', 'AO', 'CO', 'GX', 'EO',
+        'KL', 'MI', 'VO'
+    ];
+    if (!estado || typeof estado !== 'string') return null;
+    const normalized = estado.trim().toUpperCase();
+    return validEstados.includes(normalized) ? normalized : null;
 }
 /**
  * Helper: Normalize document type to match master data codes
