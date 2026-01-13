@@ -122,7 +122,20 @@ Extrae la siguiente información de los emails, prestando especial atención a l
    IMPORTANTE: Todos los tipos de detalle (hotel, servicio, eventual, programa) utilizan la MISMA estructura de datos:
    
    Para cada detalle, extrae la siguiente información:
-   - destino: Destino o ubicación (Texto). Para hotel: nombre del hotel o ciudad. Para servicio: ubicación del servicio. Para eventual: ubicación del evento. Para programa: destino principal del programa.
+   - destino: Destino o ubicación (Texto). DEBES INFERIR el destino analizando inteligentemente la información disponible:
+     * Analiza la DESCRIPCIÓN del detalle para encontrar referencias a ciudades, regiones o destinos
+     * Busca nombres de ciudades mencionadas explícitamente (ej: "Mendoza", "Buenos Aires", "Bariloche")
+     * Si la descripción menciona "ciudad de [X]", "en [X]", "a [X]", usa esa ciudad como destino
+     * Si el nombre del servicio/hotel/programa contiene referencias geográficas (ej: "Mendocino" → "Mendoza"), infiere el destino
+     * Busca en todo el contexto del email, no solo en el campo específico
+     * Ejemplos:
+       - Descripción: "Mendocino Sunset: Horseback Riding..." → destino: "Mendoza"
+       - Descripción: "Traslados a hoteles en el centro de la ciudad de Mendoza" → destino: "Mendoza"
+       - Descripción: "Tour por Buenos Aires" → destino: "Buenos Aires"
+       - Nombre del hotel: "Hotel Mendoza Plaza" → destino: "Mendoza"
+     * Si no encuentras referencias claras, deja null
+     * Para hotel: prioriza el nombre de la ciudad sobre el nombre del hotel si ambos están disponibles
+     * Para servicio/eventual/programa: extrae la ciudad o región principal mencionada
    - in: Fecha de inicio/entrada (YYYY-MM-DD). Para hotel: fecha de check-in. Para servicio: fecha del servicio. Para eventual: fecha del evento. Para programa: fecha de inicio.
    - out: Fecha de fin/salida (YYYY-MM-DD). Para hotel: fecha de check-out. Para servicio: fecha de fin del servicio (si aplica). Para eventual: fecha de fin del evento (si aplica). Para programa: fecha de fin.
    - nts: Cantidad de noches (número). Calcula la diferencia entre "out" e "in" en días. Si no se puede calcular, deja 0.
@@ -165,6 +178,20 @@ Extrae la siguiente información de los emails, prestando especial atención a l
      - Si el email cancela → "CX" o "CA"
      - Si el email está pendiente → "RQ"
      - Si no estás seguro, usa "RQ" (REQUERIDO)
+   
+   REGLAS ESPECÍFICAS PARA INFERIR DESTINO:
+   - Busca patrones como: "ciudad de [X]", "en [X]", "a [X]", "desde [X]", "hacia [X]", "en el centro de [X]"
+   - Identifica adjetivos geográficos: "Mendocino" → "Mendoza", "Porteño" → "Buenos Aires", "Cordobés" → "Córdoba"
+   - Si se menciona un hotel con nombre de ciudad, usa esa ciudad (ej: "Hotel Mendoza Plaza" → "Mendoza")
+   - Si la descripción menciona traslados "a/desde [X]", usa esa ciudad
+   - Si hay referencias a regiones conocidas, infiere la ciudad principal (ej: "Cuyo" → "Mendoza")
+   - Prioriza ciudades sobre regiones o países
+   - Si encuentras múltiples ciudades, usa la más relevante al contexto del detalle
+   - Ejemplos de inferencia:
+     * "Mendocino Sunset: Horseback Riding..." → destino: "Mendoza" (por el adjetivo "Mendocino")
+     * "Traslados a hoteles en el centro de la ciudad de Mendoza" → destino: "Mendoza" (mencionado explícitamente)
+     * "Tour por Buenos Aires" → destino: "Buenos Aires"
+     * "Hotel Mendoza Plaza" → destino: "Mendoza" (nombre del hotel contiene la ciudad)
 
 4. VUELOS (Array de objetos):
    - flightNumber: Número de vuelo (ej: "G3 7486")
