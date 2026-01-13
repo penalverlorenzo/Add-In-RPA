@@ -35,10 +35,21 @@ function formatDateForInput(dateStr) {
 export async function addItemToReservation(page, service, itemText = 'Agregar Servicio') {
     console.log(`👤 Procesando servicio: ${service.servicio || service.descripcion || 'Sin descripción'}`);
     
-    // Click en el botón para agregar el servicio
-    await page.locator('.button-inner', { hasText: itemText }).click();
+    // Click en el botón para agregar el item
+    // El botón tiene estructura: div.tool-button.add-button > div.button-outer > span.button-inner (con el texto)
+    console.log(`🔘 Buscando botón: "${itemText}"`);
+    
+    // Buscar el div.tool-button.add-button que contiene un span.button-inner con el texto
+    // Usamos filter con has para encontrar el botón que contiene el span con el texto
+    const buttonLocator = page.locator('div.tool-button.add-button')
+        .filter({ has: page.locator('span.button-inner', { hasText: itemText }) });
+    
+    await buttonLocator.waitFor({ state: 'visible', timeout: 30000 });
+    await buttonLocator.click();
+    
     await page.waitForTimeout(2000);
     await takeScreenshot(page, '18-addItemToReservation-01-item-added');
+    console.log(`✅ Botón "${itemText}" clickeado`);
     
     // Seleccionar el destino del servicio si está disponible
     if (service.destino) {
