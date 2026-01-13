@@ -159,13 +159,13 @@ app.post('/api/extract', async (req, res) => {
   }
 
   if (!user) {
-    const error = new Error('User not found');
+    const error = new Error('User not found ' + userId);
     error.status = 404;
     throw error;
   }
 
   if (!user.isServiceEnabled) {
-    const error = new Error('Service not enabled for this user');
+    const error = new Error('Service not enabled for this user ' + userId);
     error.status = 403;
     throw error;
   }
