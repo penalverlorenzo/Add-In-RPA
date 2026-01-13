@@ -214,7 +214,6 @@ app.post('/api/extract', async (req, res) => {
       id: `extraction-${userId}-${Date.now()}`,
       userId,
       userEmail: user.email,
-      conversationId: conversationId || null,
       extractedData,
       emailContentLength: emailContent.length,
       qualityScore,
