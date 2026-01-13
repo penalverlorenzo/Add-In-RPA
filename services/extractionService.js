@@ -894,6 +894,10 @@ function normalizeNationality(nationality) {
     return nationalityMap[normalized] || 'ARGENTINA';
 }
 
+function validateServiceType(type) {
+    const validTypes = ['transfer', 'excursion', 'meal', 'other'];
+    return validTypes.includes(type) ? type : 'other';
+}
 /**
  * Helper: Normalize document type to match master data codes
  */
