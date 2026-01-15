@@ -413,7 +413,7 @@ async function extractReservationData(emailContent, userId = 'unknown', masterDa
     if (!emailContent || emailContent.trim().length < 50) {
         throw new Error('Email content is too short or empty');
     }
-
+    console.log('emailContent', emailContent);
     // Truncate very long emails (keep within token limits)
     const maxLength = 12000; // ~3000 tokens
     const truncatedContent = emailContent.length > maxLength 
