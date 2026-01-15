@@ -5,6 +5,7 @@
 
 import { AzureOpenAI } from 'openai';
 import config from '../config/index.js';
+import { searchServices } from './servicesExtractionService.js';
 
 let openaiClient = null;
 
@@ -123,24 +124,44 @@ Extrae la siguiente información de los emails, prestando especial atención a l
    
    Para cada detalle, extrae la siguiente información:
    - destino: Destino o ubicación (Texto). DEBES INFERIR el destino analizando inteligentemente la información disponible:
+     * CRÍTICO: Este campo se usará para buscar en Azure Search, donde la ciudad puede ser un código (ej: "MDZ" para Mendoza) o nombre completo
      * Analiza la DESCRIPCIÓN del detalle para encontrar referencias a ciudades, regiones o destinos
-     * Busca nombres de ciudades mencionadas explícitamente (ej: "Mendoza", "Buenos Aires", "Bariloche")
+     * Busca nombres de ciudades mencionadas explícitamente (ej: "Mendoza", "Buenos Aires", "Bariloche", "MDZ", "BA")
+     * Si encuentras códigos de ciudad (ej: "MDZ", "BA", "COR"), úsalos directamente
      * Si la descripción menciona "ciudad de [X]", "en [X]", "a [X]", usa esa ciudad como destino
      * Si el nombre del servicio/hotel/programa contiene referencias geográficas (ej: "Mendocino" → "Mendoza"), infiere el destino
      * Busca en todo el contexto del email, no solo en el campo específico
      * Ejemplos:
-       - Descripción: "Mendocino Sunset: Horseback Riding..." → destino: "Mendoza"
-       - Descripción: "Traslados a hoteles en el centro de la ciudad de Mendoza" → destino: "Mendoza"
-       - Descripción: "Tour por Buenos Aires" → destino: "Buenos Aires"
-       - Nombre del hotel: "Hotel Mendoza Plaza" → destino: "Mendoza"
+       - Descripción: "Mendocino Sunset: Horseback Riding..." → destino: "Mendoza" o "MDZ"
+       - Descripción: "Traslados a hoteles en el centro de la ciudad de Mendoza" → destino: "Mendoza" o "MDZ"
+       - Descripción: "Tour por Buenos Aires" → destino: "Buenos Aires" o "BA"
+       - Nombre del hotel: "Hotel Mendoza Plaza" → destino: "Mendoza" o "MDZ"
+       - Si el email menciona "MDZ" → destino: "MDZ"
      * Si no encuentras referencias claras, deja null
      * Para hotel: prioriza el nombre de la ciudad sobre el nombre del hotel si ambos están disponibles
      * Para servicio/eventual/programa: extrae la ciudad o región principal mencionada
-   - in: Fecha de inicio/entrada (YYYY-MM-DD). Para hotel: fecha de check-in. Para servicio: fecha del servicio. Para eventual: fecha del evento. Para programa: fecha de inicio.
-   - out: Fecha de fin/salida (YYYY-MM-DD). Para hotel: fecha de check-out. Para servicio: fecha de fin del servicio (si aplica). Para eventual: fecha de fin del evento (si aplica). Para programa: fecha de fin.
+     * PRIORIZA códigos de ciudad si están disponibles en el email
+   - in: Fecha de inicio/entrada (YYYY-MM-DD). CRÍTICO: Esta fecha se usará para filtrar en Azure Search. 
+     * Para hotel: fecha de check-in
+     * Para servicio: fecha del servicio (fecha exacta cuando se realiza el servicio)
+     * Para eventual: fecha del evento
+     * Para programa: fecha de inicio
+     * DEBE ser una fecha válida en formato YYYY-MM-DD. Si no está clara, deja null
+   - out: Fecha de fin/salida (YYYY-MM-DD). CRÍTICO: Esta fecha se usará para filtrar en Azure Search.
+     * Para hotel: fecha de check-out
+     * Para servicio: fecha de fin del servicio (si aplica, de lo contrario usa la misma que "in")
+     * Para eventual: fecha de fin del evento (si aplica)
+     * Para programa: fecha de fin
+     * DEBE ser una fecha válida en formato YYYY-MM-DD. Si no está clara, deja null
    - nts: Cantidad de noches (número). Calcula la diferencia entre "out" e "in" en días. Si no se puede calcular, deja 0.
    - basePax: Pasajeros base o cantidad de pasajeros (número). Extrae la cantidad de pasajeros mencionados para este detalle específico.
-   - servicio: Nombre o tipo del servicio (Texto). Para hotel: tipo de habitación o categoría. Para servicio: tipo de servicio (transfer, excursión, etc.). Para eventual: tipo de evento. Para programa: tipo de programa.
+   - servicio: Nombre COMPLETO y EXACTO del servicio (Texto). CRÍTICO: Este nombre se usará para buscar en Azure Search, por lo que DEBE ser el nombre completo tal como aparece en el catálogo de servicios. 
+     * Para servicios: Extrae el nombre completo del servicio mencionado (ej: "WINE & RIDE LUJAN OPCION 1", "Mendocino Sunset: Horseback Riding", "Traslado Aeropuerto-Hotel")
+     * NO uses abreviaciones ni descripciones genéricas. Si el email dice "Wine & Ride", usa "WINE & RIDE LUJAN" o el nombre completo que aparezca
+     * Si el email menciona un código de servicio, inclúyelo en el nombre
+     * Para hotel: tipo de habitación o categoría
+     * Para eventual: tipo de evento completo
+     * Para programa: nombre completo del programa
    - descripcion: Descripción detallada del detalle (Texto). Incluye información adicional relevante.
    - estado: Estado del detalle. DEBE ser un CÓDIGO válido de la siguiente lista:
      * "LI" - LIBERADO [LI]
@@ -364,6 +385,14 @@ IMPORTANTE:
 - Si el email menciona un hotel, usa el objeto "hotel" (solo uno)
 - Si no se puede identificar un tipo de detalle claro, deja detailType como null y completa solo los campos que encuentres
 
+EXTRACCIÓN OPTIMIZADA PARA BÚSQUEDA EN AZURE SEARCH:
+- Los servicios extraídos se usarán para buscar en Azure Search, por lo que es CRÍTICO que:
+  * El campo "servicio" contenga el NOMBRE COMPLETO del servicio tal como aparece en el catálogo
+  * El campo "destino" contenga la ciudad (preferiblemente código como "MDZ", "BA", "COR" si está disponible, o nombre completo)
+  * Las fechas "in" y "out" estén en formato YYYY-MM-DD y sean válidas para filtrar por rango de fechas
+  * Si el email menciona un código de servicio o referencia específica, inclúyela en el nombre del servicio
+  * Si el email menciona variantes u opciones (ej: "OPCION 1", "OPCIÓN 2"), inclúyelas en el nombre del servicio
+
 NO incluyas ningún texto adicional fuera del JSON. NO incluyas markdown code blocks.`  
 
 /**
@@ -476,6 +505,19 @@ async function extractReservationData(emailContent, userId = 'unknown', masterDa
         // Validate and normalize extracted data
         const validatedData = validateExtractionResult(extractedData);
 
+        // Enrich services with Azure Search data
+        if (validatedData.services && validatedData.services.length > 0) {
+            try {
+                console.log(`🔍 Enriching ${validatedData.services.length} service(s) with Azure Search data...`);
+                const enrichedServices = await searchServices(validatedData);
+                validatedData.services = enrichedServices;
+                console.log(`✅ Services enriched: ${enrichedServices.length} service(s)`);
+            } catch (error) {
+                console.error('⚠️ Error enriching services with Azure Search, using original services:', error.message);
+                // Continue with original services if enrichment fails
+            }
+        }
+
         // Add metadata
         validatedData.extractedAt = new Date().toISOString();
         validatedData.userId = userId;
@@ -486,6 +528,7 @@ async function extractReservationData(emailContent, userId = 'unknown', masterDa
         console.log(`   Passengers: ${validatedData.passengers?.length || 0}`);
         console.log(`   Client: ${validatedData.client || 'N/A'}`);
         console.log(`   Travel Date: ${validatedData.travelDate || 'N/A'}`);
+        console.log(`   Services: ${validatedData.services?.length || 0}`);
 
         return validatedData;
 
@@ -710,7 +753,7 @@ function validateExtractionResult(data) {
     }
     
     validated.services = servicesArray;
-    
+    console.log('validated.services', validated.services);
     // Date logic: Default reservationDate to today, travelDate to checkIn, tourEndDate to checkOut
     // This must be after hotel validation so checkIn/checkOut are available
     const today = new Date().toISOString().split('T')[0];
