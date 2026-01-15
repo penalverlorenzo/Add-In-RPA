@@ -115,9 +115,10 @@ export async function searchServices(extractedData) {
 
     const client = getSearchClient();
     const enrichedServices = [];
-
+    console.log('extractedData.services', extractedData.services);
     // Process each service from extracted data
     for (const service of extractedData.services) {
+      console.log('service', service);
       if (!service || !service.servicio) {
         // Keep service as-is if no name to search
         enrichedServices.push(service);
@@ -145,9 +146,9 @@ export async function searchServices(extractedData) {
         if (filter) {
           searchOptions.filter = filter;
         }
-        
+        console.log('searchOptions', searchOptions);
         const searchResults = await client.search(searchQuery, searchOptions);
-
+        console.log('searchResults', searchResults);
         let bestMatch = null;
         let bestScore = 0;
 
