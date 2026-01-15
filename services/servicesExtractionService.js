@@ -103,11 +103,9 @@ function mapAzureResultToService(azureResult, originalService) {
 /**
  * Search for services in Azure Search based on extracted email data
  * @param {Object} extractedData - Data extracted from email (from extractionService)
- * @param {string} emailContent - Original email content for reference
- * @param {Array} matchedServices - Services found via regex matching (optional)
  * @returns {Promise<Array>} Array of services enriched with Azure Search data
  */
-export async function searchServices(extractedData, emailContent, matchedServices = []) {
+export async function searchServices(extractedData, emailContent) {
   try {
     // Validate input
     if (!extractedData || !extractedData.services || !Array.isArray(extractedData.services)) {
@@ -118,8 +116,6 @@ export async function searchServices(extractedData, emailContent, matchedService
     const client = getSearchClient();
     const enrichedServices = [];
     console.log('extractedData.services', extractedData.services);
-    console.log('matchedServices (from regex)', matchedServices);
-    
     // Process each service from extracted data
     for (const service of extractedData.services) {
       console.log('service', service);
@@ -130,24 +126,10 @@ export async function searchServices(extractedData, emailContent, matchedService
       }
 
       try {
-        // Check if this service was found via regex matching
-        const normalizedServiceName = service.servicio.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-        const isRegexMatched = matchedServices.some(matched => {
-          const normalizedMatched = matched.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-          return normalizedMatched === normalizedServiceName || 
-                 normalizedServiceName.includes(normalizedMatched) || 
-                 normalizedMatched.includes(normalizedServiceName);
-        });
-        
-        if (isRegexMatched) {
-          console.log(`✅ Service "${service.servicio}" was found via regex matching - using exact name for search`);
-        }
-        
         // Build search query from service information
-        // If it was regex matched, use the exact service name
-        const searchQuery = isRegexMatched ? service.servicio : buildSearchQuery(service);
+        const searchQuery = buildSearchQuery(service);
         
-        console.log(`🔍 Searching Azure Search for service: "${service.servicio}" (query: "${searchQuery}")`);
+        console.log(`🔍 Searching Azure Search for service: ${emailContent}`);
         
         // Build filter for Azure Search
         const filter = buildFilter(service);
