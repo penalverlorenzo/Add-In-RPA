@@ -6,6 +6,7 @@
 import { AzureOpenAI } from 'openai';
 import config from '../config/index.js';
 import { searchServices } from './servicesExtractionService.js';
+import { servicesList } from '../rpa/helpers/servicesList.js';
 
 let openaiClient = null;
 
@@ -18,6 +19,51 @@ function getOpenAIClient() {
         });
     }
     return openaiClient;
+}
+
+/**
+ * Find matching services in email content using regex
+ * @param {string} emailContent - Email content to search
+ * @returns {Array} Array of matched service names
+ */
+function findMatchingServices(emailContent) {
+    if (!emailContent || typeof emailContent !== 'string') {
+        return [];
+    }
+
+    const matches = [];
+    const normalizedContent = emailContent.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''); // Normalize to uppercase and remove accents
+    
+    for (const service of servicesList) {
+        // Normalize service name for comparison
+        const normalizedService = service.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        
+        // Create regex pattern - escape special characters and make it flexible
+        const escapedService = normalizedService.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        
+        // Try exact match first
+        if (normalizedContent.includes(normalizedService)) {
+            matches.push(service);
+            continue;
+        }
+        
+        // Try flexible match - split by spaces and check if all words are present
+        const serviceWords = normalizedService.split(/\s+/).filter(w => w.length > 2); // Filter out short words
+        if (serviceWords.length > 0) {
+            const allWordsPresent = serviceWords.every(word => {
+                // Check if word exists in content (with word boundaries for better matching)
+                const wordPattern = new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+                return wordPattern.test(emailContent);
+            });
+            
+            if (allWordsPresent && serviceWords.length >= 2) { // At least 2 words must match
+                matches.push(service);
+            }
+        }
+    }
+    
+    // Remove duplicates and return
+    return [...new Set(matches)];
 }
 
 /**
@@ -389,7 +435,7 @@ EXTRACCIÓN OPTIMIZADA PARA BÚSQUEDA EN AZURE SEARCH:
 - Los servicios extraídos se usarán para buscar en Azure Search, por lo que es CRÍTICO que:
   * El campo "servicio" contenga el NOMBRE COMPLETO del servicio tal como aparece en el catálogo
   * El campo "destino" contenga la ciudad (preferiblemente código como "MDZ", "BA", "COR" si está disponible, o nombre completo)
-  * Las fechas "in" y "out" estén en formato YYYY-MM-DD y sean válidas para filtrar por rango de fechas
+  * Las fechas "in" y "out" estén en formato YYYY-MM-DD y sean válidas para filtrar por rango de fechas (En caso de solo recibir una fecha, usa esta fecha para ambas fechas)
   * Si el email menciona un código de servicio o referencia específica, inclúyela en el nombre del servicio
   * Si el email menciona variantes u opciones (ej: "OPCION 1", "OPCIÓN 2"), inclúyelas en el nombre del servicio
 
@@ -422,8 +468,40 @@ async function extractReservationData(emailContent, userId = 'unknown', masterDa
     console.log(`🔍 Extracting reservation data for user ${userId}`);
     console.log(`📧 Email content length: ${emailContent.length} chars (truncated: ${truncatedContent.length})`);
 
+    // Find matching services in email content using regex
+    const matchedServices = findMatchingServices(emailContent);
+    console.log(`🔍 Found ${matchedServices.length} matching service(s) in email:`, matchedServices);
+
     // Build enhanced prompt with master data context
     let systemPrompt = EXTRACTION_SYSTEM_PROMPT;
+    
+    // Add services list to prompt for AI reference
+    if (servicesList && servicesList.length > 0) {
+        systemPrompt += `\n\n=== LISTA DE SERVICIOS DISPONIBLES ===\n`;
+        systemPrompt += `IMPORTANTE: Busca en el email si se menciona alguno de estos servicios. Si encuentras un servicio mencionado, usa el NOMBRE EXACTO de esta lista:\n\n`;
+        
+        // Show first 50 services to avoid token limit
+        const servicesToShow = servicesList.slice(0, 50);
+        servicesToShow.forEach((service, index) => {
+            systemPrompt += `${index + 1}. "${service}"\n`;
+        });
+        if (servicesList.length > 50) {
+            systemPrompt += `... y ${servicesList.length - 50} servicios más\n`;
+        }
+        systemPrompt += `\n`;
+    }
+    
+    // If we found matching services, tell AI to use them
+    if (matchedServices.length > 0) {
+        systemPrompt += `\n=== SERVICIOS DETECTADOS EN EL EMAIL ===\n`;
+        systemPrompt += `Se detectaron los siguientes servicios en el email usando búsqueda automática:\n`;
+        matchedServices.forEach((service, index) => {
+            systemPrompt += `${index + 1}. "${service}"\n`;
+        });
+        systemPrompt += `\nIMPORTANTE: Para estos servicios detectados, NO necesitas extraer el nombre del servicio (ya lo tenemos). `;
+        systemPrompt += `Solo extrae: destino, in, out, nts, basePax, descripcion, estado. `;
+        systemPrompt += `Usa el nombre del servicio EXACTO de la lista de arriba.\n\n`;
+    }
     
     if (masterData) {
         systemPrompt += `\n\n=== OPCIONES DISPONIBLES EN EL SISTEMA ===\n`;
@@ -505,11 +583,59 @@ async function extractReservationData(emailContent, userId = 'unknown', masterDa
         // Validate and normalize extracted data
         const validatedData = validateExtractionResult(extractedData);
 
+        // If we found services via regex, merge them with extracted services
+        if (matchedServices.length > 0) {
+            console.log(`🔗 Merging ${matchedServices.length} regex-matched service(s) with extracted services...`);
+            
+            // For each matched service, check if it's already in extracted services
+            for (const matchedService of matchedServices) {
+                const normalizedMatched = matchedService.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+                
+                // Check if this service is already in the extracted services
+                const alreadyExists = validatedData.services.some(extractedService => {
+                    if (!extractedService.servicio) return false;
+                    const normalizedExtracted = extractedService.servicio.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+                    return normalizedExtracted === normalizedMatched || 
+                           normalizedExtracted.includes(normalizedMatched) || 
+                           normalizedMatched.includes(normalizedExtracted);
+                });
+                
+                // If not found, add it with the matched name
+                if (!alreadyExists) {
+                    validatedData.services.push({
+                        servicio: matchedService,
+                        destino: null,
+                        in: null,
+                        out: null,
+                        nts: 0,
+                        basePax: 0,
+                        descripcion: null,
+                        estado: 'RQ'
+                    });
+                    console.log(`  ➕ Added matched service: ${matchedService}`);
+                } else {
+                    // Update existing service with matched name if it's more complete
+                    const existingService = validatedData.services.find(extractedService => {
+                        if (!extractedService.servicio) return false;
+                        const normalizedExtracted = extractedService.servicio.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+                        return normalizedExtracted === normalizedMatched || 
+                               normalizedExtracted.includes(normalizedMatched) || 
+                               normalizedMatched.includes(normalizedExtracted);
+                    });
+                    
+                    if (existingService && matchedService.length > existingService.servicio.length) {
+                        existingService.servicio = matchedService;
+                        console.log(`  ✏️ Updated service name to: ${matchedService}`);
+                    }
+                }
+            }
+        }
+
         // Enrich services with Azure Search data
         if (validatedData.services && validatedData.services.length > 0) {
             try {
                 console.log(`🔍 Enriching ${validatedData.services.length} service(s) with Azure Search data...`);
-                const enrichedServices = await searchServices(validatedData);
+                const enrichedServices = await searchServices(validatedData, emailContent, matchedServices);
                 validatedData.services = enrichedServices;
                 console.log(`✅ Services enriched: ${enrichedServices.length} service(s)`);
             } catch (error) {
