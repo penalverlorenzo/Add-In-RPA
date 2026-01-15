@@ -156,7 +156,7 @@ Extrae la siguiente información de los emails, prestando especial atención a l
      * DEBE ser una fecha válida en formato YYYY-MM-DD. Si no está clara, deja null
    - nts: Cantidad de noches (número). Calcula la diferencia entre "out" e "in" en días. Si no se puede calcular, deja 0.
    - basePax: Pasajeros base o cantidad de pasajeros (número). Extrae la cantidad de pasajeros mencionados para este detalle específico.
-   - servicio: Nombre del servicio (Texto), no debe ser detallado, sino que deben ser palabras clave. CRÍTICO: Este nombre se usará para buscar en Azure Search, por lo que si no se encuentra un nombre correcto, se debe buscar el nombre de la bodega o marca. 
+   - servicio: Nombre del servicio (Texto), máximo 3 palabras. CRÍTICO: Este nombre se usará para buscar en Azure Search, por lo que si no se encuentra un nombre correcto, se debe buscar el nombre de la bodega o marca. 
      * Para servicios: Extrae el nombre completo del servicio mencionado (ej: "WINE & RIDE LUJAN OPCION 1", "Mendocino Sunset: Horseback Riding", "Traslado Aeropuerto-Hotel")
      * NO uses abreviaciones ni descripciones genéricas. Si el email dice "Wine & Ride", usa "WINE & RIDE LUJAN" o el nombre que aparezca
      * Para hotel: tipo de habitación o categoría
