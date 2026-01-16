@@ -615,7 +615,7 @@ export async function addItemToReservation(page, service, itemText = 'Agregar Se
     // 3️⃣ Buscar Guardar SOLO dentro de ese diálogo
     const saveButton = dialog.locator(
       '.tool-button.save-and-close-button'
-    );
+    ).last();
     
     await saveButton.waitFor({ state: 'visible', timeout: 10000 });
     
