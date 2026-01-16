@@ -1,5 +1,5 @@
 import { takeScreenshot } from "./utils/screenshot.js";
-import { select2BySearch, fillInput } from "./helpers/utils.js";
+import { select2BySearch, fillInput, fillQuickFilterInput, fillQuickFilterDateRange, selectQuickFilterSelect2 } from "./helpers/utils.js";
 
 /**
  * Convierte fecha de formato YYYY-MM-DD a MM/DD/YYYY
@@ -22,38 +22,166 @@ function formatDateForInput(dateStr) {
 }
 
 /**
+ * Determina el tipo de item basado en el texto del botón
+ * @param {string} itemText - Texto del botón
+ * @returns {string} Tipo de item: 'servicio', 'hotel', 'eventual', 'programa'
+ */
+function getItemType(itemText) {
+    const text = itemText.toLowerCase();
+    if (text.includes('servicio')) return 'servicio';
+    if (text.includes('hotel')) return 'hotel';
+    if (text.includes('eventual')) return 'eventual';
+    if (text.includes('programa') || text.includes('paquete')) return 'programa';
+    return 'servicio'; // Default
+}
+
+/**
+ * Llena los campos del filtro rápido para servicios
+ */
+async function fillServiceQuickFilter(page, service) {
+    // Servicio
+    if (service.servicio) {
+        console.log(`🔍 Buscando servicio: ${service.servicio}`);
+        await fillQuickFilterInput(page, 'Servicio', service.servicio, false);
+        await page.waitForTimeout(500);
+        console.log(`✅ Servicio ${service.servicio} completado`);
+    }
+
+    // Proveedor (si está disponible en service)
+    if (service.proveedor) {
+        console.log(`🏢 Seleccionando proveedor: ${service.proveedor}`);
+        await selectQuickFilterSelect2(page, 'ServicioCodigoPrestador', service.proveedor);
+        await page.waitForTimeout(500);
+        console.log(`✅ Proveedor ${service.proveedor} seleccionado`);
+    }
+
+    // Ciudad
+    if (service.destino) {
+        console.log(`🌍 Seleccionando ciudad: ${service.destino}`);
+        await selectQuickFilterSelect2(page, 'ServicioCiudad', service.destino);
+        await page.waitForTimeout(500);
+        console.log(`✅ Ciudad ${service.destino} seleccionada`);
+    }
+
+    // Fecha
+    if (service.in) {
+        console.log(`📅 Llenando rango de fechas: ${service.in} - ${service.out || service.in}`);
+        await fillQuickFilterDateRange(page, service.in, service.out);
+        await page.waitForTimeout(500);
+        console.log(`✅ Fechas completadas`);
+    }
+}
+
+/**
+ * Llena los campos del filtro rápido para hoteles
+ */
+async function fillHotelQuickFilter(page, service) {
+    // Hotel
+    if (service.servicio) {
+        console.log(`🏨 Buscando hotel: ${service.servicio}`);
+        await fillQuickFilterInput(page, 'Hotel', service.servicio, false);
+        await page.waitForTimeout(500);
+        console.log(`✅ Hotel ${service.servicio} completado`);
+    }
+
+    // Ciudad
+    if (service.destino) {
+        console.log(`🌍 Seleccionando ciudad: ${service.destino}`);
+        await selectQuickFilterSelect2(page, 'Hotelciudad', service.destino);
+        await page.waitForTimeout(500);
+        console.log(`✅ Ciudad ${service.destino} seleccionada`);
+    }
+
+    // Fecha
+    if (service.in) {
+        console.log(`📅 Llenando rango de fechas: ${service.in} - ${service.out || service.in}`);
+        await fillQuickFilterDateRange(page, service.in, service.out);
+        await page.waitForTimeout(500);
+        console.log(`✅ Fechas completadas`);
+    }
+}
+
+/**
+ * Llena los campos del filtro rápido para programas
+ */
+async function fillProgramaQuickFilter(page, service) {
+    // Código (si está disponible)
+    if (service.codigo) {
+        console.log(`🔢 Buscando código: ${service.codigo}`);
+        await fillInput(page, 'input[id*="ppcod_paq"]', service.codigo, false);
+        await page.waitForTimeout(500);
+        console.log(`✅ Código ${service.codigo} completado`);
+    }
+
+    // Paquete
+    if (service.servicio) {
+        console.log(`📦 Buscando paquete: ${service.servicio}`);
+        await fillQuickFilterInput(page, 'Paquete', service.servicio, false);
+        await page.waitForTimeout(500);
+        console.log(`✅ Paquete ${service.servicio} completado`);
+    }
+
+    // Ciudad
+    if (service.destino) {
+        console.log(`🌍 Seleccionando ciudad: ${service.destino}`);
+        await selectQuickFilterSelect2(page, 'PaqueteCiudad', service.destino);
+        await page.waitForTimeout(500);
+        console.log(`✅ Ciudad ${service.destino} seleccionada`);
+    }
+
+    // Fecha
+    if (service.in) {
+        console.log(`📅 Llenando rango de fechas: ${service.in} - ${service.out || service.in}`);
+        await fillQuickFilterDateRange(page, service.in, service.out);
+        await page.waitForTimeout(500);
+        console.log(`✅ Fechas completadas`);
+    }
+}
+
+/**
+ * Llena el campo de eventual (es un select2 en el diálogo principal, no en filtro rápido)
+ */
+async function fillEventualField(page, service) {
+    if (service.servicio) {
+        console.log(`🎯 Buscando eventual: ${service.servicio}`);
+        // El selector para eventual es en el diálogo principal, no en filtro rápido
+        const eventualSelector = 'div[id^="s2id_"][id*="Ideventual"]';
+        await select2BySearch(page, eventualSelector, service.servicio);
+        await page.waitForTimeout(500);
+        console.log(`✅ Eventual ${service.servicio} seleccionado`);
+    }
+}
+
+/**
  * Agrega un servicio/item a la reserva y completa todos sus campos
  * @param {import('playwright').Page} page - Página de Playwright
  * @param {Object} service - Objeto del servicio con estructura unificada
- * @param {string} service.destino - Destino del servicio (ej: "Mendoza", "Buenos Aires")
+ * @param {string} service.servicio - Nombre del servicio/hotel/paquete/eventual
+ * @param {string} service.destino - Destino del servicio (ej: "Mendoza", "Buenos Aires", "MDZ")
+ * @param {string} service.proveedor - Proveedor del servicio (solo para servicios)
  * @param {string} service.in - Fecha de inicio en formato YYYY-MM-DD
  * @param {string} service.out - Fecha de fin en formato YYYY-MM-DD
- * @param {number} service.nts - Cantidad de noches
+ * @param {string} service.codigo - Código del paquete (solo para programas)
  * @param {string} service.estado - Código del estado (ej: "RQ", "AR", "OK", etc.)
  * @param {string} itemText - Texto del botón para agregar el item (default: 'Agregar Servicio')
  */
 export async function addItemToReservation(page, service, itemText = 'Agregar Servicio') {
-    console.log(`👤 Procesando servicio: ${service.servicio || service.descripcion || 'Sin descripción'}`);
+    console.log(`👤 Procesando item: ${service.servicio || service.descripcion || 'Sin descripción'}`);
+    
+    // Determinar tipo de item
+    const itemType = getItemType(itemText);
+    console.log(`📋 Tipo de item detectado: ${itemType}`);
     
     // Click en el botón para agregar el item
-    // El botón tiene estructura: div.tool-button.add-button > div.button-outer > span.button-inner (con el texto)
-    // Normalizar el texto (quitar espacios al inicio y final)
     console.log(`🔘 Buscando botón: "${itemText}"`);
     
-    // Buscar el div.tool-button.add-button que contiene un span.button-inner con el texto
-    // Usamos filter con has para encontrar el botón que contiene el span con el texto
     const buttonLocator = page.locator('div.tool-button.add-button')
         .filter({ has: page.locator('span.button-inner', { hasText: itemText }) });
     
-    // Esperar a que el elemento esté en el DOM (attached) en lugar de visible
-    // ya que puede estar oculto inicialmente
     await buttonLocator.waitFor({ state: 'attached', timeout: 30000 });
-    
-    // Hacer scroll al elemento para asegurar que sea visible
     await buttonLocator.evaluate(el => el.scrollIntoView({ behavior: 'smooth', block: 'center' }));
     await page.waitForTimeout(500);
     
-    // Intentar hacer click, si falla por visibilidad, usar force: true
     try {
         await buttonLocator.waitFor({ state: 'visible', timeout: 5000 });
         await buttonLocator.click();
@@ -63,57 +191,53 @@ export async function addItemToReservation(page, service, itemText = 'Agregar Se
     }
     
     await page.waitForTimeout(2000);
-    await takeScreenshot(page, '18-addItemToReservation-01-item-added');
+    await takeScreenshot(page, `18-addItemToReservation-01-${itemType}-added`);
     console.log(`✅ Botón "${itemText}" clickeado`);
     
-    // Seleccionar el destino del servicio si está disponible
-    if (service.destino) {
-        console.log(`🌍 Seleccionando destino: ${service.destino}`);
-        
-        // El selector del select de destino debe ser específico para el diálogo del item
-        // El patrón del diálogo es: Det_rvaEditorDialog (no Det_rvaoWidgetEditor)
-        // Esto evita conflictos con otros selects de destino en la página
-        const destinoSelector = 'div[id^="s2id_"][id*="Det_rvaEditorDialog"][id*="Destino"]';
-        
-        // Buscar por el nombre del destino (ej: "Mendoza" encontrará opciones que contengan "Mendoza")
-        await select2BySearch(page, destinoSelector, service.destino);
-        
+    // Para eventual, no hay botón de búsqueda, se llena directamente
+    if (itemType === 'eventual') {
+        await fillEventualField(page, service);
+    } else {
+        // Click en el botón de búsqueda (inplace-button inplace-action)
+        const searchButton = page.locator('a.inplace-button.inplace-action');
+        await searchButton.waitFor({ state: 'visible', timeout: 5000 });
+        await searchButton.click();
         await page.waitForTimeout(1000);
-        await takeScreenshot(page, '18-addItemToReservation-02-destino-selected');
-        console.log(`✅ Destino ${service.destino} seleccionado`);
+        
+        // Llenar campos según el tipo de item
+        switch (itemType) {
+            case 'servicio':
+                await fillServiceQuickFilter(page, service);
+                break;
+            case 'hotel':
+                await fillHotelQuickFilter(page, service);
+                break;
+            case 'programa':
+                await fillProgramaQuickFilter(page, service);
+                break;
+        }
     }
-    
-    // Llenar campo In_ (fecha de inicio)
+    // Llenar campos del diálogo principal (comunes a todos los tipos)
+    // Fecha de inicio
     if (service.in) {
         console.log(`📅 Llenando fecha de inicio: ${service.in}`);
         const inDateFormatted = formatDateForInput(service.in);
         if (inDateFormatted) {
-            // Selector: input con id que contiene "Det_rvaEditorDialog" y termina con "_In_"
             await fillInput(page, 'input[id*="Det_rvaEditorDialog"][id$="_In_"]', inDateFormatted, true);
             await page.waitForTimeout(500);
             console.log(`✅ Fecha de inicio ${inDateFormatted} completada`);
         }
     }
     
-    // Llenar campo Out (fecha de fin)
+    // Fecha de fin
     if (service.out) {
         console.log(`📅 Llenando fecha de fin: ${service.out}`);
         const outDateFormatted = formatDateForInput(service.out);
         if (outDateFormatted) {
-            // Selector: input con id que contiene "Det_rvaEditorDialog" y termina con "_Out"
             await fillInput(page, 'input[id*="Det_rvaEditorDialog"][id$="_Out"]', outDateFormatted, true);
             await page.waitForTimeout(500);
             console.log(`✅ Fecha de fin ${outDateFormatted} completada`);
         }
-    }
-    
-    // Llenar campo Nts (noches)
-    if (service.nts !== undefined && service.nts !== null) {
-        console.log(`🌙 Llenando cantidad de noches: ${service.nts}`);
-        // Selector: input con id que contiene "Det_rvaEditorDialog" y termina con "_Nts"
-        await fillInput(page, 'input[id*="Det_rvaEditorDialog"][id$="_Nts"]', String(service.nts), false);
-        await page.waitForTimeout(500);
-        console.log(`✅ Cantidad de noches ${service.nts} completada`);
     }
     
     // Seleccionar el estado del servicio si está disponible
