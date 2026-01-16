@@ -622,8 +622,11 @@ export async function addItemToReservation(page, service, itemText = 'Agregar Se
     );
     
     // ⏳ Esperar a que el overlay desaparezca
-    const overlay = page.locator('.ui-widget-overlay.ui-front');
-    await overlay.waitFor({ state: 'hidden', timeout: 10000 });
+    await page.waitForSelector('.ui-widget-overlay.ui-front', {
+        state: 'hidden',
+        timeout: 10000
+      });
+      
     
     await saveButton.waitFor({ state: 'visible', timeout: 10000 });
     await saveButton.click();
