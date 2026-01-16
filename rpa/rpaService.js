@@ -43,9 +43,18 @@ export async function runRpa(reservationData = null) {
         await newReservation(page, reservationData);
         console.log('✅ Modal de nueva reserva completado');
         if (reservationData && reservationData.hotel) {
-            console.log(`\n🏨 Procesando hotel ${reservationData.hotel.destino}`);
-            await addItemToReservation(page, reservationData.hotel, 'Agregar Hotel');
-            console.log('✅ Hotel guardado');
+            // Verificar que hotel sea un objeto, no un string
+            const hotel = typeof reservationData.hotel === 'string' 
+                ? JSON.parse(reservationData.hotel) 
+                : reservationData.hotel;
+            
+            if (hotel && typeof hotel === 'object' && hotel.destino) {
+                console.log(`\n🏨 Procesando hotel ${hotel.destino || hotel.servicio || 'sin nombre'}`);
+                await addItemToReservation(page, hotel, 'Agregar Hotel');
+                console.log('✅ Hotel guardado');
+            } else {
+                console.log(`⚠️ Hotel no válido o sin datos:`, hotel);
+            }
         }
         if (reservationData && reservationData.services && reservationData.services.length > 0) {
             for (let i = 0; i < reservationData.services.length; i++) {

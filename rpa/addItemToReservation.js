@@ -198,8 +198,24 @@ export async function addItemToReservation(page, service, itemText = 'Agregar Se
     if (itemType === 'eventual') {
         await fillEventualField(page, service);
     } else {
-        // Click en el botón de búsqueda (inplace-button inplace-action)
-        const searchButton = page.locator('a.inplace-button.inplace-action');
+        // Click en el botón de búsqueda específico según el tipo de item
+        // Usar el título para identificar el botón correcto
+        let searchButtonTitle;
+        switch (itemType) {
+            case 'servicio':
+                searchButtonTitle = 'Búsqueda de Tarifas de Servicio';
+                break;
+            case 'hotel':
+                searchButtonTitle = 'Búsqueda de Tarifas de Hoteles';
+                break;
+            case 'programa':
+                searchButtonTitle = 'Búsqueda de Tarifas de Paquetes';
+                break;
+            default:
+                searchButtonTitle = 'Búsqueda de Tarifas de Servicio';
+        }
+        
+        const searchButton = page.locator(`a.inplace-button.inplace-action[title="${searchButtonTitle}"]`);
         await searchButton.waitFor({ state: 'visible', timeout: 5000 });
         await searchButton.click();
         await page.waitForTimeout(1000);

@@ -7,6 +7,9 @@
 
 import { crearReservaEnITraffic } from './rpaClient.js';
 
+// Variable global para almacenar los datos extraídos del email
+let extractedDataGlobal = null;
+
 // Estado global para datos maestros
 const masterData = {
   sellers: [],
@@ -396,6 +399,9 @@ async function run() {
           try {
             // Llamar al servicio de extracción con IA
             const extractedData = await extraerDatosConIA(cuerpoCorreo);
+            
+            // Guardar los datos extraídos globalmente para usarlos al crear la reserva
+            extractedDataGlobal = extractedData;
             
             // Ocultar loader
             loader.style.display = "none";
@@ -1363,8 +1369,8 @@ async function ejecutarCrearReserva() {
       botonCrearReserva.querySelector('.ms-Button-label').textContent = "⏳ Procesando...";
     }
     
-    // Llamar al servicio RPA con los datos de pasajeros y reserva
-    const resultado = await crearReservaEnITraffic(todosPasajeros, datosReserva);
+    // Llamar al servicio RPA con los datos de pasajeros, reserva y datos extraídos (hotel, services)
+    const resultado = await crearReservaEnITraffic(todosPasajeros, datosReserva, extractedDataGlobal || {});
     
     mostrarMensaje("¡Reserva creada exitosamente en iTraffic!", "success");
     

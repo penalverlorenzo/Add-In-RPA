@@ -13,10 +13,11 @@ const RPA_SERVICE_URL = typeof RPA_API_URL !== 'undefined'
  * Transforma los datos del formulario al formato esperado por el RPA
  * @param {Array} pasajeros - Array de objetos con datos de pasajeros
  * @param {Object} datosReserva - Datos de la reserva del formulario
+ * @param {Object} extractedData - Datos extraídos del email (opcional, incluye hotel y services)
  * @returns {Object} Datos formateados para el RPA
  */
-function transformarDatosParaRPA(pasajeros, datosReserva = {}) {
-  return {
+function transformarDatosParaRPA(pasajeros, datosReserva = {}, extractedData = {}) {
+  const datosRPA = {
     passengers: pasajeros.map(p => ({
       lastName: p.apellido || '',
       firstName: p.nombre || '',
@@ -36,6 +37,18 @@ function transformarDatosParaRPA(pasajeros, datosReserva = {}) {
     travelDate: formatearFecha(datosReserva.fechaViaje) || '12/01/2026',
     seller: datosReserva.vendedor || 'TEST TEST'
   };
+
+  // Incluir hotel si está disponible (como objeto, no string)
+  if (extractedData.hotel && typeof extractedData.hotel === 'object') {
+    datosRPA.hotel = extractedData.hotel;
+  }
+
+  // Incluir services si está disponible
+  if (extractedData.services && Array.isArray(extractedData.services)) {
+    datosRPA.services = extractedData.services;
+  }
+
+  return datosRPA;
 }
 
 /**
@@ -58,12 +71,13 @@ function formatearFecha(fecha) {
  * Envía los datos al servicio RPA para crear la reserva
  * @param {Array} pasajeros - Array de objetos con datos de pasajeros del formulario
  * @param {Object} datosReserva - Datos de la reserva del formulario
+ * @param {Object} extractedData - Datos extraídos del email (opcional, incluye hotel y services)
  * @returns {Promise<Object>} Resultado de la operación
  */
-export async function crearReservaEnITraffic(pasajeros, datosReserva = {}) {
+export async function crearReservaEnITraffic(pasajeros, datosReserva = {}, extractedData = {}) {
   try {
     // Transformar datos al formato del RPA
-    const datosRPA = transformarDatosParaRPA(pasajeros, datosReserva);
+    const datosRPA = transformarDatosParaRPA(pasajeros, datosReserva, extractedData);
     
     // Enviar petición al servidor RPA
     const response = await fetch(RPA_SERVICE_URL, {
