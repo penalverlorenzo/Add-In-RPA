@@ -193,7 +193,21 @@ export async function addItemToReservation(page, service, itemText = 'Agregar Se
     await page.waitForTimeout(2000);
     await takeScreenshot(page, `18-addItemToReservation-01-${itemType}-added`);
     console.log(`✅ Botón "${itemText}" clickeado`);
-    
+    if (service.estado) {
+        console.log(`📋 Seleccionando estado: ${service.estado}`);
+        
+        // El selector del select de estado debe ser específico para el diálogo del item
+        // El patrón del diálogo es: Det_rvaEditorDialog (no Det_rvaoWidgetEditor)
+        // Esto evita conflictos con otros selects de estado en la página
+        const estadoSelector = 'div[id^="s2id_"][id*="Det_rvaEditorDialog"][id*="Estadoope"]';
+        
+        // Buscar por el código del estado (ej: "AR" encontrará "AR - FAVOR RESERVAR [AR]")
+        await select2BySearch(page, estadoSelector, service.estado);
+        
+        await page.waitForTimeout(1000);
+        await takeScreenshot(page, '18-addItemToReservation-04-estado-selected');
+        console.log(`✅ Estado ${service.estado} seleccionado`);
+    }
     // Para eventual, no hay botón de búsqueda, se llena directamente
     if (itemType === 'eventual') {
         await fillEventualField(page, service);
@@ -263,21 +277,7 @@ export async function addItemToReservation(page, service, itemText = 'Agregar Se
     }
     
     // Seleccionar el estado del servicio si está disponible
-    if (service.estado) {
-        console.log(`📋 Seleccionando estado: ${service.estado}`);
-        
-        // El selector del select de estado debe ser específico para el diálogo del item
-        // El patrón del diálogo es: Det_rvaEditorDialog (no Det_rvaoWidgetEditor)
-        // Esto evita conflictos con otros selects de estado en la página
-        const estadoSelector = 'div[id^="s2id_"][id*="Det_rvaEditorDialog"][id*="Estadoope"]';
-        
-        // Buscar por el código del estado (ej: "AR" encontrará "AR - FAVOR RESERVAR [AR]")
-        await select2BySearch(page, estadoSelector, service.estado);
-        
-        await page.waitForTimeout(1000);
-        await takeScreenshot(page, '18-addItemToReservation-04-estado-selected');
-        console.log(`✅ Estado ${service.estado} seleccionado`);
-    }
+    
     
     await takeScreenshot(page, '18-addItemToReservation-05-all-fields-completed');
     console.log('✅ Item agregado con todos los campos completados');
