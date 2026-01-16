@@ -606,20 +606,24 @@ export async function addItemToReservation(page, service, itemText = 'Agregar Se
     // Buscamos el diálogo que contiene el campo de estado y luego el botón dentro de él
     console.log('💾 Buscando botón Guardar...');
 
-    const dialog = page.locator(
-      'div[role="dialog"].ui-dialog:has(.ui-dialog-title:text("Nuevo Items"))'
-    );
+    // 1️⃣ Tomar el diálogo ACTIVO (el que está al frente)
+    const dialog = page.locator('div.ui-dialog.ui-front').last();
     
+    // 2️⃣ Asegurar que esté visible
     await dialog.waitFor({ state: 'visible', timeout: 10000 });
     
+    // 3️⃣ Buscar Guardar SOLO dentro de ese diálogo
     const saveButton = dialog.locator(
       '.tool-button.save-and-close-button'
     );
     
     await saveButton.waitFor({ state: 'visible', timeout: 10000 });
+    
+    // 4️⃣ Click seguro
     await saveButton.click();
     
     await takeScreenshot(page, '18-addItemToReservation-06-saved');
     await page.waitForTimeout(1000);
     console.log('✅ Item guardado');
+    
 }
