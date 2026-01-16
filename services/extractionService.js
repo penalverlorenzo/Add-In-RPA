@@ -121,9 +121,25 @@ Extrae la siguiente información de los emails, prestando especial atención a l
    
    - "programa": Cuando el email menciona programas de viaje, paquetes turísticos, itinerarios completos, circuitos
    
-   IMPORTANTE: Todos los tipos de detalle (hotel, servicio, eventual, programa) utilizan la MISMA estructura de datos:
+   IMPORTANTE: El tipo "hotel" tiene una estructura ESPECIAL diferente a los otros tipos:
    
-   Para cada detalle, extrae la siguiente información:
+   Para HOTEL, extrae ÚNICAMENTE la siguiente información:
+   - nombre_hotel: Nombre completo del hotel (ej: "Hotel Sheraton Mendoza", "Hilton Buenos Aires")
+   - tipo_habitacion: Tipo de habitación. DEBE ser uno de estos CÓDIGOS:
+     * "SGL" para: Single, sencilla, individual, 1 persona, single room
+     * "DWL" para: Double, doble, 2 personas, matrimonial, double room, twin
+     * "TPL" para: Triple, 3 personas, triple room
+     * "CPL" para: Cuádruple, 4 personas, cuádruple, quadruple room, family
+     * Si no encuentras información clara, usa "DWL" como predeterminado
+   - Ciudad: Ciudad donde está ubicado el hotel (ej: "Mendoza", "Buenos Aires", "MDZ"). 
+     * Puede ser código de ciudad (MDZ, BA) o nombre completo
+     * Prioriza códigos si están disponibles en el email
+   - Categoria: Categoría o tipo de habitación. DEBE ser un string que describa la categoría de la habitación.
+     * Ejemplos válidos: "Habitacion Clasica", "Habitacion Deluxe", "Habitacion Premier", "Suite", "Family Plan", "Standard Room", "Superior Room"
+     * Si el email menciona "clásica", "deluxe", "premier", "suite", "family", etc., inclúyelo en este campo
+     * Si no encuentras información, deja null
+   
+   Para servicio, eventual y programa, extrae la siguiente información (estructura unificada):
    - destino: Destino o ubicación (Texto). DEBES INFERIR el destino analizando inteligentemente la información disponible:
      * CRÍTICO: Este campo se usará para buscar en Azure Search, donde la ciudad puede ser un código (ej: "MDZ" para Mendoza) o nombre completo
      * Analiza la DESCRIPCIÓN del detalle para encontrar referencias a ciudades, regiones o destinos
@@ -330,14 +346,10 @@ Responde ÚNICAMENTE con JSON válido en este formato exacto:
   "reservationCode": "string | null",
   "detailType": "hotel | servicio | eventual | programa | null",
   "hotel": {
-    "destino": "string | null",
-    "in": "YYYY-MM-DD | null",
-    "out": "YYYY-MM-DD | null",
-    "nts": 0,
-    "basePax": 0,
-    "servicio": "string | null",
-    "descripcion": "string | null",
-    "estado": "LI | OK | WL | RM | NN | RQ | LK | RE | MQ | CL | CA | CX | EM | EN | AR | HK | PE | NO | NC | PF | AO | CO | GX | EO | KL | MI | VO | null"
+    "nombre_hotel": "string | null",
+    "tipo_habitacion": "SGL | DWL | TPL | CPL | null",
+    "Ciudad": "string | null",
+    "Categoria": "string | null"
   },
   "services": [
     {
@@ -376,16 +388,25 @@ El campo "confidence" debe reflejar tu nivel de confianza en la extracción (0.0
 
 IMPORTANTE: 
 - El campo "detailType" debe identificar el tipo principal de detalle solicitado o confirmado en el email
-- Si el detalle es "hotel", completa el objeto "hotel" con la estructura unificada
+- Si el detalle es "hotel", completa el objeto "hotel" con la estructura ESPECIAL: nombre_hotel, tipo_habitacion, Ciudad, Categoria
+  * NO uses la estructura unificada (destino, in, out, etc.) para hoteles
+  * El objeto hotel SOLO debe contener: nombre_hotel, tipo_habitacion, Ciudad, Categoria
 - Si el detalle es "servicio", "eventual" o "programa", agrégalo al array "services" con la estructura unificada
-- Todos los tipos de detalle usan la misma estructura: destino, in, out, nts, basePax, servicio, descripcion, estado
-- El campo "estado" DEBE ser uno de los códigos válidos listados arriba
-- Calcula "nts" (noches) como la diferencia en días entre "out" e "in" si ambas fechas están disponibles
+- Los servicios/eventuales/programas usan la estructura: destino, in, out, nts, basePax, servicio, descripcion, estado
+- El campo "estado" DEBE ser uno de los códigos válidos listados arriba (solo para servicios/eventuales/programas)
+- Calcula "nts" (noches) como la diferencia en días entre "out" e "in" si ambas fechas están disponibles (solo para servicios/eventuales/programas)
 - Si el email menciona múltiples servicios/eventuales/programas, agrégalos todos al array "services"
-- Si el email menciona un hotel, usa el objeto "hotel" (solo uno)
+- Si el email menciona un hotel, usa el objeto "hotel" (solo uno) con la estructura especial
 - Si no se puede identificar un tipo de detalle claro, deja detailType como null y completa solo los campos que encuentres
 
-EXTRACCIÓN OPTIMIZADA PARA BÚSQUEDA EN AZURE SEARCH:
+EXTRACCIÓN ESPECIAL PARA HOTELES:
+- El objeto "hotel" tiene una estructura diferente y simplificada:
+  * nombre_hotel: Extrae el nombre completo del hotel mencionado en el email
+  * tipo_habitacion: Identifica el tipo de habitación y usa el código correspondiente (SGL, DWL, TPL, CPL)
+  * Ciudad: Extrae la ciudad donde está el hotel (preferiblemente código como "MDZ", "BA" si está disponible)
+  * Categoria: Extrae la categoría o tipo de habitación mencionada (ej: "Habitacion Clasica", "Deluxe", "Suite")
+
+EXTRACCIÓN OPTIMIZADA PARA BÚSQUEDA EN AZURE SEARCH (SERVICIOS):
 - Los servicios extraídos se usarán para buscar en Azure Search, por lo que es CRÍTICO que:
   * El campo "servicio" contenga el NOMBRE COMPLETO del servicio tal como aparece en el catálogo
   * El campo "destino" contenga la ciudad (preferiblemente código como "MDZ", "BA", "COR" si está disponible, o nombre completo)
@@ -713,18 +734,32 @@ function validateExtractionResult(data) {
         };
     };
     
-    // Validate hotel (unified structure as object)
-    validated.hotel = validateUnifiedDetail(data.hotel);
-    
-    // Legacy support: populate legacy fields from hotel if available
-    if (validated.hotel) {
-        validated.checkIn = validated.hotel.in;
-        validated.checkOut = validated.hotel.out;
+    // Validate hotel (special structure: nombre_hotel, tipo_habitacion, Ciudad, Categoria)
+    if (data.hotel && typeof data.hotel === 'object') {
+        // Validar tipo de habitación
+        const validRoomTypes = ['SGL', 'DWL', 'TPL', 'CPL'];
+        const tipoHabitacion = data.hotel.tipo_habitacion;
+        const validatedTipoHabitacion = validRoomTypes.includes(tipoHabitacion) ? tipoHabitacion : null;
+        
+        validated.hotel = {
+            nombre_hotel: sanitizeString(data.hotel.nombre_hotel),
+            tipo_habitacion: validatedTipoHabitacion,
+            Ciudad: sanitizeString(data.hotel.Ciudad),
+            Categoria: sanitizeString(data.hotel.Categoria)
+        };
+        
+        // Si todos los campos son null, establecer hotel como null
+        if (!validated.hotel.nombre_hotel && !validated.hotel.tipo_habitacion && 
+            !validated.hotel.Ciudad && !validated.hotel.Categoria) {
+            validated.hotel = null;
+        }
     } else {
-        // Legacy support: if checkIn/checkOut are separate fields
-        validated.checkIn = validateDate(data.checkIn);
-        validated.checkOut = validateDate(data.checkOut);
+        validated.hotel = null;
     }
+    
+    // Legacy support: populate legacy fields from checkIn/checkOut if available
+    validated.checkIn = validateDate(data.checkIn);
+    validated.checkOut = validateDate(data.checkOut);
     
     // Validate services (array of unified detail objects)
     // Combine servicio, eventual, programa from old format, or use services array from new format
