@@ -156,10 +156,8 @@ async function selectBestMatchFromTable(page, service, itemType) {
     await okButton.waitFor({ state: 'visible', timeout: 10000 });
     
     // Encontrar el diálogo que contiene este botón OK usando evaluateHandle
-    const dialogHandle = await okButton.evaluateHandle(el => {
-        return el.closest('.ui-dialog');
-    });
-    const dialog = page.locator(dialogHandle);
+    const dialog = okButton.locator('xpath=ancestor::div[contains(@class,"ui-dialog")]');
+
     await dialog.waitFor({ state: 'visible', timeout: 5000 });
     
     await page.waitForTimeout(1500); // Dar tiempo para que se carguen los resultados
