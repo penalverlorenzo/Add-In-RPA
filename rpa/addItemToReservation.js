@@ -606,29 +606,17 @@ export async function addItemToReservation(page, service, itemText = 'Agregar Se
     // Buscamos el diálogo que contiene el campo de estado y luego el botón dentro de él
     console.log('💾 Buscando botón Guardar...');
 
-    /* const estadoField = page.locator(
-      'div[id^="s2id_"][id*="Det_rvaEditorDialog"][id*="Estadoope"]'
-    );
-    await estadoField.waitFor({ state: 'visible', timeout: 10000 });
-    
-    const dialogLocator = page
-      .locator('.ui-dialog:visible')
-      .filter({ has: estadoField })
-      .first(); */
-    
-    const saveButton = page.locator(
-      '.tool-button.save-and-close-button',
-      { hasText: 'Guardar' }
+    const dialog = page.locator(
+      'div[role="dialog"].ui-dialog:has(.ui-dialog-title:text("Nuevo Items"))'
     );
     
-    // ⏳ Esperar a que el overlay desaparezca
-  /*   await page.waitForSelector('.ui-widget-overlay.ui-front', {
-        state: 'hidden',
-        timeout: 10000
-      });
-       */
+    await dialog.waitFor({ state: 'visible', timeout: 10000 });
     
-    /* await saveButton.waitFor({ state: 'visible', timeout: 10000 }); */
+    const saveButton = dialog.locator(
+      '.tool-button.save-and-close-button'
+    );
+    
+    await saveButton.waitFor({ state: 'visible', timeout: 10000 });
     await saveButton.click();
     
     await takeScreenshot(page, '18-addItemToReservation-06-saved');
