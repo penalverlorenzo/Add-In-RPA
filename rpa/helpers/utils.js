@@ -117,12 +117,18 @@ export async function fillQuickFilterDateRange(page, fechaDesde, fechaHasta = nu
     const desdeSelector = 'input[id*="FecDesde"]';
     await fillInput(page, desdeSelector, desdeFormatted, true);
     await page.waitForTimeout(500);
-
+    let dateContainer;
     // Si hay fecha hasta, llenar el segundo input de fecha
     if (hastaFormatted) {
         // El segundo input de fecha está después del separador "-" en el mismo div.quick-filter-item
         // Buscamos el input de fecha que está después del separador range-separator
-        const hastaSelector = 'div.quick-filter-item input.s-DateEditor.hasDatepicker:not([id*="FecDesde"])';
+        const hastaSelector = 'div.quick-filter-item:has(span.quick-filter-label:text("Fecha")) span.range-separator + input';
+        console.log(
+            await page.locator(
+              'div.quick-filter-item span.range-separator + input'
+            ).count()
+          );
+          
         // Esperar un poco para que el segundo input esté disponible
         await page.waitForTimeout(300);
         await fillInput(page, hastaSelector, hastaFormatted, true);
