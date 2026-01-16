@@ -606,7 +606,7 @@ export async function addItemToReservation(page, service, itemText = 'Agregar Se
     // Buscamos el diálogo que contiene el campo de estado y luego el botón dentro de él
     console.log('💾 Buscando botón Guardar...');
 
-    const estadoField = page.locator(
+    /* const estadoField = page.locator(
       'div[id^="s2id_"][id*="Det_rvaEditorDialog"][id*="Estadoope"]'
     );
     await estadoField.waitFor({ state: 'visible', timeout: 10000 });
@@ -614,9 +614,9 @@ export async function addItemToReservation(page, service, itemText = 'Agregar Se
     const dialogLocator = page
       .locator('.ui-dialog:visible')
       .filter({ has: estadoField })
-      .first();
+      .first(); */
     
-    const saveButton = dialogLocator.locator(
+    const saveButton = page.locator(
       '.tool-button.save-and-close-button',
       { hasText: 'Guardar' }
     );
