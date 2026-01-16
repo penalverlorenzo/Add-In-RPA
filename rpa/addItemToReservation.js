@@ -150,19 +150,30 @@ function calculateMatchScore(rowData, serviceData, itemType) {
 async function selectBestMatchFromTable(page, service, itemType) {
     console.log(`🔍 Buscando mejor coincidencia en la tabla para ${itemType}...`);
     
-    // Buscar el diálogo que contiene la tabla de resultados
-    // El diálogo debe tener el botón de búsqueda y la tabla
-    const dialog = page.locator('.ui-dialog:visible').filter({ 
-        has: page.locator('.slick-viewport, .grid-canvas') 
-    }).first();
+    // Buscar el botón OK del diálogo de búsqueda de tarifas
+    // Este es el diálogo que se abre después del botón de búsqueda
+    const okButton = page.locator('div.ui-dialog-buttonset button:has-text("OK")').first();
+    await okButton.waitFor({ state: 'visible', timeout: 10000 });
     
-    // Esperar a que aparezca la tabla de resultados dentro del diálogo
-    const tableContainer = dialog.locator('.slick-viewport, .grid-canvas');
-    await tableContainer.waitFor({ state: 'visible', timeout: 10000 });
+    // Encontrar el diálogo que contiene este botón OK usando evaluateHandle
+    const dialogHandle = await okButton.evaluateHandle(el => {
+        return el.closest('.ui-dialog');
+    });
+    const dialog = page.locator(dialogHandle);
+    await dialog.waitFor({ state: 'visible', timeout: 5000 });
+    
     await page.waitForTimeout(1500); // Dar tiempo para que se carguen los resultados
     
-    // Obtener todas las filas dentro del diálogo (excluyendo las filas de grupo)
-    const rows = dialog.locator('div.ui-widget-content.slick-row:not(.slick-group)');
+    // Buscar la tabla dentro del diálogo - usar el grid-canvas que contiene las filas de datos
+    // El grid-canvas-top-grid-canvas-left es el que contiene las filas principales
+    // Buscar dentro del contenido del diálogo específicamente
+    const dialogContent = dialog.locator('.ui-dialog-content');
+    const tableContainer = dialogContent.locator('.grid-canvas.grid-canvas-top.grid-canvas-left').first();
+    await tableContainer.waitFor({ state: 'visible', timeout: 10000 });
+    
+    // Obtener todas las filas dentro del grid-canvas del diálogo (excluyendo las filas de grupo)
+    // Buscar las filas dentro del grid-canvas específico del diálogo
+    const rows = tableContainer.locator('div.ui-widget-content.slick-row:not(.slick-group)');
     const rowCount = await rows.count();
     
     console.log(`📊 Encontradas ${rowCount} filas en la tabla`);
@@ -218,9 +229,9 @@ async function selectBestMatchFromTable(page, service, itemType) {
                     categoria: await getCellText(row, 9)
                 };
                 // Intentar obtener el nombre del grupo si existe
-                // Buscar el grupo más cercano antes de esta fila
+                // Buscar el grupo más cercano antes de esta fila dentro del mismo grid-canvas
                 try {
-                    const allGroups = dialog.locator('div.slick-row.slick-group');
+                    const allGroups = tableContainer.locator('div.slick-row.slick-group');
                     const groupCount = await allGroups.count();
                     let foundGroup = false;
                     
@@ -277,9 +288,7 @@ async function selectBestMatchFromTable(page, service, itemType) {
         await bestRow.click();
         await page.waitForTimeout(500);
         
-        // Hacer click en el botón OK dentro del diálogo
-        const okButton = dialog.locator('div.ui-dialog-buttonset button:has-text("OK")');
-        await okButton.waitFor({ state: 'visible', timeout: 5000 });
+        // Hacer click en el botón OK dentro del diálogo (usar el mismo okButton que encontramos al inicio)
         await okButton.click();
         await page.waitForTimeout(1000);
         console.log(`✅ Fila seleccionada y modal cerrado`);
@@ -290,8 +299,6 @@ async function selectBestMatchFromTable(page, service, itemType) {
             console.log(`📌 Seleccionando primera fila por defecto`);
             await rows.first().click();
             await page.waitForTimeout(500);
-            const okButton = dialog.locator('div.ui-dialog-buttonset button:has-text("OK")');
-            await okButton.waitFor({ state: 'visible', timeout: 5000 });
             await okButton.click();
             await page.waitForTimeout(1000);
             console.log(`✅ Primera fila seleccionada y modal cerrado`);
