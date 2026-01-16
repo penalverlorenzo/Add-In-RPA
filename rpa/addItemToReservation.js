@@ -201,21 +201,27 @@ export async function addItemToReservation(page, service, itemText = 'Agregar Se
         // Click en el botón de búsqueda específico según el tipo de item
         // Usar el título para identificar el botón correcto
         let searchButtonTitle;
+        let searchButtonSelector;
         switch (itemType) {
             case 'servicio':
                 searchButtonTitle = 'Búsqueda de Tarifas de Servicio';
+                searchButtonSelector = 'div.field.Cod_serv';
                 break;
-            case 'hotel':
-                searchButtonTitle = 'Búsqueda de Tarifas de Hoteles';
-                break;
-            case 'programa':
-                searchButtonTitle = 'Búsqueda de Tarifas de Paquetes';
-                break;
+                case 'hotel':
+                    searchButtonTitle = 'Búsqueda de Tarifas de Hoteles';
+                    searchButtonSelector = 'div.field.Cod_prov';
+                    break;
+                    case 'programa':
+                        searchButtonTitle = 'Búsqueda de Tarifas de Paquetes';
+                        searchButtonSelector = 'div.field.Idpaquete';
+                        break;
             default:
                 searchButtonTitle = 'Búsqueda de Tarifas de Servicio';
+                searchButtonSelector = 'div.field.Cod_serv';
         }
         
-        const searchButton = page.locator(`a.inplace-button.inplace-action[title="${searchButtonTitle}"]`);
+        const searchButton = page.locator(searchButtonSelector).locator(`a.inplace-button.inplace-action[title="${searchButtonTitle}"]`);
+
         await searchButton.waitFor({ state: 'visible', timeout: 5000 });
         await searchButton.click();
         await page.waitForTimeout(1000);
