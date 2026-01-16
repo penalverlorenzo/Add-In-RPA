@@ -43,17 +43,34 @@ export async function runRpa(reservationData = null) {
         await newReservation(page, reservationData);
         console.log('✅ Modal de nueva reserva completado');
         if (reservationData && reservationData.hotel) {
-            // Verificar que hotel sea un objeto, no un string
-            const hotel = typeof reservationData.hotel === 'string' 
-                ? JSON.parse(reservationData.hotel) 
-                : reservationData.hotel;
+            let hotel = null;
             
-            if (hotel && typeof hotel === 'object' && hotel.destino) {
+            // Verificar que hotel sea un objeto, no un string
+            if (typeof reservationData.hotel === 'string') {
+                // Si es "[object Object]", significa que se serializó incorrectamente
+                if (reservationData.hotel === '[object Object]') {
+                    console.log(`⚠️ Hotel recibido como "[object Object]", intentando obtener de extractedData`);
+                    // Intentar obtener el hotel de otra fuente o saltarlo
+                    hotel = null;
+                } else {
+                    // Intentar parsear como JSON válido
+                    try {
+                        hotel = JSON.parse(reservationData.hotel);
+                    } catch (e) {
+                        console.log(`⚠️ No se pudo parsear hotel como JSON:`, reservationData.hotel);
+                        hotel = null;
+                    }
+                }
+            } else if (typeof reservationData.hotel === 'object' && reservationData.hotel !== null) {
+                hotel = reservationData.hotel;
+            }
+            
+            if (hotel && typeof hotel === 'object' && (hotel.destino || hotel.servicio || hotel.in)) {
                 console.log(`\n🏨 Procesando hotel ${hotel.destino || hotel.servicio || 'sin nombre'}`);
                 await addItemToReservation(page, hotel, 'Agregar Hotel');
                 console.log('✅ Hotel guardado');
             } else {
-                console.log(`⚠️ Hotel no válido o sin datos:`, hotel);
+                console.log(`⚠️ Hotel no válido o sin datos suficientes. Tipo: ${typeof reservationData.hotel}, Valor: ${JSON.stringify(reservationData.hotel)}`);
             }
         }
         if (reservationData && reservationData.services && reservationData.services.length > 0) {

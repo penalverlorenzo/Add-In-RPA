@@ -258,6 +258,12 @@ app.post('/api/rpa/create-reservation', async (req, res) => {
     
     const reservationData = req.body;
     
+    // Limpiar hotel si viene como "[object Object]"
+    if (reservationData.hotel && typeof reservationData.hotel === 'string' && reservationData.hotel === '[object Object]') {
+      console.log('⚠️ Hotel recibido como "[object Object]", eliminando campo inválido');
+      delete reservationData.hotel;
+    }
+    
     // Validar que se recibieron datos
     if (!reservationData || !reservationData.passengers || reservationData.passengers.length === 0) {
       return res.status(400).json({

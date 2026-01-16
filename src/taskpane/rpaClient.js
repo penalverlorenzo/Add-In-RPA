@@ -39,8 +39,15 @@ function transformarDatosParaRPA(pasajeros, datosReserva = {}, extractedData = {
   };
 
   // Incluir hotel si está disponible (como objeto, no string)
-  if (extractedData.hotel && typeof extractedData.hotel === 'object') {
-    datosRPA.hotel = extractedData.hotel;
+  // Validar que hotel sea un objeto válido y no null
+  if (extractedData.hotel && 
+      typeof extractedData.hotel === 'object' && 
+      extractedData.hotel !== null &&
+      !Array.isArray(extractedData.hotel)) {
+    // Crear una copia del objeto para evitar referencias
+    datosRPA.hotel = { ...extractedData.hotel };
+  } else if (extractedData.hotel) {
+    console.warn('⚠️ Hotel en extractedData no es un objeto válido:', typeof extractedData.hotel, extractedData.hotel);
   }
 
   // Incluir services si está disponible
@@ -78,6 +85,17 @@ export async function crearReservaEnITraffic(pasajeros, datosReserva = {}, extra
   try {
     // Transformar datos al formato del RPA
     const datosRPA = transformarDatosParaRPA(pasajeros, datosReserva, extractedData);
+    
+    // Validar que hotel sea un objeto válido antes de enviar
+    if (datosRPA.hotel && typeof datosRPA.hotel !== 'object') {
+      console.warn('⚠️ Hotel no es un objeto válido, eliminando:', datosRPA.hotel);
+      delete datosRPA.hotel;
+    }
+    
+    // Log para debugging (solo en desarrollo)
+    if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
+      console.log('📤 Enviando datos al RPA:', JSON.stringify(datosRPA, null, 2));
+    }
     
     // Enviar petición al servidor RPA
     const response = await fetch(RPA_SERVICE_URL, {
