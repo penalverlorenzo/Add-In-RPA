@@ -13,7 +13,8 @@ export async function navigateToDashboard(page) {
   await takeScreenshot(page, '6-dashboard-01-loaded');
 
   // Localizar botón "Nueva Reserva"
-  const goToNewReservationBtn = page.locator('a[href="/iTraffic_Aymara/E_Ventas/Reserva"]', { hasText: 'New reservation' });
+ const goToNewReservationBtn = page.locator('a[href="/iTraffic_Aymara/E_Ventas/Reserva"]', { hasText: 'Nueva Reserva' });
+ // const goToNewReservationBtn = page.locator('a[href="/iTraffic_Aymara/E_Ventas/Reserva"]', { hasText: 'New Reservation' });
 
   await goToNewReservationBtn.waitFor({ state: 'visible', timeout: 10000 });
 
@@ -26,4 +27,3 @@ export async function navigateToDashboard(page) {
 
   await takeScreenshot(page, '7-newReservation-01-page');
 }
-

@@ -7,7 +7,8 @@ import { dataReservation } from "./dataReservation.js";
  * @param {Object} reservationData - Datos de la reserva (opcional)
  */
 export async function newReservation(page, reservationData = null) {
-    const newReservationBtnModal = page.locator('div.tool-button.add-button', { hasText: 'New Reserva' });
+ //   const newReservationBtnModal = page.locator('div.tool-button.add-button', { hasText: 'New Reserva' });
+   const newReservationBtnModal = page.locator('div.tool-button.add-button', { hasText: 'Nuevo Reserva' });
     await newReservationBtnModal.waitFor({ state: 'visible', timeout: 10000 });
     
     await newReservationBtnModal.click();
@@ -18,4 +19,3 @@ export async function newReservation(page, reservationData = null) {
     // Llenar formulario de reserva (pasar los datos si existen)
     await dataReservation(page, reservationData);
 }
-

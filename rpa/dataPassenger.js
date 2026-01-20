@@ -67,7 +67,8 @@ export async function dataPassenger(page, passengerData) {
   await modalContent.evaluate(el => el.scrollTo(0, 0));
   await page.waitForTimeout(500);
 
-  const modal = page.locator('.ui-dialog:has(.ui-dialog-title:text("New Pasajero"))');
+  // const modal = page.locator('.ui-dialog:has(.ui-dialog-title:text("New Pasajero"))');
+   const modal = page.locator('.ui-dialog:has(.ui-dialog-title:text("Nuevo Pasajero"))');
   await modal.locator('.tool-button.save-and-close-button', { hasText: 'Guardar' }).click();
   
   // Esperar a que el modal se cierre completamente
@@ -83,4 +84,3 @@ export async function dataPassenger(page, passengerData) {
   
   await takeScreenshot(page, '17-dataPassenger-03-form-saved');
 }
-
