@@ -65,9 +65,14 @@ export async function runRpa(reservationData = null) {
                 hotel = reservationData.hotel;
             }
             
-            if (hotel && typeof hotel === 'object' && (hotel.destino || hotel.servicio || hotel.in)) {
-                console.log(`\n🏨 Procesando hotel ${hotel.destino || hotel.servicio || 'sin nombre'}`);
-                await addItemToReservation(page, hotel, 'Agregar Hotel');
+            if (hotel && typeof hotel === 'object' && (hotel.tipo_habitacion || hotel.Ciudad || hotel.Categoria || hotel.nombre_hotel)) {
+                console.log(`\n🏨 Procesando hotel ${hotel.tipo_habitacion || hotel.Ciudad || hotel.Categoria || hotel.nombre_hotel || 'sin nombre'}`);
+                // Pasar los pasajeros para configurar las habitaciones
+                const passengers = reservationData.passengers || [];
+                console.log(`👤 Pasajeros desde rpaService: ${JSON.stringify(reservationData)}`);
+                hotel.in = reservationData.services[0]?.in;
+                hotel.out = reservationData.services[0]?.out;
+                await addItemToReservation(page, hotel, 'Agregar Hotel', passengers);
                 console.log('✅ Hotel guardado');
             } else {
                 console.log(`⚠️ Hotel no válido o sin datos suficientes. Tipo: ${typeof reservationData.hotel}, Valor: ${JSON.stringify(reservationData.hotel)}`);
@@ -76,8 +81,11 @@ export async function runRpa(reservationData = null) {
         if (reservationData && reservationData.services && reservationData.services.length > 0) {
             for (let i = 0; i < reservationData.services.length; i++) {
                 const service = reservationData.services[i];
+                if (reservationData.hotel && reservationData.hotel.tipo_habitacion) {
+                    service.tipo_habitacion = reservationData.hotel?.tipo_habitacion;
+                }
                 console.log(`\n👤 Procesando servicio ${i + 1} de ${reservationData.services.length}`);
-                await addItemToReservation(page, service, 'Agregar Servicio');
+                await addItemToReservation(page, service, 'Agregar Servicio', reservationData.passengers || []);
                 console.log('✅ Servicio guardado');
             }
         }

@@ -1,6 +1,6 @@
 // rpa/dataReservation.js
 import { takeScreenshot } from "./utils/screenshot.js";
-import { select2BySearch, fillInput } from "./helpers/utils.js";
+import { select2BySearch, fillInput, convertToDDMMYYYY } from "./helpers/utils.js";
 
 /**
  * Llena el formulario de reserva con los datos proporcionados
@@ -49,7 +49,7 @@ export async function dataReservation(page, reservationData = null) {
     takeScreenshot(page, '9-dataReservation-02-reservation-status');
 
     // Fecha (Usando fillInput robusto)
-    await fillInput(page, '#Softur_Serene_E_Ventas_ReservaDialog22_Fec_sal', data.travelDate, true);
+    await fillInput(page, '#Softur_Serene_E_Ventas_ReservaDialog22_Fec_sal', convertToDDMMYYYY(data.travelDate), true);
     takeScreenshot(page, '10-dataReservation-03-travel-date');
 
     // Vendedor (Usando select2BySearch)
@@ -70,4 +70,3 @@ export async function dataReservation(page, reservationData = null) {
 
     await page.waitForTimeout(20000);
 }
-

@@ -1,22 +1,33 @@
 import { takeScreenshot } from "./utils/screenshot.js";
-import { select2BySearch, fillInput, fillQuickFilterInput, fillQuickFilterDateRange, selectQuickFilterSelect2 } from "./helpers/utils.js";
+import {
+  select2BySearch,
+  fillInput,
+  fillQuickFilterInput,
+  fillQuickFilterDateRange,
+  selectQuickFilterSelect2,
+  disableJQueryUIOverlays,
+  safeDialogClick,
+  convertToDDMMYYYY
+} from "./helpers/utils.js";
 
-/**
- * Extrae el texto de una celda de la tabla
- * @param {import('playwright').Locator} row - Locator de la fila
- * @param {number} cellIndex - Índice de la celda (l0, l1, l2, etc.)
- * @returns {Promise<string>} Texto de la celda
- */
+/* =========================
+   HELPERS
+========================= */
+
 async function getCellText(row, cellIndex) {
-    try {
-        const cell = row.locator(`div.slick-cell.l${cellIndex}.r${cellIndex}`);
-        const text = await cell.textContent();
-        return (text || '').trim();
-    } catch (e) {
-        return '';
-    }
+  try {
+    const cell = row.locator(`div.slick-cell.l${cellIndex}.r${cellIndex}`);
+    const text = await cell.textContent();
+    return (text || "").trim();
+  } catch {
+    return "";
+  }
 }
 
+function formatDateForInput(dateStr) {
+  // Usar la función de conversión que detecta el formato y convierte a dd/mm/yyyy
+  return convertToDDMMYYYY(dateStr);
+}
 /**
  * Calcula el score de coincidencia entre una fila de la tabla y los datos del servicio
  * @param {Object} rowData - Datos extraídos de la fila
@@ -148,7 +159,7 @@ function calculateMatchScore(rowData, serviceData, itemType) {
  * @param {string} itemType - Tipo de item: 'hotel', 'servicio', 'programa'
  */
 async function selectBestMatchFromTable(page, service, itemType) {
-    console.log(`🔍 Buscando mejor coincidencia en la tabla para ${itemType}...`);
+    console.log(`🔍 Buscando mejor coincidencia en la tabla para ${itemType}...`, service);
     
     // Buscar el botón OK del diálogo de búsqueda de tarifas
     // Este es el diálogo que se abre después del botón de búsqueda
@@ -167,10 +178,11 @@ async function selectBestMatchFromTable(page, service, itemType) {
     // Buscar dentro del contenido del diálogo específicamente
     const dialogContent = dialog.locator('.ui-dialog-content');
     const tableContainer = dialogContent.locator('.grid-canvas.grid-canvas-top.grid-canvas-left').first();
-    await tableContainer.waitFor({ state: 'visible', timeout: 10000 });
-    
+
+    console.log("Existe tableContainer? Su valor: ", await tableContainer.isVisible());
     // Obtener todas las filas dentro del grid-canvas del diálogo (excluyendo las filas de grupo)
     // Buscar las filas dentro del grid-canvas específico del diálogo
+    await page.waitForTimeout(10000);
     const rows = tableContainer.locator('div.ui-widget-content.slick-row:not(.slick-group)');
     const rowCount = await rows.count();
     
@@ -179,7 +191,7 @@ async function selectBestMatchFromTable(page, service, itemType) {
     if (rowCount === 0) {
         console.log('⚠️ No se encontraron resultados en la tabla');
         // Hacer click en Cancelar si no hay resultados
-        const cancelButton = dialog.locator('div.ui-dialog-buttonset button:has-text("Cancelar")');
+        const cancelButton = dialog.locator('div.ui-dialog-buttonset button:has-text("Cancel")');
         if (await cancelButton.count() > 0) {
             await cancelButton.click();
             await page.waitForTimeout(500);
@@ -288,7 +300,6 @@ async function selectBestMatchFromTable(page, service, itemType) {
         
         // Hacer click en el botón OK dentro del diálogo (usar el mismo okButton que encontramos al inicio)
         await okButton.click();
-        await page.waitForTimeout(1000);
         console.log(`✅ Fila seleccionada y modal cerrado`);
     } else {
         console.log(`⚠️ No se encontró una coincidencia suficientemente buena (mejor score: ${bestScore.toFixed(2)}%)`);
@@ -312,318 +323,334 @@ async function selectBestMatchFromTable(page, service, itemType) {
     }
 }
 
-/**
- * Convierte fecha de formato YYYY-MM-DD a MM/DD/YYYY
- * @param {string} dateStr - Fecha en formato YYYY-MM-DD
- * @returns {string|null} Fecha en formato MM/DD/YYYY o null si no es válida
- */
-function formatDateForInput(dateStr) {
-    if (!dateStr) return null;
-    
-    // Si ya está en formato MM/DD/YYYY, retornarlo
-    if (dateStr.includes('/')) return dateStr;
-    
-    // Convertir de YYYY-MM-DD a MM/DD/YYYY
-    const parts = dateStr.split('-');
-    if (parts.length === 3) {
-        return `${parts[1]}/${parts[2]}/${parts[0]}`;
-    }
-    
-    return null;
-}
-
-/**
- * Determina el tipo de item basado en el texto del botón
- * @param {string} itemText - Texto del botón
- * @returns {string} Tipo de item: 'servicio', 'hotel', 'eventual', 'programa'
- */
 function getItemType(itemText) {
-    const text = itemText.toLowerCase();
-    if (text.includes('servicio')) return 'servicio';
-    if (text.includes('hotel')) return 'hotel';
-    if (text.includes('eventual')) return 'eventual';
-    if (text.includes('programa') || text.includes('paquete')) return 'programa';
-    return 'servicio'; // Default
+  const t = itemText.toLowerCase();
+  if (t.includes("hotel")) return "hotel";
+  if (t.includes("programa") || t.includes("paquete")) return "programa";
+  if (t.includes("eventual")) return "eventual";
+  return "servicio";
 }
 
-/**
- * Llena los campos del filtro rápido para servicios
- */
-async function fillServiceQuickFilter(page, service) {
-    // Servicio
-    if (service.servicio) {
-        console.log(`🔍 Buscando servicio: ${service.servicio}`);
-        await fillQuickFilterInput(page, 'Servicio', service.servicio, false);
-        await page.waitForTimeout(500);
-        console.log(`✅ Servicio ${service.servicio} completado`);
-    }
-
-    // Proveedor (si está disponible en service)
-    if (service.proveedor) {
-        console.log(`🏢 Seleccionando proveedor: ${service.proveedor}`);
-        await selectQuickFilterSelect2(page, 'ServicioCodigoPrestador', service.proveedor);
-        await page.waitForTimeout(500);
-        console.log(`✅ Proveedor ${service.proveedor} seleccionado`);
-    }
-
-    // Ciudad
-    if (service.destino) {
-        console.log(`🌍 Seleccionando ciudad: ${service.destino}`);
-        await selectQuickFilterSelect2(page, 'ServicioCiudad', service.destino);
-        await page.waitForTimeout(500);
-        console.log(`✅ Ciudad ${service.destino} seleccionada`);
-    }
-
-    // Fecha
-    if (service.in) {
-        console.log(`📅 Llenando rango de fechas: ${service.in} - ${service.out || service.in}`);
-        await fillQuickFilterDateRange(page, service.in, service.out);
-        await page.waitForTimeout(500);
-        console.log(`✅ Fechas completadas`);
-    }
-}
+/* =========================
+   MAIN
+========================= */
 
 /**
- * Llena los campos del filtro rápido para hoteles
- */
-async function fillHotelQuickFilter(page, service) {
-    // Hotel - usar nombre_hotel si está disponible, sino servicio
-    const hotelName = service.nombre_hotel || service.servicio;
-    if (hotelName) {
-        console.log(`🏨 Buscando hotel: ${hotelName}`);
-        await fillQuickFilterInput(page, 'Hotel', hotelName, false);
-        await page.waitForTimeout(500);
-        console.log(`✅ Hotel ${hotelName} completado`);
-    }
-
-    // Ciudad - usar Ciudad si está disponible, sino destino
-    const ciudad = service.Ciudad || service.destino;
-    if (ciudad) {
-        console.log(`🌍 Seleccionando ciudad: ${ciudad}`);
-        await selectQuickFilterSelect2(page, 'Hotelciudad', ciudad);
-        await page.waitForTimeout(500);
-        console.log(`✅ Ciudad ${ciudad} seleccionada`);
-    }
-
-    // Fecha - usar checkIn/checkOut si están disponibles, sino in/out
-    const fechaIn = service.checkIn || service.in;
-    const fechaOut = service.checkOut || service.out;
-    if (fechaIn) {
-        console.log(`📅 Llenando rango de fechas: ${fechaIn} - ${fechaOut || fechaIn}`);
-        await fillQuickFilterDateRange(page, fechaIn, fechaOut);
-        await page.waitForTimeout(500);
-        console.log(`✅ Fechas completadas`);
-    }
-}
-
-/**
- * Llena los campos del filtro rápido para programas
- */
-async function fillProgramaQuickFilter(page, service) {
-    // Código (si está disponible)
-    if (service.codigo) {
-        console.log(`🔢 Buscando código: ${service.codigo}`);
-        await fillInput(page, 'input[id*="ppcod_paq"]', service.codigo, false);
-        await page.waitForTimeout(500);
-        console.log(`✅ Código ${service.codigo} completado`);
-    }
-
-    // Paquete
-    if (service.servicio) {
-        console.log(`📦 Buscando paquete: ${service.servicio}`);
-        await fillQuickFilterInput(page, 'Paquete', service.servicio, false);
-        await page.waitForTimeout(500);
-        console.log(`✅ Paquete ${service.servicio} completado`);
-    }
-
-    // Ciudad
-    if (service.destino) {
-        console.log(`🌍 Seleccionando ciudad: ${service.destino}`);
-        await selectQuickFilterSelect2(page, 'PaqueteCiudad', service.destino);
-        await page.waitForTimeout(500);
-        console.log(`✅ Ciudad ${service.destino} seleccionada`);
-    }
-
-    // Fecha
-    if (service.in) {
-        console.log(`📅 Llenando rango de fechas: ${service.in} - ${service.out || service.in}`);
-        await fillQuickFilterDateRange(page, service.in, service.out);
-        await page.waitForTimeout(500);
-        console.log(`✅ Fechas completadas`);
-    }
-}
-
-/**
- * Llena el campo de eventual (es un select2 en el diálogo principal, no en filtro rápido)
- */
-async function fillEventualField(page, service) {
-    if (service.servicio) {
-        console.log(`🎯 Buscando eventual: ${service.servicio}`);
-        // El selector para eventual es en el diálogo principal, no en filtro rápido
-        const eventualSelector = 'div[id^="s2id_"][id*="Ideventual"]';
-        await select2BySearch(page, eventualSelector, service.servicio);
-        await page.waitForTimeout(500);
-        console.log(`✅ Eventual ${service.servicio} seleccionado`);
-    }
-}
-
-/**
- * Agrega un servicio/item a la reserva y completa todos sus campos
+ * Selecciona y configura la cantidad de habitaciones basándose en el tipo de habitación y pasajeros
  * @param {import('playwright').Page} page - Página de Playwright
- * @param {Object} service - Objeto del servicio con estructura unificada
- * @param {string} service.servicio - Nombre del servicio/hotel/paquete/eventual
- * @param {string} service.destino - Destino del servicio (ej: "Mendoza", "Buenos Aires", "MDZ")
- * @param {string} service.proveedor - Proveedor del servicio (solo para servicios)
- * @param {string} service.in - Fecha de inicio en formato YYYY-MM-DD
- * @param {string} service.out - Fecha de fin en formato YYYY-MM-DD
- * @param {string} service.codigo - Código del paquete (solo para programas)
- * @param {string} service.estado - Código del estado (ej: "RQ", "AR", "OK", etc.)
- * @param {string} itemText - Texto del botón para agregar el item (default: 'Agregar Servicio')
+ * @param {Object} service - Datos del servicio/hotel (debe tener tipo_habitacion si es hotel)
+ * @param {Array} passengers - Array de pasajeros con paxType (ADU, CHD, INF)
  */
-export async function addItemToReservation(page, service, itemText = 'Agregar Servicio') {
-    console.log(`👤 Procesando item: ${service.servicio || service.descripcion || 'Sin descripción'}`);
-    
-    // Determinar tipo de item
-    const itemType = getItemType(itemText);
-    console.log(`📋 Tipo de item detectado: ${itemType}`);
-    
-    // Click en el botón para agregar el item
-    console.log(`🔘 Buscando botón: "${itemText}"`);
-    
-    const buttonLocator = page.locator('div.tool-button.add-button')
-        .filter({ has: page.locator('span.button-inner', { hasText: itemText }) });
-    
-    await buttonLocator.waitFor({ state: 'attached', timeout: 30000 });
-    await buttonLocator.evaluate(el => el.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+async function selectAndFillRoomQuantity(page, service, passengers = []) {
+  console.log('🏨 Configurando cantidad de habitaciones...');
+  
+  // Contar pasajeros por tipo
+  const passengerCounts = {
+    ADU: 0,
+    CHD: 0,
+    INF: 0
+  };
+  
+  if (passengers && passengers.length > 0) {
+    passengers.forEach(pax => {
+      const paxType = (pax.paxType || pax.passengerType || '').toUpperCase();
+      if (passengerCounts.hasOwnProperty(paxType)) {
+        passengerCounts[paxType]++;
+      } else if (paxType === 'ADU') {
+        passengerCounts.ADU++;
+      }
+    });
+  }
+  
+  console.log(`📊 Pasajeros: ADU=${passengerCounts.ADU}, CHD=${passengerCounts.CHD}, INF=${passengerCounts.INF}`);
+  
+  // Obtener tipo de habitación del hotel
+  const roomType = service.tipo_habitacion ? service.tipo_habitacion.toUpperCase() : null;
+  console.log(`🛏️ Tipo de habitación buscado: ${roomType || 'No especificado'}`);
+  
+  // Buscar la tabla de habitaciones dentro del diálogo del item
+  const itemDialog = page.locator('.ui-dialog:has(input[id*="Det_rvaEditorDialog"])').last();
+  await itemDialog.waitFor({ state: 'visible', timeout: 10000 });
+  
+  // Buscar el grid de Det_rvah (tabla de habitaciones)
+  const roomGrid = itemDialog.locator('div[id*="Det_rvah"] .grid-canvas.grid-canvas-top.grid-canvas-left').first();
+  await roomGrid.waitFor({ state: 'visible', timeout: 10000 });
+  
+  // Obtener todas las filas de habitaciones (excluyendo grupos)
+  const roomRows = roomGrid.locator('div.ui-widget-content.slick-row:not(.slick-group)');
+  const rowCount = await roomRows.count();
+  
+  console.log(`📋 Encontradas ${rowCount} filas de habitaciones`);
+  
+  if (rowCount === 0) {
+    console.log('⚠️ No se encontraron filas de habitaciones');
+    return;
+  }
+  
+  let targetRow = null;
+  let targetPaxType = 'ADU'; // Por defecto ADU
+  
+  // Si hay tipo de habitación, buscar la fila que coincida
+  if (roomType) {
+    for (let i = 0; i < rowCount; i++) {
+      const row = roomRows.nth(i);
+      const rowRoomType = await getCellText(row, 1); // l1 = Tipo habitación
+      const rowPaxType = await getCellText(row, 2); // l2 = Tipo pasajero
+      
+      if (rowRoomType && rowRoomType.toUpperCase() === roomType) {
+        // Encontrar el tipo de pasajero que tenga más cantidad
+        if (passengerCounts.ADU > 0) {
+          if (rowPaxType && rowPaxType.toUpperCase() === 'ADU') {
+            targetRow = row;
+            targetPaxType = 'ADU';
+            console.log(`✅ Encontrada fila para ${roomType} - ${targetPaxType} (fila ${i + 1})`);
+            break;
+          }
+        } else if (passengerCounts.CHD > 0) {
+          if (rowPaxType && rowPaxType.toUpperCase() === 'CHD') {
+            targetRow = row;
+            targetPaxType = 'CHD';
+            console.log(`✅ Encontrada fila para ${roomType} - ${targetPaxType} (fila ${i + 1})`);
+            break;
+          }
+        } else if (passengerCounts.INF > 0) {
+          if (rowPaxType && rowPaxType.toUpperCase() === 'INF') {
+            targetRow = row;
+            targetPaxType = 'INF';
+            console.log(`✅ Encontrada fila para ${roomType} - ${targetPaxType} (fila ${i + 1})`);
+            break;
+          }
+        }
+      }
+    }
+  }
+  
+  // Si no se encontró una fila específica, usar la primera fila disponible
+  if (!targetRow) {
+    console.log('⚠️ No se encontró fila específica, usando primera fila disponible');
+    targetRow = roomRows.first();
+    const firstRowPaxType = await getCellText(targetRow, 2);
+    targetPaxType = firstRowPaxType ? firstRowPaxType.toUpperCase() : 'ADU';
+  }
+  
+  // Determinar la cantidad basándose en el tipo de pasajero
+  let quantity = 0;
+  if (targetPaxType === 'ADU' && passengerCounts.ADU > 0) {
+    quantity = passengerCounts.ADU;
+  } else if (targetPaxType === 'CHD' && passengerCounts.CHD > 0) {
+    quantity = passengerCounts.CHD;
+  } else if (targetPaxType === 'INF' && passengerCounts.INF > 0) {
+    quantity = passengerCounts.INF;
+  } else {
+    // Si no hay pasajeros del tipo encontrado, usar el total de adultos
+    quantity = passengerCounts.ADU || (passengers ? passengers.length : 1);
+  }
+  
+  // Si no hay pasajeros, usar 1 por defecto
+  if (quantity === 0) {
+    quantity = 1;
+    console.log('⚠️ No se encontraron pasajeros, usando cantidad por defecto: 1');
+  }
+  
+  console.log(`📝 Llenando cantidad: ${quantity} para tipo ${targetPaxType}`);
+  
+  // Buscar el input de cantidad en la fila (l3 = Cantidad)
+  const quantityInput = targetRow.locator('div.slick-cell.l3.r3 input[data-field="Cantiphab"]').first();
+  
+  await quantityInput.waitFor({ state: 'visible', timeout: 5000 });
+  await quantityInput.click();
+  await page.waitForTimeout(200);
+  await quantityInput.fill(String(quantity));
+  await page.waitForTimeout(300);
+  
+  // Presionar Tab para confirmar el cambio
+  await quantityInput.press('Tab');
+  await page.waitForTimeout(500);
+  
+  console.log(`✅ Cantidad de habitaciones configurada: ${quantity}`);
+}
+
+export async function addItemToReservation(page, service, itemText = "Agregar Servicio", passengers = []) {
+  console.log(`👤 Procesando item: ${service.servicio || "sin nombre"} para pasajeros: ${JSON.stringify(passengers)}`);
+
+  const itemType = getItemType(itemText);
+  console.log(`📋 Tipo detectado: ${itemType}`);
+
+  /* 🔥 limpiar overlays ANTES de cualquier acción */
+  await disableJQueryUIOverlays(page);
+
+  /* =========================
+     BOTÓN AGREGAR ITEM
+  ========================= */
+
+  const addButton = page
+    .locator("div.tool-button.add-button")
+    .filter({ hasText: itemText })
+    .first();
+
+  await addButton.waitFor({ state: "visible", timeout: 15000 });
+  await addButton.scrollIntoViewIfNeeded();
+  await addButton.evaluate(el => el.click());
+
+  await page.waitForTimeout(1500);
+  await takeScreenshot(page, `18-addItem-01-${itemType}`);
+
+  /* =========================
+     ESTADO
+  ========================= */
+
+  if (service.estado) {
+    const estadoSelector =
+      'div[id^="s2id_"][id*="Det_rvaEditorDialog"][id*="Estadoope"]';
+
+    await select2BySearch(page, estadoSelector, service.estado);
     await page.waitForTimeout(500);
-    
-    try {
-        await buttonLocator.waitFor({ state: 'visible', timeout: 5000 });
-        await buttonLocator.click();
-    } catch (error) {
-        console.log(`⚠️ Elemento no visible, usando force: true`);
-        await buttonLocator.click({ force: true });
-    }
-    
-    await page.waitForTimeout(2000);
-    await takeScreenshot(page, `18-addItemToReservation-01-${itemType}-added`);
-    console.log(`✅ Botón "${itemText}" clickeado`);
-    if (service.estado) {
-        console.log(`📋 Seleccionando estado: ${service.estado}`);
-        
-        // El selector del select de estado debe ser específico para el diálogo del item
-        // El patrón del diálogo es: Det_rvaEditorDialog (no Det_rvaoWidgetEditor)
-        // Esto evita conflictos con otros selects de estado en la página
-        const estadoSelector = 'div[id^="s2id_"][id*="Det_rvaEditorDialog"][id*="Estadoope"]';
-        
-        // Buscar por el código del estado (ej: "AR" encontrará "AR - FAVOR RESERVAR [AR]")
-        await select2BySearch(page, estadoSelector, service.estado);
-        
-        await page.waitForTimeout(1000);
-        await takeScreenshot(page, '18-addItemToReservation-04-estado-selected');
-        console.log(`✅ Estado ${service.estado} seleccionado`);
-    }
-    // Para eventual, no hay botón de búsqueda, se llena directamente
-    if (itemType === 'eventual') {
-        await fillEventualField(page, service);
+  }
+
+  /* =========================
+     EVENTUAL
+  ========================= */
+
+  if (itemType === "eventual") {
+    const eventualSelector = 'div[id^="s2id_"][id*="Ideventual"]';
+    await select2BySearch(page, eventualSelector, service.servicio);
+  } else {
+    /* =========================
+       BOTÓN BÚSQUEDA
+    ========================= */
+
+    let searchSelector;
+    let title;
+
+    if (itemType === "hotel") {
+      searchSelector = "div.field.Cod_prov";
+      title = "Búsqueda de Tarifas de Hoteles";
+    } else if (itemType === "programa") {
+      searchSelector = "div.field.Idpaquete";
+      title = "Búsqueda de Tarifas de Paquetes";
     } else {
-        // Click en el botón de búsqueda específico según el tipo de item
-        // Usar el título para identificar el botón correcto
-        let searchButtonTitle;
-        let searchButtonSelector;
-        switch (itemType) {
-            case 'servicio':
-                searchButtonTitle = 'Búsqueda de Tarifas de Servicio';
-                searchButtonSelector = 'div.field.Cod_serv';
-                break;
-                case 'hotel':
-                    searchButtonTitle = 'Búsqueda de Tarifas de Hoteles';
-                    searchButtonSelector = 'div.field.Cod_prov';
-                    break;
-                    case 'programa':
-                        searchButtonTitle = 'Búsqueda de Tarifas de Paquetes';
-                        searchButtonSelector = 'div.field.Idpaquete';
-                        break;
-            default:
-                searchButtonTitle = 'Búsqueda de Tarifas de Servicio';
-                searchButtonSelector = 'div.field.Cod_serv';
-        }
-        
-        const searchButton = page.locator(searchButtonSelector).locator(`a.inplace-button.inplace-action[title="${searchButtonTitle}"]`);
+      searchSelector = "div.field.Cod_serv";
+      title = "Búsqueda de Tarifas de Servicio";
+    }
 
-        await searchButton.waitFor({ state: 'visible', timeout: 5000 });
-        await searchButton.click();
-        await page.waitForTimeout(1000);
-        
-        // Llenar campos según el tipo de item
-        switch (itemType) {
-            case 'servicio':
-                await fillServiceQuickFilter(page, service);
-                break;
-            case 'hotel':
-                await fillHotelQuickFilter(page, service);
-                break;
-            case 'programa':
-                await fillProgramaQuickFilter(page, service);
-                break;
-        }
-        
-        // Esperar a que aparezcan los resultados y seleccionar el mejor match
-        await page.waitForTimeout(2000); // Dar tiempo para que se carguen los resultados
-        await selectBestMatchFromTable(page, service, itemType);
-    }
-    // Llenar campos del diálogo principal (comunes a todos los tipos)
-    // Fecha de inicio
-    if (service.in) {
-        console.log(`📅 Llenando fecha de inicio: ${service.in}`);
-        const inDateFormatted = formatDateForInput(service.in);
-        if (inDateFormatted) {
-            await fillInput(page, 'input[id*="Det_rvaEditorDialog"][id$="_In_"]', inDateFormatted, true);
-            await page.waitForTimeout(500);
-            console.log(`✅ Fecha de inicio ${inDateFormatted} completada`);
-        }
-    }
-    
-    // Fecha de fin
-    if (service.out) {
-        console.log(`📅 Llenando fecha de fin: ${service.out}`);
-        const outDateFormatted = formatDateForInput(service.out);
-        if (outDateFormatted) {
-            await fillInput(page, 'input[id*="Det_rvaEditorDialog"][id$="_Out"]', outDateFormatted, true);
-            await page.waitForTimeout(500);
-            console.log(`✅ Fecha de fin ${outDateFormatted} completada`);
-        }
-    }
-    
-    // Seleccionar el estado del servicio si está disponible
-    
-    
-    await takeScreenshot(page, '18-addItemToReservation-05-all-fields-completed');
-    console.log('✅ Item agregado con todos los campos completados');
-    
-    // Buscar el botón Guardar dentro del diálogo del item
-    // El diálogo contiene los campos que acabamos de llenar (con Det_rvaEditorDialog en sus IDs)
-    // Buscamos el diálogo que contiene el campo de estado y luego el botón dentro de él
-    console.log('💾 Buscando botón Guardar...');
+    const searchBtn = page
+      .locator(searchSelector)
+      .locator(`a.inplace-button[title="${title}"]`)
+      .first();
 
-    // 1️⃣ Tomar el diálogo ACTIVO (el que está al frente)
-    const dialog = page.locator('div.ui-dialog.ui-front').last();
-    
-    // 2️⃣ Asegurar que esté visible
-    await dialog.waitFor({ state: 'visible', timeout: 10000 });
-    
-    // 3️⃣ Buscar Guardar SOLO dentro de ese diálogo
-    const saveButton = dialog.locator(
-      '.tool-button.save-and-close-button'
-    ).last();
-    
-    await saveButton.waitFor({ state: 'visible', timeout: 10000 });
-    
-    // 4️⃣ Click seguro
-    await saveButton.click();
-    
-    await takeScreenshot(page, '18-addItemToReservation-06-saved');
+    await searchBtn.waitFor({ state: "visible", timeout: 10000 });
+    await searchBtn.evaluate(el => el.click());
+
+    await page.waitForTimeout(1200);
+
+    /* =========================
+       FILTROS
+    ========================= */
+
+    if (itemType === "servicio") {
+      if (service.servicio)
+        await fillQuickFilterInput(page, "Servicio", service.servicio, false);
+      if (service.proveedor)
+        await selectQuickFilterSelect2(page, "ServicioCodigoPrestador", service.proveedor);
+      if (service.destino)
+        await selectQuickFilterSelect2(page, "ServicioCiudad", service.destino);
+      if (service.in)
+        await fillQuickFilterDateRange(page, service.in, service.out);
+    }
+
+    if (itemType === "hotel") {
+      const hotel = service.nombre_hotel || service.servicio;
+      if (hotel)
+        await fillQuickFilterInput(page, "Hotel", hotel, false);
+      if (service.Ciudad)
+        await selectQuickFilterSelect2(page, "Hotelciudad", service.Ciudad);
+      if (service.in)
+        await fillQuickFilterDateRange(page, service.in, service.out);
+    }
+
+  /* =========================
+     FECHAS
+  ========================= */
+await page.waitForTimeout(10000);
+  if (service.in) {
+    const v = convertToDDMMYYYY(service.in);
+    if (v)
+      await fillInput(page, 'input[id*="_In_"]', v, true);
+  }
+await page.waitForTimeout(10000);
+  if (service.out) {
+    const v = convertToDDMMYYYY(service.out);
+    if (v)
+      await fillInput(page, 'input[id*="_Out"]', v, true);
+  }
+    if (itemType === "programa") {
+      if (service.codigo)
+        await fillInput(page, 'input[id*="ppcod_paq"]', service.codigo, false);
+      if (service.servicio)
+        await fillQuickFilterInput(page, "Paquete", service.servicio, false);
+      if (service.destino)
+        await selectQuickFilterSelect2(page, "PaqueteCiudad", service.destino);
+      if (service.in)
+        await fillQuickFilterDateRange(page, service.in, service.out);
+    }
+
+    await page.waitForTimeout(1500);
+
+    /* =========================
+       SELECCIONAR MEJOR RESULTADO
+    ========================= */
+
+    // Usar la función inteligente para seleccionar el mejor match de la tabla
+    await selectBestMatchFromTable(page, service, itemType);
+  }
+
+
+  await takeScreenshot(page, "18-addItem-05-filled");
+
+  /* =========================
+     CONFIGURAR HABITACIONES (solo para hoteles)
+  ========================= */
+    await page.waitForTimeout(10000);
+  // Si es un hotel, configurar la cantidad de habitaciones antes de guardar
+    await selectAndFillRoomQuantity(page, service, passengers);
     await page.waitForTimeout(1000);
-    console.log('✅ Item guardado');
-    
+
+  /* =========================
+     GUARDAR (🔥 PARTE CRÍTICA)
+  ========================= */
+
+  console.log("💾 Guardando item…");
+
+  await disableJQueryUIOverlays(page);
+
+  const itemDialog = page.locator(
+    '.ui-dialog:has(input[id*="Det_rvaEditorDialog"])'
+  ).last();
+  
+  await itemDialog.waitFor({ state: 'visible', timeout: 15000 });
+  
+  // 🧠 DEBUG útil
+  console.log('🪟 Item dialog encontrado');
+  
+  // 2️⃣ buscar Guardar SOLO ahí
+  const saveButton = itemDialog
+    .locator('.tool-button.save-and-close-button')
+    .filter({ hasText: 'Guardar' })
+    .first();
+  
+  // 3️⃣ esperar presencia real (no strict)
+  await saveButton.waitFor({ state: 'attached', timeout: 10000 });
+  await saveButton.scrollIntoViewIfNeeded();
+  
+  // 4️⃣ CLICK DOM (ignora overlays fantasmas)
+  await safeDialogClick(page, saveButton);
+  
+  console.log('💾 Click Guardar ejecutado');
+  
+  // 5️⃣ esperar cierre REAL del diálogo
+  await itemDialog.waitFor({ state: 'hidden', timeout: 15000 });
+  
+  await takeScreenshot(page, '18-addItem-06-saved');
+  
+  console.log('✅ Item guardado correctamente');
 }

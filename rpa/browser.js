@@ -8,10 +8,10 @@ const __dirname = path.dirname(__filename);
 
 // Directorio donde se guardarán las cookies y el estado de la sesión
 const SESSION_DIR = path.join(__dirname, '..', '.browser-session');
-
+const isHeadless = process.env.HEADLESS === 'true';
 export async function createBrowser() {
   const browser = await chromium.launch({
-    headless: true,
+    headless: isHeadless,
     args: ['--no-sandbox']
   });
 
@@ -57,4 +57,3 @@ async function loadStorageState() {
   
   return undefined;
 }
-
