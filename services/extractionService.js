@@ -124,7 +124,14 @@ Extrae la siguiente información de los emails, prestando especial atención a l
    IMPORTANTE: El tipo "hotel" tiene una estructura ESPECIAL diferente a los otros tipos:
    
    Para HOTEL, extrae ÚNICAMENTE la siguiente información:
-   - nombre_hotel: Nombre completo del hotel (ej: "Hotel Sheraton Mendoza", "Hilton Buenos Aires")
+   - nombre_hotel: Nombre del hotel SIN la palabra "Hotel" al inicio. CRÍTICO: Extrae solo el nombre del hotel, eliminando la palabra "Hotel" si aparece al principio.
+     * Ejemplos:
+       - "Hotel Juanes de Sol Mendoza" → "Juanes de Sol"
+       - "Hotel Sheraton Mendoza" → "Sheraton"
+       - "Hilton Buenos Aires" → "Hilton Buenos Aires" (si no tiene "Hotel" al inicio, déjalo tal cual)
+       - "Hotel Mendoza Plaza" → "Mendoza Plaza"
+     * Si el nombre completo es "Hotel [Nombre] [Ciudad]", extrae solo "[Nombre]"
+     * Si el nombre completo es "Hotel [Nombre]", extrae solo "[Nombre]"
    - tipo_habitacion: Tipo de habitación. DEBE ser uno de estos CÓDIGOS:
      * "SGL" para: Single, sencilla, individual, 1 persona, single room
      * "DWL" para: Double, doble, 2 personas, matrimonial, double room, twin
@@ -138,6 +145,10 @@ Extrae la siguiente información de los emails, prestando especial atención a l
      * Ejemplos válidos: "Habitacion Clasica", "Habitacion Deluxe", "Habitacion Premier", "Suite", "Family Plan", "Standard Room", "Superior Room"
      * Si el email menciona "clásica", "deluxe", "premier", "suite", "family", etc., inclúyelo en este campo
      * Si no encuentras información, deja null
+   - in: Fecha de check-in (YYYY-MM-DD). CRÍTICO: Esta fecha es OBLIGATORIA para hoteles.
+     * DEBE ser una fecha válida en formato YYYY-MM-DD. Si no está clara, deja null
+   - out: Fecha de check-out (YYYY-MM-DD). CRÍTICO: Esta fecha es OBLIGATORIA para hoteles.
+     * DEBE ser una fecha válida en formato YYYY-MM-DD. Si no está clara, deja null
    
    Para servicio, eventual y programa, extrae la siguiente información (estructura unificada):
    - destino: Destino o ubicación (Texto). DEBES INFERIR el destino analizando inteligentemente la información disponible:
@@ -349,7 +360,9 @@ Responde ÚNICAMENTE con JSON válido en este formato exacto:
     "nombre_hotel": "string | null",
     "tipo_habitacion": "SGL | DWL | TPL | CPL | null",
     "Ciudad": "string | null",
-    "Categoria": "string | null"
+    "Categoria": "string | null",
+    "in": "YYYY-MM-DD | null",
+    "out": "YYYY-MM-DD | null"
   },
   "services": [
     {
@@ -388,9 +401,10 @@ El campo "confidence" debe reflejar tu nivel de confianza en la extracción (0.0
 
 IMPORTANTE: 
 - El campo "detailType" debe identificar el tipo principal de detalle solicitado o confirmado en el email
-- Si el detalle es "hotel", completa el objeto "hotel" con la estructura ESPECIAL: nombre_hotel, tipo_habitacion, Ciudad, Categoria
-  * NO uses la estructura unificada (destino, in, out, etc.) para hoteles
-  * El objeto hotel SOLO debe contener: nombre_hotel, tipo_habitacion, Ciudad, Categoria
+- Si el detalle es "hotel", completa el objeto "hotel" con la estructura ESPECIAL: nombre_hotel, tipo_habitacion, Ciudad, Categoria, in, out
+  * NO uses la estructura unificada (destino, nts, basePax, servicio, descripcion, estado) para hoteles
+  * El objeto hotel debe contener: nombre_hotel (SIN la palabra "Hotel" al inicio), tipo_habitacion, Ciudad, Categoria, in (fecha check-in), out (fecha check-out)
+  * Las fechas "in" y "out" son OBLIGATORIAS para hoteles - siempre intenta extraerlas del email
 - Si el detalle es "servicio", "eventual" o "programa", agrégalo al array "services" con la estructura unificada
 - Los servicios/eventuales/programas usan la estructura: destino, in, out, nts, basePax, servicio, descripcion, estado
 - El campo "estado" DEBE ser uno de los códigos válidos listados arriba (solo para servicios/eventuales/programas)
@@ -400,11 +414,14 @@ IMPORTANTE:
 - Si no se puede identificar un tipo de detalle claro, deja detailType como null y completa solo los campos que encuentres
 
 EXTRACCIÓN ESPECIAL PARA HOTELES:
-- El objeto "hotel" tiene una estructura diferente y simplificada:
-  * nombre_hotel: Extrae el nombre completo del hotel mencionado en el email
+- El objeto "hotel" tiene una estructura especial:
+  * nombre_hotel: Extrae el nombre del hotel mencionado en el email, pero ELIMINA la palabra "Hotel" si aparece al inicio.
+    Ejemplos: "Hotel Sheraton Mendoza" → "Sheraton", "Hotel Juanes de Sol Mendoza" → "Juanes de Sol"
   * tipo_habitacion: Identifica el tipo de habitación y usa el código correspondiente (SGL, DWL, TPL, CPL)
   * Ciudad: Extrae la ciudad donde está el hotel (preferiblemente código como "MDZ", "BA" si está disponible)
   * Categoria: Extrae la categoría o tipo de habitación mencionada (ej: "Habitacion Clasica", "Deluxe", "Suite")
+  * in: Fecha de check-in (YYYY-MM-DD). OBLIGATORIA - siempre intenta extraerla del email
+  * out: Fecha de check-out (YYYY-MM-DD). OBLIGATORIA - siempre intenta extraerla del email
 
 EXTRACCIÓN OPTIMIZADA PARA BÚSQUEDA EN AZURE SEARCH (SERVICIOS):
 - Los servicios extraídos se usarán para buscar en Azure Search, por lo que es CRÍTICO que:
@@ -734,23 +751,33 @@ function validateExtractionResult(data) {
         };
     };
     
-    // Validate hotel (special structure: nombre_hotel, tipo_habitacion, Ciudad, Categoria)
+    // Validate hotel (special structure: nombre_hotel, tipo_habitacion, Ciudad, Categoria, in, out)
     if (data.hotel && typeof data.hotel === 'object') {
         // Validar tipo de habitación
         const validRoomTypes = ['SGL', 'DWL', 'TPL', 'CPL'];
         const tipoHabitacion = data.hotel.tipo_habitacion;
         const validatedTipoHabitacion = validRoomTypes.includes(tipoHabitacion) ? tipoHabitacion : null;
         
+        // Sanitize nombre_hotel and remove "Hotel" prefix if present
+        let nombreHotel = sanitizeString(data.hotel.nombre_hotel);
+        if (nombreHotel) {
+            // Remove "Hotel" prefix (case insensitive)
+            nombreHotel = nombreHotel.replace(/^Hotel\s+/i, '').trim();
+        }
+        
         validated.hotel = {
-            nombre_hotel: sanitizeString(data.hotel.nombre_hotel),
+            nombre_hotel: nombreHotel,
             tipo_habitacion: validatedTipoHabitacion,
             Ciudad: sanitizeString(data.hotel.Ciudad),
-            Categoria: sanitizeString(data.hotel.Categoria)
+            Categoria: sanitizeString(data.hotel.Categoria),
+            in: validateDate(data.hotel.in),
+            out: validateDate(data.hotel.out)
         };
         
         // Si todos los campos son null, establecer hotel como null
         if (!validated.hotel.nombre_hotel && !validated.hotel.tipo_habitacion && 
-            !validated.hotel.Ciudad && !validated.hotel.Categoria) {
+            !validated.hotel.Ciudad && !validated.hotel.Categoria && 
+            !validated.hotel.in && !validated.hotel.out) {
             validated.hotel = null;
         }
     } else {
