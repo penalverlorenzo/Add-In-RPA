@@ -70,8 +70,10 @@ export async function runRpa(reservationData = null) {
                 // Pasar los pasajeros para configurar las habitaciones
                 const passengers = reservationData.passengers || [];
                 console.log(`👤 Pasajeros desde rpaService: ${JSON.stringify(reservationData)}`);
-                hotel.in = reservationData.services[0]?.in;
-                hotel.out = reservationData.services[0]?.out;
+                if (!hotel.in || !hotel.out) {
+                    hotel.in = reservationData.services[0]?.in;
+                    hotel.out = reservationData.services[0]?.out;
+                }
                 await addItemToReservation(page, hotel, 'Agregar Hotel', passengers);
                 console.log('✅ Hotel guardado');
             } else {
