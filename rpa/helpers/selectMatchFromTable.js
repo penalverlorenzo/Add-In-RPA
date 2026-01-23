@@ -1,3 +1,5 @@
+import { getCellText } from "./selectAndFillRoomQuantity.js";
+
 /**
  * Selecciona el mejor match de la tabla de resultados y hace click en OK
  * @param {import('playwright').Page} page - Página de Playwright
