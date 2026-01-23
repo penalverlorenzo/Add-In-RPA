@@ -83,7 +83,6 @@ jobs:
                 REDIRECT_URI=${{ secrets.REDIRECT_URI }} \
                 AZURE_SEARCH_ENDPOINT=${{ secrets.AZURE_SEARCH_ENDPOINT }} \
                 AZURE_SEARCH_INDEX=${{ secrets.AZURE_SEARCH_INDEX }} \
-                AZURE_SEARCH_INDEX=${{ secrets.AZURE_SEARCH_INDEX }} \
                 HEADLESS=${{ secrets.HEADLESS }} \
                 ITRAFFIC_HOME_URL=${{ secrets.ITRAFFIC_HOME_URL }} \
                 ITRAFFIC_LOGIN_URL=${{ secrets.ITRAFFIC_LOGIN_URL }} \
