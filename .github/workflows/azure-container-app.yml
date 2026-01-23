@@ -3,7 +3,7 @@ name: Deploy RPA to Azure Container App
 on:
   push:
     branches:
-      - 'release/health-backend-v*'
+      - 'release/rpa-backend-v*'
 
 env:
   NODE_OPTIONS: '--max-old-space-size=6144 --max-semi-space-size=128'
