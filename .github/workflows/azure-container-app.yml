@@ -17,7 +17,14 @@ jobs:
       id-token: write
 
     environment: Add-In-RPA
-
+    env:
+      PNPM_VERSION: ${{ secrets.PNPM_VERSION }}
+      NODE_VERSION: ${{ secrets.NODE_VERSION }}
+      WEBAPP_NAME: ${{ secrets.WEBAPP_NAME }}
+      ACR_NAME: ${{ secrets.ACR_NAME }}
+      RESOURCE_GROUP: ${{ secrets.RESOURCE_GROUP }}
+      IMAGE_NAME: ${{ secrets.IMAGE_NAME }}
+      
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -35,136 +42,78 @@ jobs:
       - name: Azure Login with OIDC
         uses: azure/login@v1
         with:
-          # IMPORTANT: Configure federated identity credential in Azure with subject:
-          # repo:penalverlorenzo/Add-In-RPA:ref:refs/heads/release/rpa-backend-v*
-          # Or use a more specific pattern if needed
           client-id: '94106b64-039f-47ef-9be8-5c19768fda17'
           tenant-id: 'c556f158-baa4-43a2-8dc7-a1619672abff'
           subscription-id: '1bac4488-7f06-44b9-8651-c16aca0f47b8'
 
       - name: Login to Azure Container Registry
         run: |
-          echo "Logging in to Azure Container Registry..."
-
-          # Obtener el login server real del ACR
+          echo "Logging in to ACR..."
           ACR_LOGIN_SERVER=$(az acr show --name ${{ env.ACR_NAME }} --query loginServer -o tsv)
-          echo "ACR Login Server: ${ACR_LOGIN_SERVER}"
           echo "ACR_LOGIN_SERVER=${ACR_LOGIN_SERVER}" >> $GITHUB_ENV
-
           az acr login --name ${{ env.ACR_NAME }}
-          echo "✅ Successfully logged in to ACR"
+          echo "✅ Logged in to ACR"
 
       - name: Build Docker image
         run: |
-          echo "Building Docker image..."
-
-          # Construir tag de imagen basado en commit SHA usando el login server real
           IMAGE_TAG="${{ github.sha }}"
           IMAGE_NAME="${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${IMAGE_TAG}"
           IMAGE_LATEST="${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:latest"
 
-          echo "Image name: ${IMAGE_NAME}"
-          echo "Image latest: ${IMAGE_LATEST}"
-
-          # Construir imagen Docker desde la raíz del proyecto
-          docker build \
-            -f Dockerfile \
-            -t ${IMAGE_NAME} \
-            -t ${IMAGE_LATEST} \
-            .
+          echo "Building Docker image..."
+          docker build -f Dockerfile -t ${IMAGE_NAME} -t ${IMAGE_LATEST} .
+          docker push ${IMAGE_NAME}
+          docker push ${IMAGE_LATEST}
 
           echo "IMAGE_NAME=${IMAGE_NAME}" >> $GITHUB_ENV
           echo "IMAGE_LATEST=${IMAGE_LATEST}" >> $GITHUB_ENV
-          echo "✅ Docker image built successfully"
+          echo "✅ Docker image built and pushed"
 
-      - name: Push Docker image to ACR
+      - name: Deploy to Azure Container App
         run: |
-          echo "Pushing Docker image to Azure Container Registry..."
-          docker push ${{ env.IMAGE_NAME }}
-          docker push ${{ env.IMAGE_LATEST }}
-          echo "✅ Docker image pushed successfully"
-
-      - name: Configure Azure App Service for Container
-        run: |
-          echo "Configuring Azure App Service for Container deployment..."
-
-          # Verificar que el admin user esté habilitado en ACR
-          ADMIN_ENABLED=$(az acr show --name ${{ env.ACR_NAME }} --query adminUserEnabled -o tsv)
-          if [ "$ADMIN_ENABLED" != "true" ]; then
-            echo "⚠️  WARNING: Admin user is not enabled in ACR"
-            echo "   Enabling admin user now..."
-            az acr update --name ${{ env.ACR_NAME }} --admin-enabled true
-            echo "✅ Admin user enabled"
-          fi
-
-          # Obtener credenciales de ACR para App Service
-          ACR_USERNAME=$(az acr credential show --name ${{ env.ACR_NAME }} --query username -o tsv)
-          ACR_PASSWORD=$(az acr credential show --name ${{ env.ACR_NAME }} --query passwords[0].value -o tsv)
-
-          # Obtener el login server real del ACR
-          ACR_LOGIN_SERVER=$(az acr show --name ${{ env.ACR_NAME }} --query loginServer -o tsv)
-          echo "ACR Login Server: ${ACR_LOGIN_SERVER}"
-
-          # Configurar App Service para usar Container con credenciales de ACR
-          az webapp config container set \
+          echo "Deploying to Container App..."
+          az containerapp update \
             --name ${{ env.WEBAPP_NAME }} \
             --resource-group ${{ env.RESOURCE_GROUP }} \
-            --docker-custom-image-name ${{ env.IMAGE_NAME }} \
-            --docker-registry-server-url https://${ACR_LOGIN_SERVER} \
-            --docker-registry-server-user $ACR_USERNAME \
-            --docker-registry-server-password $ACR_PASSWORD
+            --image ${{ env.IMAGE_NAME }} \
+            --revision-suffix force-pull-$(date +%s) \
+            --set-env-vars \
+                AZURE_OPENAI_API_KEY="${{ secrets.AZURE_OPENAI_API_KEY }}" \
+                PORT="3000" \
+                REDIRECT_URI="${{ secrets.REDIRECT_URI }}" \
+                AZURE_SEARCH_ENDPOINT="${{ secrets.AZURE_SEARCH_ENDPOINT }}" \
+                AZURE_SEARCH_INDEX="${{ secrets.AZURE_SEARCH_INDEX }}" \
+                HEADLESS="${{ secrets.HEADLESS }}" \
+                ITRAFFIC_HOME_URL="${{ secrets.ITRAFFIC_HOME_URL }}" \
+                ITRAFFIC_LOGIN_URL="${{ secrets.ITRAFFIC_LOGIN_URL }}" \
+                ITRAFFIC_USER="${{ secrets.ITRAFFIC_USER }}" \
+                ITRAFFIC_PASSWORD="${{ secrets.ITRAFFIC_PASSWORD }}" \
+                NODE_ENV="${{ secrets.NODE_ENV }}" \
+                AZURE_CLIENT_ID="${{ secrets.AZURE_CLIENT_ID }}" \
+                AZURE_TENANT_ID="${{ secrets.AZURE_TENANT_ID }}" \
+                AZURE_CLIENT_SECRET="${{ secrets.AZURE_CLIENT_SECRET }}" \
+                AZURE_OPENAI_DEPLOYMENT="${{ secrets.AZURE_OPENAI_DEPLOYMENT }}" \
+                AZURE_OPENAI_ENDPOINT="${{ secrets.AZURE_OPENAI_ENDPOINT }}" \
+                COSMOS_DB_ENDPOINT="${{ secrets.COSMOS_DB_ENDPOINT }}" \
+                COSMOS_DB_DATABASE_ID="${{ secrets.COSMOS_DB_DATABASE_ID }}" \
+                COSMOS_DB_KEY="${{ secrets.COSMOS_DB_KEY }}"
+                echo "✅ Container App updated"
 
-          # Configurar variables de entorno
-          az webapp config appsettings set \
-            --name ${{ env.WEBAPP_NAME }} \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            --settings \
-              NODE_ENV=production \
-              PORT=3001 \
-              WEBSITES_PORT=3001
-
-          echo "✅ App Service configured for Container"
-
-      - name: Deploy to Azure Web App
-        id: deploy
-        uses: azure/webapps-deploy@v2
-        with:
-          app-name: ${{ env.WEBAPP_NAME }}
-          images: ${{ env.IMAGE_NAME }}
-
-      - name: Wait for deployment to stabilize
+      - name: Fetch Container App logs
         run: |
-          echo "Waiting 45 seconds for deployment to stabilize..."
-          sleep 45
-
-      - name: Fetch application logs
-        run: |
-          echo "Fetching application logs from Azure..."
-          echo "========================================"
-
-          # Obtener los últimos logs de la aplicación
-          az webapp log tail \
-            --name ${{ env.WEBAPP_NAME }} \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            --only-show-errors \
-            & LOG_PID=$!
-
-          # Esperar 30 segundos para capturar logs
+          echo "Fetching logs..."
+          az containerapp logs show --name ${{ env.WEBAPP_NAME }} --resource-group ${{ env.RESOURCE_GROUP }} --follow &
+          LOG_PID=$!
           sleep 30
-
-          # Matar el proceso de logs
           kill $LOG_PID 2>/dev/null || true
+          echo "✅ Logs fetched"
 
-          echo "========================================"
-          echo "Log capture complete"
-
-      - name: Set deployment URL from deploy output
+      - name: Set deployment URL
         id: get-url
         run: |
-          # Usar la URL del output del deploy action
-          WEBAPP_URL="${{ steps.deploy.outputs.webapp-url }}"
-          echo "url=$WEBAPP_URL" >> $GITHUB_OUTPUT
-          echo "Deployment URL: $WEBAPP_URL"
+          URL=$(az containerapp show --name ${{ env.WEBAPP_NAME }} --resource-group ${{ env.RESOURCE_GROUP }} --query properties.configuration.ingress.fqdn -o tsv)
+          echo "url=$URL" >> $GITHUB_OUTPUT
+          echo "Deployment URL: $URL"
 
       - name: Verify deployment
         continue-on-error: true
@@ -174,146 +123,18 @@ jobs:
           MAX_RETRIES=10
           RETRY_COUNT=0
           BASE_URL="${{ steps.get-url.outputs.url }}"
-          HEALTH_URL="${BASE_URL}/api/rpa/health"
-
-          echo "Testing health endpoint: $HEALTH_URL"
+          HEALTH_URL="https://${BASE_URL}/api/rpa/health"
 
           while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-            echo "Attempt $((RETRY_COUNT + 1))/$MAX_RETRIES"
             HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$HEALTH_URL" || echo "000")
-
             if [ "$HTTP_CODE" = "200" ]; then
-              echo "✅ Deployment successful!"
-              echo "Health check response:"
+              echo "✅ Deployment successful"
               curl -s "$HEALTH_URL"
               exit 0
             fi
-
-            echo "HTTP Code: $HTTP_CODE - Retrying in 10 seconds..."
+            echo "HTTP Code: $HTTP_CODE - retrying..."
             sleep 10
             RETRY_COUNT=$((RETRY_COUNT + 1))
           done
-
           echo "❌ Health check failed after $MAX_RETRIES attempts"
-          echo "Testing root endpoint as fallback..."
-          curl -v "$BASE_URL/" || true
-
-          echo ""
-          echo "⚠️  Deployment completed but health check failed"
-          echo "This might be a temporary issue. Please check Azure logs manually."
           exit 1
-
-      - name: Show deployment result
-        if: always()
-        run: |
-          echo "========================================"
-          if [ "${{ steps.health-check.outcome }}" = "success" ]; then
-            echo "🚀 Deployment Successful!"
-            echo "Status: ✅ HEALTHY"
-          else
-            echo "⚠️  Deployment Completed with Warnings"
-            echo "Status: ⚠️  NEEDS VERIFICATION"
-            echo ""
-            echo "The application was deployed but health check failed."
-            echo "This might mean:"
-            echo "  1. The app is still starting up (wait a bit longer)"
-            echo "  2. There's an error in the application code"
-            echo "  3. Environment variables are missing or incorrect"
-            echo "  4. Dependencies failed to install"
-            echo ""
-            echo "👉 NEXT STEPS:"
-            echo "  1. Check Azure Portal → Log Stream for errors"
-            echo "  2. Verify environment variables in Configuration"
-            echo "  3. Try accessing the URL directly in a few minutes"
-            echo "  4. Check if node_modules were installed correctly"
-          fi
-          echo "========================================"
-          echo "App Name: ${{ env.WEBAPP_NAME }}"
-          echo "Environment: STAGING"
-          echo "URL: ${{ steps.get-url.outputs.url }}"
-          echo "Health Check: ${{ steps.get-url.outputs.url }}/api/rpa/health"
-          echo "Commit: ${{ github.sha }}"
-          echo "========================================"
-
-      - name: Show deployment summary
-        if: steps.health-check.outcome == 'success'
-        run: |
-          echo "================================================"
-          echo "🚀 Staging Deployment Successful!"
-          echo "================================================"
-          echo "App Name: ${{ env.WEBAPP_NAME }}"
-          echo "Environment: STAGING"
-          echo "Branch: ${{ github.ref_name }}"
-          echo "URL: ${{ steps.get-url.outputs.url }}"
-          echo "Health Check: ${{ steps.get-url.outputs.url }}/api/rpa/health"
-          echo "Commit: ${{ github.sha }}"
-          echo "Deployed by: ${{ github.actor }}"
-          echo "================================================"
-          echo ""
-          echo "⚙️  Azure Configuration:"
-          echo "   Deployment: Linux Container"
-          echo "   Image: ${{ env.IMAGE_NAME }}"
-          echo "   Registry: ${{ env.ACR_NAME }}.azurecr.io"
-          echo "   Command: node server/rpaServer.js"
-          echo ""
-          echo "📝 Available Endpoints:"
-          echo "   GET  /api/rpa/health        - Health check"
-          echo "   GET  /api/master-data       - Master data"
-          echo "   POST /api/extract           - Extract reservation data"
-          echo "   POST /api/rpa/create-reservation - Create reservation in iTraffic"
-          echo ""
-          echo "📝 Next steps:"
-          echo "1. Test thoroughly in staging environment"
-          echo "2. If ready for production, create and push tag:"
-          echo "   TAG_NAME=\$(echo ${{ github.ref_name }} | sed 's/release\///')"
-          echo "   git tag \$TAG_NAME"
-          echo "   git push origin \$TAG_NAME"
-          echo "================================================"
-
-      - name: Show troubleshooting guide
-        if: steps.health-check.outcome != 'success'
-        run: |
-          echo "================================================"
-          echo "🔍 TROUBLESHOOTING GUIDE"
-          echo "================================================"
-          echo ""
-          echo "The deployment completed but the health check failed."
-          echo "Here's how to diagnose the issue:"
-          echo ""
-          echo "1️⃣  CHECK AZURE LOGS"
-          echo "   → Azure Portal → ${{ env.WEBAPP_NAME }}"
-          echo "   → Monitoring → Log Stream"
-          echo "   → Look for startup errors or crashes"
-          echo ""
-          echo "2️⃣  VERIFY APP IS RUNNING"
-          echo "   → Azure Portal → Overview"
-          echo "   → Check if app status is 'Running'"
-          echo "   → Restart if needed"
-          echo ""
-          echo "3️⃣  CHECK CONSOLE ACCESS"
-          echo "   → Azure Portal → Development Tools → Console"
-          echo "   → Run: ls -la"
-          echo "   → Run: cat startup.sh"
-          echo "   → Run: node dist/main.js (to see errors)"
-          echo ""
-          echo "4️⃣  VERIFY ENVIRONMENT VARIABLES"
-          echo "   → Azure Portal → Configuration → Application Settings"
-          echo "   → Ensure NODE_ENV=staging exists"
-          echo "   → Ensure PORT is not set (Azure sets it automatically)"
-          echo ""
-          echo "5️⃣  TEST ENDPOINTS MANUALLY"
-          echo "   Wait 2-3 minutes and try:"
-          echo "   curl ${{ steps.get-url.outputs.url }}/api/rpa/health"
-          echo ""
-          echo "6️⃣  CHECK DEPENDENCIES"
-          echo "   In Azure Console:"
-          echo "   → ls -la node_modules/"
-          echo "   → npm list --depth=0"
-          echo ""
-          echo "================================================"
-          echo "📧 If issues persist, check the logs above for:"
-          echo "   - Missing dependencies"
-          echo "   - Permission errors"
-          echo "   - Port binding errors"
-          echo "   - Environment variable errors"
-          echo "================================================"

@@ -134,7 +134,7 @@ export async function selectAndFillRoomQuantity(page, service, passengers = []) 
 }
 
 
-async function getCellText(row, cellIndex) {
+export async function getCellText(row, cellIndex) {
   try {
     const cell = row.locator(`div.slick-cell.l${cellIndex}.r${cellIndex}`);
     const text = await cell.textContent();
