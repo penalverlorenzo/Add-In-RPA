@@ -60,6 +60,13 @@ jobs:
 
           az acr login --name ${{ env.ACR_NAME }}
           echo "✅ Successfully logged in to ACR"
+      - name: Debug Azure resources
+        run: |
+          echo "WEBAPP_NAME=${{ env.WEBAPP_NAME }}"
+          echo "RESOURCE_GROUP=${{ env.RESOURCE_GROUP }}"
+          az webapp list \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query "[].name" -o table
 
       - name: Build Docker image
         run: |
