@@ -67,6 +67,10 @@ jobs:
           az webapp list \
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --query "[].name" -o table
+      - name: Find Web App
+        run: |
+          az webapp list --query "[].{name:name, rg:resourceGroup}" -o table
+
 
       - name: Build Docker image
         run: |
