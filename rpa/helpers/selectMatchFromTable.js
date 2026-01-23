@@ -144,6 +144,7 @@ export async function selectBestMatchFromTable(page, service, itemType) {
       
       // Hacer click en la fila para seleccionarla
       await bestRow.click();
+      await bestRow.click();
       await page.waitForTimeout(500);
       
       // Hacer click en el botón OK dentro del diálogo (usar el mismo okButton que encontramos al inicio)
