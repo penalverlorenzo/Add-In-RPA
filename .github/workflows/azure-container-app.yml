@@ -16,13 +16,7 @@ jobs:
       contents: read
       id-token: write
 
-    env:
-      WEBAPP_NAME: 'app-itraffic-rpa'
-      NODE_VERSION: '22'
-      PNPM_VERSION: '10.17.1'
-      ACR_NAME: 'acritrafficrpa2'
-      RESOURCE_GROUP: 'rg-itraffic-rpa'
-      IMAGE_NAME: 'itraffic-rpa'
+    environment: Add-In-RPA
 
     steps:
       - name: Checkout code
@@ -41,6 +35,9 @@ jobs:
       - name: Azure Login with OIDC
         uses: azure/login@v1
         with:
+          # IMPORTANT: Configure federated identity credential in Azure with subject:
+          # repo:penalverlorenzo/Add-In-RPA:ref:refs/heads/release/rpa-backend-v*
+          # Or use a more specific pattern if needed
           client-id: '94106b64-039f-47ef-9be8-5c19768fda17'
           tenant-id: 'c556f158-baa4-43a2-8dc7-a1619672abff'
           subscription-id: '1bac4488-7f06-44b9-8651-c16aca0f47b8'
@@ -69,10 +66,9 @@ jobs:
           echo "Image name: ${IMAGE_NAME}"
           echo "Image latest: ${IMAGE_LATEST}"
 
-          # Construir imagen Docker desde la raíz del monorepo
-          # El Dockerfile está en apps/bip/monolith-backend pero necesita contexto del monorepo
+          # Construir imagen Docker desde la raíz del proyecto
           docker build \
-            -f apps/bip/monolith-backend/Dockerfile \
+            -f Dockerfile \
             -t ${IMAGE_NAME} \
             -t ${IMAGE_LATEST} \
             .
@@ -123,9 +119,9 @@ jobs:
             --name ${{ env.WEBAPP_NAME }} \
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --settings \
-              NODE_ENV=staging \
-              PORT=8080 \
-              WEBSITES_PORT=8080
+              NODE_ENV=production \
+              PORT=3001 \
+              WEBSITES_PORT=3001
 
           echo "✅ App Service configured for Container"
 
@@ -178,7 +174,7 @@ jobs:
           MAX_RETRIES=10
           RETRY_COUNT=0
           BASE_URL="${{ steps.get-url.outputs.url }}"
-          HEALTH_URL="${BASE_URL}/v1/health"
+          HEALTH_URL="${BASE_URL}/api/rpa/health"
 
           echo "Testing health endpoint: $HEALTH_URL"
 
@@ -235,7 +231,7 @@ jobs:
           echo "App Name: ${{ env.WEBAPP_NAME }}"
           echo "Environment: STAGING"
           echo "URL: ${{ steps.get-url.outputs.url }}"
-          echo "Health Check: ${{ steps.get-url.outputs.url }}/v1/health"
+          echo "Health Check: ${{ steps.get-url.outputs.url }}/api/rpa/health"
           echo "Commit: ${{ github.sha }}"
           echo "========================================"
 
@@ -249,8 +245,7 @@ jobs:
           echo "Environment: STAGING"
           echo "Branch: ${{ github.ref_name }}"
           echo "URL: ${{ steps.get-url.outputs.url }}"
-          echo "Health Check: ${{ steps.get-url.outputs.url }}/v1/health"
-          echo "API Docs (dev only): ${{ steps.get-url.outputs.url }}/api/docs"
+          echo "Health Check: ${{ steps.get-url.outputs.url }}/api/rpa/health"
           echo "Commit: ${{ github.sha }}"
           echo "Deployed by: ${{ github.actor }}"
           echo "================================================"
@@ -259,13 +254,13 @@ jobs:
           echo "   Deployment: Linux Container"
           echo "   Image: ${{ env.IMAGE_NAME }}"
           echo "   Registry: ${{ env.ACR_NAME }}.azurecr.io"
-          echo "   Command: node dist/main.js"
+          echo "   Command: node server/rpaServer.js"
           echo ""
           echo "📝 Available Endpoints:"
-          echo "   GET  /              - Welcome message"
-          echo "   GET  /v1/health        - Health check"
-          echo "   POST /v1/auth/login - Authentication"
-          echo "   For full API docs, check /api/docs (dev environment only)"
+          echo "   GET  /api/rpa/health        - Health check"
+          echo "   GET  /api/master-data       - Master data"
+          echo "   POST /api/extract           - Extract reservation data"
+          echo "   POST /api/rpa/create-reservation - Create reservation in iTraffic"
           echo ""
           echo "📝 Next steps:"
           echo "1. Test thoroughly in staging environment"
@@ -286,7 +281,7 @@ jobs:
           echo "Here's how to diagnose the issue:"
           echo ""
           echo "1️⃣  CHECK AZURE LOGS"
-          echo "   → Azure Portal → health-bridge-staging"
+          echo "   → Azure Portal → ${{ env.WEBAPP_NAME }}"
           echo "   → Monitoring → Log Stream"
           echo "   → Look for startup errors or crashes"
           echo ""
@@ -308,7 +303,7 @@ jobs:
           echo ""
           echo "5️⃣  TEST ENDPOINTS MANUALLY"
           echo "   Wait 2-3 minutes and try:"
-          echo "   curl ${{ steps.get-url.outputs.url }}/v1/health"
+          echo "   curl ${{ steps.get-url.outputs.url }}/api/rpa/health"
           echo ""
           echo "6️⃣  CHECK DEPENDENCIES"
           echo "   In Azure Console:"
