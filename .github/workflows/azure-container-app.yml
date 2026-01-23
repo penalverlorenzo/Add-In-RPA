@@ -79,7 +79,7 @@ jobs:
             --revision-suffix force-pull-$(date +%s) \
             --set-env-vars \
                 AZURE_OPENAI_API_KEY="${{ secrets.AZURE_OPENAI_API_KEY }}" \
-                PORT="3001" \
+                PORT="3000" \
                 REDIRECT_URI="${{ secrets.REDIRECT_URI }}" \
                 AZURE_SEARCH_ENDPOINT="${{ secrets.AZURE_SEARCH_ENDPOINT }}" \
                 AZURE_SEARCH_INDEX="${{ secrets.AZURE_SEARCH_INDEX }}" \
