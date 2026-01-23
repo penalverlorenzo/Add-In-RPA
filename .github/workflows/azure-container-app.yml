@@ -17,7 +17,14 @@ jobs:
       id-token: write
 
     environment: Add-In-RPA
-
+    env:
+      PNPM_VERSION: ${{ secrets.PNPM_VERSION }}
+      NODE_VERSION: ${{ secrets.NODE_VERSION }}
+      WEBAPP_NAME: ${{ secrets.WEBAPP_NAME }}
+      ACR_NAME: ${{ secrets.ACR_NAME }}
+      RESOURCE_GROUP: ${{ secrets.RESOURCE_GROUP }}
+      IMAGE_NAME: ${{ secrets.IMAGE_NAME }}
+      
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
