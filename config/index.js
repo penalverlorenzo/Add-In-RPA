@@ -69,6 +69,7 @@ export default {
             classifications: 'classifications',
             categories: 'categories',
             extractions: 'extractions',
+            reservationsHistory: 'reservations_history',
             // Master data tables for RPA
             sellers: 'sellers',
             clients: 'clients',

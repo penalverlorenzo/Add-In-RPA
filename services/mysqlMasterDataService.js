@@ -501,7 +501,7 @@ async function createCategory(category) {
 }
 
 // ============================================================================
-// RESERVATIONS
+// RESERVATIONS HISTORY
 // ============================================================================
 
 async function saveReservation(reservation) {
@@ -509,39 +509,93 @@ async function saveReservation(reservation) {
     if (!pool) throw new Error('MySQL not configured');
 
     try {
-        const tableName = config.mysql.tables.classifications;
-        const id = reservation.id || `res_${Date.now()}`;
-        const data = {
-            id,
-            type: 'extraction',
-            ...reservation,
-            createdAt: reservation.createdAt || new Date().toISOString(),
-            updatedAt: reservation.updatedAt || new Date().toISOString()
+        const tableName = config.mysql.tables.reservationsHistory;
+        
+        // Validar que se proporcionen los campos requeridos
+        if (!reservation.code) {
+            throw new Error('Reservation code is required');
+        }
+        
+        // Preparar datos para la tabla reservations_history
+        const insertData = {
+            userEmail: reservation.userEmail || null,
+            code: reservation.code,
+            conversationId: reservation.conversationId || null
         };
 
-        // Convert nested objects to JSON strings for MySQL storage
-        const processedData = {};
-        for (const [key, value] of Object.entries(data)) {
-            if (typeof value === 'object' && value !== null && !(value instanceof Date)) {
-                processedData[key] = JSON.stringify(value);
-            } else {
-                processedData[key] = value;
-            }
-        }
-
-        const columns = Object.keys(processedData).join(', ');
-        const placeholders = Object.keys(processedData).map(() => '?').join(', ');
-        const values = Object.values(processedData);
+        // Remover campos null para usar valores por defecto de MySQL
+        const columns = Object.keys(insertData).filter(key => insertData[key] !== null).join(', ');
+        const placeholders = Object.keys(insertData).filter(key => insertData[key] !== null).map(() => '?').join(', ');
+        const values = Object.values(insertData).filter(val => val !== null);
 
         await pool.query(
             `INSERT INTO ?? (${columns}) VALUES (${placeholders})`,
             [tableName, ...values]
         );
 
-        return { id, ...data };
+        // Recuperar el registro insertado para obtener el ID generado
+        const [rows] = await pool.query(
+            `SELECT * FROM ?? WHERE code = ? LIMIT 1`,
+            [tableName, reservation.code]
+        );
+
+        if (rows.length > 0) {
+            return rows[0];
+        }
+
+        return {
+            code: reservation.code,
+            userEmail: reservation.userEmail,
+            conversationId: reservation.conversationId
+        };
     } catch (error) {
+        // Si es un error de duplicado (código único), retornar el registro existente
+        if (error.code === 'ER_DUP_ENTRY' || error.errno === 1062) {
+            console.log(`⚠️ Reserva con código ${reservation.code} ya existe, retornando registro existente`);
+            const [rows] = await pool.query(
+                `SELECT * FROM ?? WHERE code = ? LIMIT 1`,
+                [config.mysql.tables.reservationsHistory, reservation.code]
+            );
+            if (rows.length > 0) {
+                return rows[0];
+            }
+        }
         console.error('Error saving reservation:', error);
         throw error;
+    }
+}
+
+// ============================================================================
+// RESERVATIONS BY CONVERSATION ID
+// ============================================================================
+
+async function getReservationByConversationId(conversationId) {
+    const pool = getMySQLConnection();
+    if (!pool) {
+        console.warn('⚠️ MySQL connection pool not available for getReservationByConversationId');
+        return null;
+    }
+
+    try {
+        const [rows] = await pool.query(
+            `SELECT * FROM ?? WHERE conversationId = ? ORDER BY createdAt DESC LIMIT 1`,
+            [config.mysql.tables.reservationsHistory, conversationId]
+        );
+        
+        if (rows.length === 0) {
+            console.log('No reservation found for conversationId:', conversationId);
+            return null;
+        }
+
+        console.log('✅ Reservation found for conversationId:', conversationId, 'Code:', rows[0].code);
+        return rows[0];
+    } catch (error) {
+        console.error('❌ Error getting reservation by conversationId:', error.message);
+        console.error('   Error code:', error.code);
+        if (error.code === 'ETIMEDOUT' || error.code === 'ECONNREFUSED') {
+            console.error('   ⚠️ Connection timeout or refused - check MySQL configuration');
+        }
+        return null;
     }
 }
 
@@ -612,6 +666,7 @@ export default {
     getAllCountries,
     createCategory,
     saveReservation,
+    getReservationByConversationId,
     saveExtraction,
     getExtractionByConversationId,
     getUserById,
