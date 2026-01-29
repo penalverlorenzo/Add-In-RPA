@@ -28,8 +28,10 @@ if (isProduction) {
     { name: 'ITRAFFIC_PASSWORD', value: config.itraffic.password },
     { name: 'AZURE_OPENAI_API_KEY', value: config.openai.apiKey },
     { name: 'AZURE_OPENAI_ENDPOINT', value: config.openai.endpoint },
-    { name: 'COSMOS_DB_ENDPOINT', value: config.cosmosDb.endpoint },
-    { name: 'COSMOS_DB_KEY', value: config.cosmosDb.key }
+    { name: 'MYSQL_HOST', value: config.mysql.host },
+    { name: 'MYSQL_USER', value: config.mysql.user },
+    { name: 'MYSQL_PASSWORD', value: config.mysql.password },
+    { name: 'MYSQL_DATABASE', value: config.mysql.database }
   ];
   
   const missing = required.filter(r => !r.value);
@@ -41,6 +43,7 @@ if (isProduction) {
   }
   
   console.log('✅ Configuración validada correctamente');
+  console.log(`📊 MySQL configurado: ${config.mysql.host}:${config.mysql.port}/${config.mysql.database}`);
 }
 
 // Función para importar dinámicamente el RPA (ES modules)
@@ -152,14 +155,16 @@ app.post('/api/extract', async (req, res) => {
     const startTime = Date.now();
     const { emailContent, userId, conversationId, isReExtraction } = req.body;
     let user;
-  try {
-    user = await masterDataService.getUserById(userId);
-    if (!user) {
-      user = await masterDataService.getUserByEmail(userId);
+    try {
+      user = await masterDataService.getUserById(userId);
+      if (!user) {
+        user = await masterDataService.getUserByEmail(userId);
+      }
+    } catch (err) {
+      console.error('❌ Database error verifying user:', err.message);
+      console.error('   Error details:', err);
+      throw new Error(`Database error verifying user: ${err.message}`);
     }
-  } catch (err) {
-    throw new Error('Database error verifying user');
-  }
 
   if (!user) {
     const error = new Error('User not found ' + userId);
