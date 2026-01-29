@@ -10,18 +10,69 @@ import config from '../config/index.js';
 let connectionPool = null;
 
 function getMySQLConnection() {
-    if (!connectionPool && config.mysql.host && config.mysql.user && config.mysql.password) {
-        connectionPool = mysql.createPool({
+    if (!connectionPool) {
+        if (!config.mysql.host || !config.mysql.user || !config.mysql.password) {
+            console.warn('⚠️ MySQL configuration incomplete:', {
+                hasHost: !!config.mysql.host,
+                hasUser: !!config.mysql.user,
+                hasPassword: !!config.mysql.password,
+                hasDatabase: !!config.mysql.database
+            });
+            return null;
+        }
+        const poolConfig = {
             host: config.mysql.host,
-            port: config.mysql.port,
+            port: parseInt(config.mysql.port) || 3306,
             user: config.mysql.user,
             password: config.mysql.password,
             database: config.mysql.database,
-            ssl: config.mysql.ssl ? { rejectUnauthorized: false } : false,
             waitForConnections: true,
             connectionLimit: 10,
-            queueLimit: 0
-        });
+            queueLimit: 0,
+            connectTimeout: 10000, // 10 seconds
+            acquireTimeout: 10000, // 10 seconds
+            timeout: 10000, // 10 seconds
+            enableKeepAlive: true,
+            keepAliveInitialDelay: 0
+        };
+
+        // Configure SSL for Azure MySQL
+        // Azure MySQL Flexible Server requires SSL by default
+        if (config.mysql.ssl || config.mysql.host?.includes('mysql.database.azure.com')) {
+            poolConfig.ssl = {
+                rejectUnauthorized: false,
+                // Azure MySQL requires SSL but doesn't need certificate verification
+                // This allows connection without verifying the certificate
+            };
+            console.log('🔒 SSL enabled for MySQL connection (Azure MySQL)');
+        }
+
+        try {
+            console.log(`🔌 Creating MySQL connection pool to ${poolConfig.host}:${poolConfig.port}/${poolConfig.database}`);
+            connectionPool = mysql.createPool(poolConfig);
+            
+            // Test connection asynchronously (don't block initialization)
+            connectionPool.getConnection()
+                .then(connection => {
+                    console.log('✅ MySQL connection pool created and tested successfully');
+                    connection.release();
+                })
+                .catch(error => {
+                    console.error('❌ Error testing MySQL connection pool:', error.message);
+                    console.error('   Error code:', error.code);
+                    console.error('   Error errno:', error.errno);
+                    if (error.code === 'ETIMEDOUT') {
+                        console.error('   ⚠️ Connection timeout - check network/firewall settings');
+                    } else if (error.code === 'ECONNREFUSED') {
+                        console.error('   ⚠️ Connection refused - check host/port and firewall rules');
+                    } else if (error.code === 'ER_ACCESS_DENIED_ERROR') {
+                        console.error('   ⚠️ Access denied - check username/password');
+                    }
+                });
+        } catch (error) {
+            console.error('❌ Error initializing MySQL pool:', error.message);
+            throw error;
+        }
     }
     return connectionPool;
 }
@@ -32,7 +83,10 @@ function getMySQLConnection() {
 
 async function getAllSellers() {
     const pool = getMySQLConnection();
-    if (!pool) return [];
+    if (!pool) {
+        console.warn('⚠️ MySQL connection pool not available for sellers');
+        return [];
+    }
 
     try {
         const [rows] = await pool.query(
@@ -42,6 +96,11 @@ async function getAllSellers() {
         return rows;
     } catch (error) {
         console.error('❌ Error getting sellers:', error.message);
+        console.error('   Error code:', error.code);
+        console.error('   Error errno:', error.errno);
+        if (error.code === 'ETIMEDOUT' || error.code === 'ECONNREFUSED') {
+            console.error('   ⚠️ Connection timeout or refused - check MySQL configuration');
+        }
         return [];
     }
 }
@@ -52,7 +111,10 @@ async function getAllSellers() {
 
 async function getAllClients() {
     const pool = getMySQLConnection();
-    if (!pool) return [];
+    if (!pool) {
+        console.warn('⚠️ MySQL connection pool not available for clients');
+        return [];
+    }
 
     try {
         const [rows] = await pool.query(
@@ -62,6 +124,10 @@ async function getAllClients() {
         return rows;
     } catch (error) {
         console.error('❌ Error getting clients:', error.message);
+        console.error('   Error code:', error.code);
+        if (error.code === 'ETIMEDOUT' || error.code === 'ECONNREFUSED') {
+            console.error('   ⚠️ Connection timeout or refused - check MySQL configuration');
+        }
         return [];
     }
 }
@@ -72,7 +138,10 @@ async function getAllClients() {
 
 async function getAllStatuses() {
     const pool = getMySQLConnection();
-    if (!pool) return [];
+    if (!pool) {
+        console.warn('⚠️ MySQL connection pool not available for statuses');
+        return [];
+    }
 
     try {
         const [rows] = await pool.query(
@@ -82,6 +151,10 @@ async function getAllStatuses() {
         return rows;
     } catch (error) {
         console.error('❌ Error getting statuses:', error.message);
+        console.error('   Error code:', error.code);
+        if (error.code === 'ETIMEDOUT' || error.code === 'ECONNREFUSED') {
+            console.error('   ⚠️ Connection timeout or refused - check MySQL configuration');
+        }
         return [];
     }
 }
@@ -92,7 +165,10 @@ async function getAllStatuses() {
 
 async function getAllReservationTypes() {
     const pool = getMySQLConnection();
-    if (!pool) return [];
+    if (!pool) {
+        console.warn('⚠️ MySQL connection pool not available for reservationTypes');
+        return [];
+    }
 
     try {
         const [rows] = await pool.query(
@@ -102,6 +178,10 @@ async function getAllReservationTypes() {
         return rows;
     } catch (error) {
         console.error('❌ Error getting reservation types:', error.message);
+        console.error('   Error code:', error.code);
+        if (error.code === 'ETIMEDOUT' || error.code === 'ECONNREFUSED') {
+            console.error('   ⚠️ Connection timeout or refused - check MySQL configuration');
+        }
         return [];
     }
 }
@@ -136,6 +216,10 @@ async function getAllGenders() {
         return rows;
     } catch (error) {
         console.error('❌ Error getting genders:', error.message);
+        console.error('   Error code:', error.code);
+        if (error.code === 'ETIMEDOUT' || error.code === 'ECONNREFUSED') {
+            console.error('   ⚠️ Connection timeout or refused - using defaults');
+        }
         return [
             { id: 'M', code: 'M', name: 'MASCULINO' },
             { id: 'F', code: 'F', name: 'FEMENINO' }
@@ -172,6 +256,10 @@ async function getAllDocumentTypes() {
         return rows;
     } catch (error) {
         console.error('❌ Error getting document types:', error.message);
+        console.error('   Error code:', error.code);
+        if (error.code === 'ETIMEDOUT' || error.code === 'ECONNREFUSED') {
+            console.error('   ⚠️ Connection timeout or refused - using defaults');
+        }
         return [
             { id: 'PAS', code: 'PAS', name: 'PASAPORTE' },
             { id: 'DNI', code: 'DNI', name: 'DOCUMENTO NACIONAL DE IDENTIDAD' }
@@ -185,7 +273,10 @@ async function getAllDocumentTypes() {
 
 async function getAllCountries() {
     const pool = getMySQLConnection();
-    if (!pool) return [];
+    if (!pool) {
+        console.warn('⚠️ MySQL connection pool not available for countries');
+        return [];
+    }
 
     try {
         const [rows] = await pool.query(
@@ -195,6 +286,10 @@ async function getAllCountries() {
         return rows;
     } catch (error) {
         console.error('❌ Error getting countries:', error.message);
+        console.error('   Error code:', error.code);
+        if (error.code === 'ETIMEDOUT' || error.code === 'ECONNREFUSED') {
+            console.error('   ⚠️ Connection timeout or refused - check MySQL configuration');
+        }
         return [];
     }
 }
@@ -456,7 +551,10 @@ async function saveReservation(reservation) {
 
 async function getUserById(userId) {
     const pool = getMySQLConnection();
-    if (!pool) return null;
+    if (!pool) {
+        console.warn('⚠️ MySQL connection pool not available for getUserById');
+        return null;
+    }
 
     try {
         const [rows] = await pool.query(
@@ -465,8 +563,15 @@ async function getUserById(userId) {
         );
         return rows.length > 0 ? rows[0] : null;
     } catch (error) {
+        console.error('❌ Error getting user by id:', error.message);
+        console.error('   Error code:', error.code);
+        console.error('   User ID:', userId);
         if (error.code === 'ER_NO_SUCH_TABLE' || error.code === 'ER_BAD_FIELD_ERROR') {
             return null;
+        }
+        if (error.code === 'ETIMEDOUT' || error.code === 'ECONNREFUSED') {
+            console.error('   ⚠️ Connection timeout or refused - check MySQL configuration');
+            throw new Error('Database connection error');
         }
         throw error;
     }
@@ -474,7 +579,10 @@ async function getUserById(userId) {
 
 async function getUserByEmail(email) {
     const pool = getMySQLConnection();
-    if (!pool) return null;
+    if (!pool) {
+        console.warn('⚠️ MySQL connection pool not available for getUserByEmail');
+        return null;
+    }
 
     try {
         const [rows] = await pool.query(
@@ -483,7 +591,13 @@ async function getUserByEmail(email) {
         );
         return rows.length > 0 ? rows[0] : null;
     } catch (error) {
-        console.error('Error getting user by email:', error);
+        console.error('❌ Error getting user by email:', error.message);
+        console.error('   Error code:', error.code);
+        console.error('   Email:', email);
+        if (error.code === 'ETIMEDOUT' || error.code === 'ECONNREFUSED') {
+            console.error('   ⚠️ Connection timeout or refused - check MySQL configuration');
+            throw new Error('Database connection error');
+        }
         return null;
     }
 }
