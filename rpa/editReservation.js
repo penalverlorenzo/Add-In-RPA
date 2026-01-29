@@ -36,9 +36,10 @@ export async function editReservation(page, reservationData = null) {
     // El código está en un link dentro de la segunda columna (l1 r1)
     // Usar un selector más flexible que busque el texto exacto
     const codigoLink = page.locator(
-        `div.slick-row div.slick-cell.l1.r1 a.s-Serene-E_Ventas-ReservaLink`
-    ).filter({ hasText: codigo });
-    
+        `div.slick-row div.slick-cell.l1.r1 a.s-Serene-E_Ventas-ReservaLink:has-text("${codigo}")`
+    ).first();
+    console.log('✅ codigoLink: ', await codigoLink.isVisible());
+    console.log('✅ codigoLinkText: ', await codigoLink.textContent());
     // Esperar a que aparezca el link con el código
     try {
         await codigoLink.waitFor({ state: 'visible', timeout: 10000 });
@@ -47,12 +48,12 @@ export async function editReservation(page, reservationData = null) {
         
         // Hacer click en el link del código para abrir la reserva
         await codigoLink.click();
+        await codigoLink.click();
         console.log(`✅ Click realizado en el código de la reserva`);
-        
         // Esperar a que se abra el modal/diálogo de edición
         // El modal debería aparecer después del click
-        await page.waitForTimeout(3000);
-        
+        await page.waitForLoadState('domcontentloaded');
+        console.log('✅ Page loaded');
         // Verificar que el modal se abrió (buscar algún elemento del modal)
         const modal = page.locator('.ui-dialog:visible, div[class*="Dialog"]:visible').first();
         try {
