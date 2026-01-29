@@ -438,12 +438,17 @@ NO incluyas ningún texto adicional fuera del JSON. NO incluyas markdown code bl
  * @param {string} emailContent - Full email content (can be a chain)
  * @param {string} userId - User ID for tracking
  * @param {Object} masterData - Available options from master data (optional)
+ * @param {string} conversationId - Conversation ID for tracking
  * @returns {Promise<Object>} Extracted reservation data
  */
-async function extractReservationData(emailContent, userId = 'unknown', masterData = null) {
+async function extractReservationData(emailContent, userId = 'unknown', masterData = null, conversationId = null) {
     const client = getOpenAIClient();
     if (!client) {
         throw new Error('OpenAI client not configured. Please check your .env file.');
+    }
+
+    if (!conversationId) {
+        throw new Error('Conversation ID is required');
     }
 
     // Validate input
@@ -457,7 +462,7 @@ async function extractReservationData(emailContent, userId = 'unknown', masterDa
         ? emailContent.substring(0, maxLength) + '\n\n[...contenido truncado por límite de tokens...]'
         : emailContent;
 
-    console.log(`🔍 Extracting reservation data for user ${userId}`);
+    console.log(`🔍 Extracting reservation data for user ${userId} and conversation ${conversationId}`);
     console.log(`📧 Email content length: ${emailContent.length} chars (truncated: ${truncatedContent.length})`);
 
     // Build enhanced prompt with master data context
@@ -561,7 +566,7 @@ async function extractReservationData(emailContent, userId = 'unknown', masterDa
         validatedData.userId = userId;
         validatedData.modelUsed = config.openai.deployment || 'gpt-4o-mini';
         validatedData.emailContentLength = emailContent.length;
-
+        validatedData.conversationId = conversationId;
         console.log(`✅ Extraction completed successfully`);
         console.log(`   Passengers: ${validatedData.passengers?.length || 0}`);
         console.log(`   Client: ${validatedData.client || 'N/A'}`);
