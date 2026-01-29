@@ -338,6 +338,10 @@ export async function fillQuickFilterDateRange(page, fechaDesde, fechaHasta = nu
         if (hastaValue !== hastaFormatted) {
           console.log(`⚠️ Fecha HASTA no coincidente. Reintentando...`);
           await fillInput(page, hastaInput, hastaFormatted, true);
+          await hastaInput.click({timeout: 2000});
+          console.log("Clicked on hastaInput");
+          await hastaInput.press('Tab');
+          console.log("Pressed Tab");
           await page.waitForTimeout(500);
         } else {
           console.log(`✅ Fecha HASTA llenada correctamente: "${hastaFormatted}"`);

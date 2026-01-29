@@ -85,6 +85,8 @@ export async function runRpa(reservationData = null) {
                 const service = reservationData.services[i];
                 if (reservationData.hotel && reservationData.hotel.tipo_habitacion) {
                     service.tipo_habitacion = reservationData.hotel?.tipo_habitacion;
+                }else {
+                    service.tipo_habitacion = "SGL";
                 }
                 console.log(`\n👤 Procesando servicio ${i + 1} de ${reservationData.services.length}`);
                 await addItemToReservation(page, service, 'Agregar Servicio', reservationData.passengers || []);

@@ -52,5 +52,34 @@ export default {
           countries: 'Countries',
           contacts: 'Contacts'
         }
+    },
+
+    // MySQL Configuration (Azure)
+    mysql: {
+        host: process.env.MYSQL_HOST,
+        port: process.env.MYSQL_PORT || 3306,
+        user: process.env.MYSQL_USER,
+        password: process.env.MYSQL_PASSWORD,
+        database: process.env.MYSQL_DATABASE || 'iTrafficDB',
+        ssl: process.env.MYSQL_SSL === 'true' || false,
+        // Table names mapping (equivalent to Cosmos containers)
+        tables: {
+            users: 'users',
+            rules: 'rules',
+            classifications: 'classifications',
+            categories: 'categories',
+            extractions: 'extractions',
+            // Master data tables for RPA
+            sellers: 'sellers',
+            clients: 'clients',
+            currencies: 'currencies',
+            statuses: 'statuses',
+            reservationTypes: 'reservationTypes',
+            // Passenger data tables
+            genders: 'genders',
+            documentTypes: 'documentTypes',
+            countries: 'countries',
+            contacts: 'contacts'
+        }
     }
 };
