@@ -10,7 +10,7 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { extractReservationData, calculateQualityScore } from '../services/extractionService.js';
-import masterDataService from '../services/masterDataService.js';
+import masterDataService from '../services/mysqlMasterDataService.js';
 import config from '../config/index.js';
 
 // ES Modules equivalent of __dirname
@@ -150,7 +150,7 @@ app.post('/api/extract', async (req, res) => {
   try {
     console.log('🤖 Petición recibida para extracción con IA');
     const startTime = Date.now();
-    const { emailContent, userId } = req.body;
+    const { emailContent, userId, conversationId, isReExtraction } = req.body;
     let user;
   try {
     user = await masterDataService.getUserById(userId);
@@ -183,7 +183,16 @@ app.post('/api/extract', async (req, res) => {
     }
     
     console.log(`📧 Extrayendo datos del email (${emailContent.length} caracteres)...`);
-    
+    const extraction = await masterDataService.getExtractionByConversationId(conversationId);
+    if (extraction && !isReExtraction) {
+      console.log('✅ Extracción encontrada para la conversación:', extraction.id);
+      return res.json({
+        success: true,
+        data: extraction,
+        message: 'Extracción encontrada, no se necesita extraer nuevamente',
+        didExtractionExist: true
+      });
+    }
     // Obtener datos maestros para que la IA pueda mapear correctamente
     const [sellers, clients, statuses, reservationTypes, genders, documentTypes, countries] = await Promise.all([
       masterDataService.getAllSellers(),
@@ -207,13 +216,15 @@ app.post('/api/extract', async (req, res) => {
     const processingTimeMs = Date.now() - startTime;
     console.log('📋 Datos maestros obtenidos para contexto de IA');
     // Extraer datos con IA, pasando los datos maestros como contexto
-    const extractedData = await extractReservationData(emailContent, userId || 'outlook-user', masterData);
+    const extractedData = await extractReservationData(emailContent, userId || 'outlook-user', masterData, conversationId);
     const qualityScore = calculateQualityScore(extractedData);
     extractedData.qualityScore = qualityScore;
+    
+    // Save extraction to MySQL database
     await masterDataService.saveExtraction({
-      id: `extraction-${userId}-${Date.now()}`,
       userId,
       userEmail: user.email,
+      conversationId,
       extractedData,
       emailContentLength: emailContent.length,
       qualityScore,
@@ -222,13 +233,15 @@ app.post('/api/extract', async (req, res) => {
       extractedAt: new Date().toISOString(),
       processingTimeMs
     });
+    
     console.log('✅ Extracción completada exitosamente');
     console.log(`   Pasajeros extraídos: ${extractedData.passengers?.length || 0}`);
     
     res.json({
       success: true,
       data: extractedData,
-      message: 'Datos extraídos exitosamente'
+      message: 'Datos extraídos exitosamente',
+      didExtractionExist: false
     });
     
   } catch (error) {
