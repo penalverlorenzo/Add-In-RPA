@@ -4,9 +4,11 @@ import { loginITraffic } from './login.js';
 import { ensureSession } from './session.js';
 import { navigateToDashboard } from './dashboard.js';
 import { newReservation } from './newReservation.js';
+import { editReservation } from './editReservation.js';
 import { newPassenger } from './newPassenger.js';
 import { dataPassenger } from './dataPassenger.js';
 import { saveReservation } from './saveReservation.js';
+import { getReservationCode } from './getReservationCode.js';
 import { addItemToReservation } from './addItemToReservation.js';
 
 /**
@@ -14,7 +16,7 @@ import { addItemToReservation } from './addItemToReservation.js';
  * @param {Object} reservationData - Datos de la reserva (opcional, usa datos por defecto si no se provee)
  * @returns {Promise<Object>} Resultado de la operación
  */
-export async function runRpa(reservationData = null) {
+export async function runRpa(reservationData = null, isEdit = false) {
     const { browser, page, context } = await createBrowser();
 
     try {
@@ -40,7 +42,7 @@ export async function runRpa(reservationData = null) {
         console.log('✅ Dashboard completado');
         
         // PASO 2: Interactuar con el modal de nueva reserva
-        await newReservation(page, reservationData);
+        isEdit ? await editReservation(page, reservationData) : await newReservation(page, reservationData);
         console.log('✅ Modal de nueva reserva completado');
         if (reservationData && reservationData.hotel) {
             let hotel = null;
@@ -114,10 +116,43 @@ export async function runRpa(reservationData = null) {
             console.log('⚠️ No se recibieron datos de pasajeros');
         }
         
+        // Guardar la reserva en iTraffic
         await saveReservation(page);
+        console.log('✅ Reserva guardada en iTraffic');
+        
+        // Obtener el código de la reserva generado
+        const reservationCode = await getReservationCode(page);
+        
+        // Si se obtuvo el código y hay datos de usuario, guardar en la base de datos
+        if (reservationCode && reservationData) {
+            try {
+                // Importar el servicio de base de datos dinámicamente para evitar dependencias circulares
+                const { default: masterDataService } = await import('../services/mysqlMasterDataService.js');
+                
+                await masterDataService.saveReservation({
+                    code: reservationCode,
+                    userEmail: reservationData.userEmail || null,
+                    conversationId: reservationData.conversationId || null
+                });
+                
+                console.log(`✅ Código de reserva guardado en BD: ${reservationCode}`);
+            } catch (dbError) {
+                console.error('⚠️ Error al guardar código en BD (no crítico):', dbError.message);
+                // No lanzar error, solo loguear, ya que la reserva ya se guardó en iTraffic
+            }
+        } else {
+            if (!reservationCode) {
+                console.log('⚠️ No se pudo obtener el código de reserva');
+            }
+            if (!reservationData) {
+                console.log('⚠️ No hay datos de reserva para guardar en BD');
+            }
+        }
+        
         return {
             success: true,
             message: 'Reserva creada exitosamente',
+            reservationCode: reservationCode || null,
             timestamp: new Date().toISOString()
         };
 

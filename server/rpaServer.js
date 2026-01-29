@@ -191,6 +191,14 @@ app.post('/api/extract', async (req, res) => {
     const extraction = await masterDataService.getExtractionByConversationId(conversationId);
     if (extraction && !isReExtraction) {
       console.log('✅ Extracción encontrada para la conversación:', extraction.id);
+      
+      // Buscar si existe una reserva creada para este conversationId
+      const reservation = await masterDataService.getReservationByConversationId(conversationId);
+      if (reservation && reservation.code) {
+        console.log(`📋 Reserva encontrada con código: ${reservation.code}`);
+        extraction.reservationCode = reservation.code;
+      }
+      
       return res.json({
         success: true,
         data: extraction,
@@ -242,6 +250,13 @@ app.post('/api/extract', async (req, res) => {
     console.log('✅ Extracción completada exitosamente');
     console.log(`   Pasajeros extraídos: ${extractedData.passengers?.length || 0}`);
     
+    // Buscar si existe una reserva creada para este conversationId
+    const reservation = await masterDataService.getReservationByConversationId(conversationId);
+    if (reservation && reservation.code) {
+      console.log(`📋 Reserva encontrada con código: ${reservation.code}`);
+      extractedData.reservationCode = reservation.code;
+    }
+    
     res.json({
       success: true,
       data: extractedData,
@@ -274,7 +289,90 @@ app.post('/api/rpa/create-reservation', async (req, res) => {
       });
     }
     
-    const reservationData = req.body;
+    // Los datos pueden venir directamente o dentro de req.body.data (respuesta de /api/extract)
+    let reservationData = req.body;
+    
+    // Si los datos vienen dentro de un objeto con estructura { success, data, message }
+    if (req.body.data && typeof req.body.data === 'object' && req.body.data.passengers) {
+      console.log('📦 Datos encontrados dentro de req.body.data, extrayendo...');
+      reservationData = req.body.data;
+    }
+    
+    // Limpiar hotel si viene como "[object Object]"
+    if (reservationData.hotel && typeof reservationData.hotel === 'string' && reservationData.hotel === '[object Object]') {
+      console.log('⚠️ Hotel recibido como "[object Object]", eliminando campo inválido');
+      delete reservationData.hotel;
+    }
+    
+    // Validar que se recibieron datos
+    if (!reservationData || !reservationData.passengers || reservationData.passengers.length === 0) {
+      console.error('❌ Validación fallida - reservationData:', {
+        hasReservationData: !!reservationData,
+        hasPassengers: !!(reservationData && reservationData.passengers),
+        passengersLength: reservationData?.passengers?.length || 0,
+        reqBodyKeys: Object.keys(req.body || {}),
+        reqBodyDataKeys: req.body?.data ? Object.keys(req.body.data) : []
+      });
+      return res.status(400).json({
+        success: false,
+        error: 'No se recibieron datos de pasajeros'
+      });
+    }
+    
+    console.log('🚀 Ejecutando RPA con los datos recibidos...');
+    
+    // Agregar userEmail y conversationId si están disponibles en los datos extraídos
+    if (reservationData.userEmail) {
+      console.log(`📧 User email: ${reservationData.userEmail}`);
+    }
+    if (reservationData.conversationId) {
+      console.log(`💬 Conversation ID: ${reservationData.conversationId}`);
+    }
+    
+    // Ejecutar el RPA
+    const resultado = await runRpa(reservationData);
+    
+    console.log('✅ RPA ejecutado exitosamente');
+    
+    res.json({
+      success: true,
+      data: resultado,
+      message: 'Reserva creada exitosamente',
+      reservationCode: resultado.reservationCode || null
+    });
+    
+  } catch (error) {
+    console.error('❌ Error al ejecutar RPA:', error);
+    
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
+});
+
+app.post('/api/rpa/edit-reservation', async (req, res) => {
+  try {
+    console.log('📥 Petición recibida para editar reserva');
+    console.log('Datos recibidos:', JSON.stringify(req.body, null, 2));
+    
+    // Verificar que el módulo RPA esté cargado
+    if (!runRpa) {
+      return res.status(503).json({
+        success: false,
+        error: 'Servicio RPA no disponible. Verifica la configuración del servidor.'
+      });
+    }
+    
+    // Los datos pueden venir directamente o dentro de req.body.data (respuesta de /api/extract)
+    let reservationData = req.body;
+    
+    // Si los datos vienen dentro de un objeto con estructura { success, data, message }
+    if (req.body.data && typeof req.body.data === 'object' && req.body.data.passengers) {
+      console.log('📦 Datos encontrados dentro de req.body.data, extrayendo...');
+      reservationData = req.body.data;
+    }
     
     // Limpiar hotel si viene como "[object Object]"
     if (reservationData.hotel && typeof reservationData.hotel === 'string' && reservationData.hotel === '[object Object]') {
@@ -290,10 +388,34 @@ app.post('/api/rpa/create-reservation', async (req, res) => {
       });
     }
     
-    console.log('🚀 Ejecutando RPA con los datos recibidos...');
+    // Buscar el código de reserva si no viene en los datos
+    // Prioridad: 1) codigo/reservationCode en datos, 2) buscar por conversationId
+    if (!reservationData.codigo && !reservationData.reservationCode) {
+      if (reservationData.conversationId) {
+        console.log(`🔍 Buscando código de reserva por conversationId: ${reservationData.conversationId}`);
+        const reservation = await masterDataService.getReservationByConversationId(reservationData.conversationId);
+        if (reservation && reservation.code) {
+          console.log(`✅ Código de reserva encontrado: ${reservation.code}`);
+          reservationData.codigo = reservation.code;
+        } else {
+          console.log('⚠️ No se encontró código de reserva para este conversationId');
+          return res.status(404).json({
+            success: false,
+            error: 'No se encontró código de reserva para editar. Asegúrate de haber creado la reserva primero.'
+          });
+        }
+      } else {
+        return res.status(400).json({
+          success: false,
+          error: 'Se requiere código de reserva (codigo/reservationCode) o conversationId para editar una reserva'
+        });
+      }
+    }
     
-    // Ejecutar el RPA
-    const resultado = await runRpa(reservationData);
+    console.log('🚀 Ejecutando RPA para editar reserva con los datos recibidos...');
+    
+    // Ejecutar el RPA en modo edición
+    const resultado = await runRpa(reservationData, true);
     
     console.log('✅ RPA ejecutado exitosamente');
     
