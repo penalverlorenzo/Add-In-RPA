@@ -10,6 +10,8 @@ import { dataPassenger } from './dataPassenger.js';
 import { saveReservation } from './saveReservation.js';
 import { getReservationCode } from './getReservationCode.js';
 import { addItemToReservation } from './addItemToReservation.js';
+import { compareReservationData, getChangedPassengers } from './helpers/compareReservationData.js';
+import { clearServicesAndHotels, clearPassengers } from './clearReservationItems.js';
 
 /**
  * Ejecuta el RPA de iTraffic
@@ -41,10 +43,44 @@ export async function runRpa(reservationData = null, isEdit = false) {
         await navigateToDashboard(page);
         console.log('✅ Dashboard completado');
         
-        // PASO 2: Interactuar con el modal de nueva reserva
-        isEdit ? await editReservation(page, reservationData) : await newReservation(page, reservationData);
-        console.log('✅ Modal de nueva reserva completado');
-        if (reservationData && reservationData.hotel) {
+        // PASO 2: Interactuar con el modal de nueva reserva o editar
+        if (isEdit) {
+            // Modo edición: abrir la reserva existente
+            await editReservation(page, reservationData);
+            console.log('✅ Reserva abierta para edición');
+            
+            // Obtener datos originales para comparación
+            const originData = reservationData?.originData || null;
+            const changes = originData ? compareReservationData(reservationData, originData) : null;
+            
+            // Limpiar servicios/hoteles si hay cambios (antes de agregar nuevos)
+            if (changes && (changes.hotel || changes.services)) {
+                console.log('🧹 Limpiando servicios y hoteles existentes antes de agregar nuevos...');
+                await clearServicesAndHotels(page);
+            } else if (!originData) {
+                // Si no hay datos originales pero estamos en modo edición, limpiar de todas formas
+                console.log('🧹 Limpiando servicios y hoteles existentes (no hay datos originales para comparar)...');
+                await clearServicesAndHotels(page);
+            }
+            
+            // Llenar datos de reserva solo si hay cambios en los campos principales
+            if (changes && (changes.reservationType || changes.status || changes.client || changes.travelDate || changes.seller)) {
+                const { dataReservation } = await import('./dataReservation.js');
+                await dataReservation(page, reservationData, originData);
+            } else {
+                console.log('⏭️  Saltando llenado de datos de reserva (sin cambios)');
+            }
+        } else {
+            // Modo nueva reserva: newReservation ya llama a dataReservation internamente
+            await newReservation(page, reservationData);
+            console.log('✅ Modal de nueva reserva completado');
+        }
+        
+        // Obtener datos originales para comparación (para uso en hotel, servicios, pasajeros)
+        const originData = reservationData?.originData || null;
+        const changes = originData ? compareReservationData(reservationData, originData) : null;
+        // Procesar hotel solo si es nuevo o si cambió
+        if (reservationData && reservationData.hotel && (!isEdit || changes?.hotel)) {
             let hotel = null;
             
             // Verificar que hotel sea un objeto, no un string
@@ -81,8 +117,11 @@ export async function runRpa(reservationData = null, isEdit = false) {
             } else {
                 console.log(`⚠️ Hotel no válido o sin datos suficientes. Tipo: ${typeof reservationData.hotel}, Valor: ${JSON.stringify(reservationData.hotel)}`);
             }
+        } else if (isEdit && !changes?.hotel) {
+            console.log('⏭️  Saltando hotel (sin cambios)');
         }
-        if (reservationData && reservationData.services && reservationData.services.length > 0) {
+        // Procesar servicios solo si es nuevo o si cambiaron
+        if (reservationData && reservationData.services && reservationData.services.length > 0 && (!isEdit || changes?.services)) {
             for (let i = 0; i < reservationData.services.length; i++) {
                 const service = reservationData.services[i];
                 if (reservationData.hotel && reservationData.hotel.tipo_habitacion) {
@@ -94,23 +133,63 @@ export async function runRpa(reservationData = null, isEdit = false) {
                 await addItemToReservation(page, service, 'Agregar Servicio', reservationData.passengers || []);
                 console.log('✅ Servicio guardado');
             }
+        } else if (isEdit && !changes?.services) {
+            console.log('⏭️  Saltando servicios (sin cambios)');
         }
-        // PASO 3: Procesar cada pasajero
+        // PASO 3: Procesar solo pasajeros que cambiaron o son nuevos
         if (reservationData && reservationData.passengers && reservationData.passengers.length > 0) {
-            for (let i = 0; i < reservationData.passengers.length; i++) {
-                const passenger = reservationData.passengers[i];
-                console.log(`\n👤 Procesando pasajero ${i + 1} de ${reservationData.passengers.length}`);
+            let passengersToProcess = reservationData.passengers;
+            
+            // Si es edición, limpiar pasajeros existentes antes de agregar nuevos
+            if (isEdit) {
+                // Ir a la pestaña de pasajeros
+                const tabPassengers = page.locator('#ui-id-2');
+                try {
+                    await tabPassengers.waitFor({ state: 'visible', timeout: 5000 });
+                    await tabPassengers.evaluate(el => el.click());
+                    console.log('✅ Pestaña Pasajeros activa');
+                    await page.waitForTimeout(1000);
+                } catch (error) {
+                    console.log('⚠️ No se pudo hacer click en la pestaña Pasajeros, continuando...', error.message);
+                }
                 
-                // Abrir modal de nuevo pasajero
-                await newPassenger(page);
-                console.log('✅ Modal de nuevo pasajero abierto');
+                // Limpiar pasajeros si hay cambios o si no hay datos originales
+                if (changes?.passengers || !originData) {
+                    console.log('🧹 Limpiando pasajeros existentes antes de agregar nuevos...');
+                    await clearPassengers(page);
+                } else {
+                    console.log('⏭️  Saltando limpieza de pasajeros (sin cambios)');
+                }
                 
-                // Llenar datos del pasajero
-                await dataPassenger(page, passenger);
-                console.log('✅ Datos del pasajero completados');
-                
-                // Esperar a que el modal se cierre completamente antes del siguiente pasajero
-                await page.waitForTimeout(2000);
+                // Si hay datos originales, solo procesar pasajeros que cambiaron o son nuevos
+                if (originData) {
+                    passengersToProcess = getChangedPassengers(reservationData.passengers, originData.passengers || []);
+                    console.log(`📊 Pasajeros a procesar: ${passengersToProcess.length} de ${reservationData.passengers.length} (${passengersToProcess.filter(p => p.isNew).length} nuevos, ${passengersToProcess.filter(p => p.isModified).length} modificados)`);
+                } else {
+                    // Si no hay datos originales, procesar todos
+                    console.log(`📊 Procesando todos los pasajeros (${passengersToProcess.length})`);
+                }
+            }
+            
+            if (passengersToProcess.length > 0) {
+                for (let i = 0; i < passengersToProcess.length; i++) {
+                    const passenger = passengersToProcess[i];
+                    const status = passenger.isNew ? 'nuevo' : passenger.isModified ? 'modificado' : 'sin cambios';
+                    console.log(`\n👤 Procesando pasajero ${i + 1} de ${passengersToProcess.length} (${status})`);
+                    
+                    // Abrir modal de nuevo pasajero
+                    await newPassenger(page);
+                    console.log('✅ Modal de nuevo pasajero abierto');
+                    
+                    // Llenar datos del pasajero
+                    await dataPassenger(page, passenger);
+                    console.log('✅ Datos del pasajero completados');
+                    
+                    // Esperar a que el modal se cierre completamente antes del siguiente pasajero
+                    await page.waitForTimeout(2000);
+                }
+            } else {
+                console.log('⏭️  Saltando pasajeros (ninguno cambió)');
             }
         } else {
             console.log('⚠️ No se recibieron datos de pasajeros');

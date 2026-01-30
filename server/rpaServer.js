@@ -411,6 +411,19 @@ app.post('/api/rpa/edit-reservation', async (req, res) => {
         });
       }
     }
+
+    // Obtener datos originales si no vienen en reservationData.originData
+    // Los datos originales vienen de la extracción guardada
+    if (!reservationData.originData && reservationData.conversationId) {
+      console.log('🔍 Obteniendo datos originales de la extracción...');
+      const extraction = await masterDataService.getExtractionByConversationId(reservationData.conversationId);
+      if (extraction) {
+        reservationData.originData = extraction;
+        console.log('✅ Datos originales obtenidos de la extracción');
+      } else {
+        console.log('⚠️ No se encontraron datos originales, se procesarán todos los campos como nuevos');
+      }
+    }
     
     console.log('🚀 Ejecutando RPA para editar reserva con los datos recibidos...');
     
