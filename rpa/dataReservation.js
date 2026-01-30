@@ -65,7 +65,7 @@ export async function dataReservation(page, reservationData = null, originData =
         await page.locator('#select2-chosen-6').waitFor({ state: 'visible' });
         await page.locator('#select2-chosen-6').click();
         await page.locator('li.select2-results-dept-0', { hasText: data.status }).click();
-        await page.waitForTimeout(3000);
+        await page.waitForTimeout(1000);
         takeScreenshot(page, '9-dataReservation-02-reservation-status');
     } else {
         console.log('⏭️  Saltando status (sin cambios)');
@@ -103,5 +103,5 @@ export async function dataReservation(page, reservationData = null, originData =
     
     await takeScreenshot(page, '13-dataReservation-06-details');
 
-    await page.waitForTimeout(20000);
+    await page.waitForTimeout(1000);
 }

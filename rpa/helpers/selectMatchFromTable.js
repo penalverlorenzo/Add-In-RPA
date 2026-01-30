@@ -30,7 +30,7 @@ export async function selectBestMatchFromTable(page, service, itemType) {
   console.log("Existe tableContainer? Su valor: ", await tableContainer.isVisible());
   // Obtener todas las filas dentro del grid-canvas del diálogo (excluyendo las filas de grupo)
   // Buscar las filas dentro del grid-canvas específico del diálogo
-  await page.waitForTimeout(10000);
+  await page.waitForTimeout(1000);
   const rows = tableContainer.locator('div.ui-widget-content.slick-row:not(.slick-group)');
   const rowCount = await rows.count();
   

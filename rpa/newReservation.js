@@ -13,7 +13,7 @@ export async function newReservation(page, reservationData = null) {
     
     await newReservationBtnModal.click();
     
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(500);
     await takeScreenshot(page, '8.1-newReservation-01-modal-opened');
 
     // Llenar formulario de reserva (pasar los datos si existen)

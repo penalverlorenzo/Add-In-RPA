@@ -148,7 +148,7 @@ export async function runRpa(reservationData = null, isEdit = false) {
                     await tabPassengers.waitFor({ state: 'visible', timeout: 5000 });
                     await tabPassengers.evaluate(el => el.click());
                     console.log('✅ Pestaña Pasajeros activa');
-                    await page.waitForTimeout(1000);
+                    await page.waitForTimeout(500);
                 } catch (error) {
                     console.log('⚠️ No se pudo hacer click en la pestaña Pasajeros, continuando...', error.message);
                 }
@@ -186,7 +186,7 @@ export async function runRpa(reservationData = null, isEdit = false) {
                     console.log('✅ Datos del pasajero completados');
                     
                     // Esperar a que el modal se cierre completamente antes del siguiente pasajero
-                    await page.waitForTimeout(2000);
+                    await page.waitForTimeout(1000);
                 }
             } else {
                 console.log('⏭️  Saltando pasajeros (ninguno cambió)');

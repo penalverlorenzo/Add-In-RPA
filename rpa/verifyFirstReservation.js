@@ -17,7 +17,7 @@ export async function verifyFirstReservation(page, expectedPassengerName) {
 
   if (firstReservationId <= 1){
     await page.locator('.slick-header-column').filter({ hasText: 'Id' }).first().click();
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(1000);
     await takeScreenshot(page, '18-verifyFirstReservation-01-reservation-id-clicked-' + firstReservationId);
   }
   await page.waitForTimeout(1000);

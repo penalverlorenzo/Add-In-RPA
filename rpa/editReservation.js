@@ -18,7 +18,6 @@ export async function editReservation(page, reservationData = null) {
 
     // Esperar a que la página de reservas esté cargada
     await page.waitForLoadState('domcontentloaded');
-    await page.waitForTimeout(2000);
     await takeScreenshot(page, 'editReservation-01-page-loaded');
 
     // Buscar el input de filtro rápido por código
@@ -30,7 +29,7 @@ export async function editReservation(page, reservationData = null) {
     await takeScreenshot(page, 'editReservation-02-codigo-filled');
     
     // Esperar a que se filtren los resultados (la tabla se actualiza)
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(1000);
     
     // Buscar la fila que contiene el código en la segunda columna
     // El código está en un link dentro de la segunda columna (l1 r1)
