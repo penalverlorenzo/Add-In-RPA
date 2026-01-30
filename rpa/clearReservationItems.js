@@ -8,21 +8,10 @@ export async function clearServicesAndHotels(page) {
     try {
         console.log('🧹 Limpiando servicios y hoteles existentes...');
         
-        // Buscar la tabla de items (servicios y hoteles) por sus columnas específicas
-        // Las columnas incluyen: Item, Tipo, CantPax, Operador, Destino, Descripción, etc.
-        // Usar un selector más específico que busque el grid que contiene estas columnas
-        const itemsGrid = page.locator('.grid-container.slickgrid').filter({
-            has: page.locator('.slick-header-column .slick-column-name:has-text("Item")')
-        }).filter({
-            has: page.locator('.slick-header-column .slick-column-name:has-text("Tipo")')
-        }).filter({
-            has: page.locator('.slick-header-column .slick-column-name:has-text("Destino")')
-        }).first();
-        
-        await itemsGrid.waitFor({ state: 'visible', timeout: 10000 });
-        
-        // Buscar todas las filas que tienen un link de item dentro de esta tabla específica (excluyendo la fila nueva vacía)
-        const itemLinks = itemsGrid.locator('div.slick-row:not(.new-row) a.s-Serene-E_Ventas-Det_rvaEditorLink');
+        // Buscar directamente los links de items (servicios y hoteles) sin necesidad de encontrar el contenedor del grid
+        // Los links tienen la clase s-Serene-E_Ventas-Det_rvaEditorLink
+        // Excluir los que están en filas con clase "new-row" (filas vacías nuevas)
+        const itemLinks = page.locator('div.slick-row:not(.new-row) a.s-Serene-E_Ventas-Det_rvaEditorLink');
         await page.waitForTimeout(1000); // Esperar a que la tabla se cargue completamente
         const itemCount = await itemLinks.count();
         
