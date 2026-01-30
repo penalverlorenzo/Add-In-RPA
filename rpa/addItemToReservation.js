@@ -39,7 +39,7 @@ export async function addItemToReservation(page, service, itemText = "Agregar Se
   await addButton.scrollIntoViewIfNeeded();
   await addButton.evaluate(el => el.click());
 
-  await page.waitForTimeout(1500);
+  await page.waitForTimeout(1000);
   await takeScreenshot(page, `18-addItem-01-${itemType}`);
 
   if (service.estado) {
@@ -121,10 +121,7 @@ export async function addItemToReservation(page, service, itemText = "Agregar Se
     await selectBestMatchFromTable(page, service, itemType);
   }
 
-
-  await takeScreenshot(page, "18-addItem-05-filled");
-
-    await page.waitForTimeout(10000);
+    await page.waitForTimeout(1000);
   // Si es un hotel, configurar la cantidad de habitaciones antes de guardar
     await selectAndFillRoomQuantity(page, service, passengers);
     await page.waitForTimeout(1000);

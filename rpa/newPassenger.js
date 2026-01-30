@@ -51,7 +51,7 @@ export async function newPassenger(page) {
   await newPassengerBtn.evaluate(el => el.click());
 
   console.log('🆕 Click en Nuevo Pasajero');
-  await page.waitForTimeout(2000);
+  await page.waitForTimeout(500);
 
   await takeScreenshot(page, '14-newPassenger-01-modal-opened');
 

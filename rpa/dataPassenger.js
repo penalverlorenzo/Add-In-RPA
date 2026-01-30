@@ -72,7 +72,7 @@ export async function dataPassenger(page, passengerData) {
   await modal.locator('.tool-button.save-and-close-button', { hasText: 'Guardar' }).click();
   
   // Esperar a que el modal se cierre completamente
-  await page.waitForTimeout(2000);
+  await page.waitForTimeout(1000);
   
   // Verificar que el modal se haya cerrado
   try {

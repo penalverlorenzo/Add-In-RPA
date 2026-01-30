@@ -23,7 +23,5 @@ export async function navigateToDashboard(page) {
 
   // Esperar que cargue la página de reservas
   await page.waitForLoadState('domcontentloaded');
-  await page.waitForTimeout(2000);
-
   await takeScreenshot(page, '7-newReservation-01-page');
 }
