@@ -153,7 +153,7 @@ app.post('/api/extract', async (req, res) => {
   try {
     console.log('🤖 Petición recibida para extracción con IA');
     const startTime = Date.now();
-    const { emailContent, userId, conversationId, isReExtraction } = req.body;
+    const { emailContent, userId, conversationId, isReExtract } = req.body;
     let user;
     try {
       user = await masterDataService.getUserById(userId);
@@ -189,7 +189,7 @@ app.post('/api/extract', async (req, res) => {
     
     console.log(`📧 Extrayendo datos del email (${emailContent.length} caracteres)...`);
     const extraction = await masterDataService.getExtractionByConversationId(conversationId);
-    if (extraction && !isReExtraction) {
+    if (extraction && !isReExtract) {
       console.log('✅ Extracción encontrada para la conversación:', extraction.id);
       
       // Buscar si existe una reserva creada para este conversationId
@@ -253,8 +253,65 @@ app.post('/api/extract', async (req, res) => {
     // Buscar si existe una reserva creada para este conversationId
     const reservation = await masterDataService.getReservationByConversationId(conversationId);
     if (reservation && reservation.code) {
-      console.log(`📋 Reserva encontrada con código: ${reservation.code}`);
-      extractedData.reservationCode = reservation.code;
+      console.log(`📋 Reserva encontrada en BD con código: ${reservation.code}`);
+      
+      // Verificar que el código sigue siendo válido en iTraffic
+      // Solo hacer verificación si estamos en modo producción o si se solicita explícitamente
+      // Para evitar sobrecarga, podemos hacer la verificación de forma asíncrona o con flag
+      const shouldVerify = process.env.VERIFY_RESERVATION_CODES === 'true' || process.env.NODE_ENV === 'production';
+      
+      if (shouldVerify) {
+        try {
+          console.log(`🔍 Verificando validez del código de reserva: ${reservation.code}`);
+          // Crear una instancia temporal del browser para verificar el código
+          const { createBrowser } = await import('../rpa/browser.js');
+          const { loginITraffic } = await import('../rpa/login.js');
+          const { ensureSession } = await import('../rpa/session.js');
+          const { navigateToDashboard } = await import('../rpa/dashboard.js');
+          const { verifyReservationCodeExists } = await import('../rpa/verifyReservationCode.js');
+          
+          const { browser, page } = await createBrowser();
+          
+          try {
+            // Verificar sesión y navegar al dashboard
+            const hasSession = await ensureSession(page);
+            if (!hasSession) {
+              await loginITraffic(page);
+            }
+            await navigateToDashboard(page);
+            
+            // Verificar que el código existe
+            const codeExists = await verifyReservationCodeExists(page, reservation.code);
+            
+            if (!codeExists) {
+              console.log(`❌ Código de reserva inválido: ${reservation.code} no existe en iTraffic`);
+              // Eliminar el registro inválido de la BD
+              await masterDataService.deleteReservationByConversationId(conversationId);
+              console.log(`🗑️ Registro inválido eliminado de reservations_history`);
+              // No agregar reservationCode a extractedData
+            } else {
+              console.log(`✅ Código de reserva verificado: ${reservation.code} es válido`);
+              extractedData.reservationCode = reservation.code;
+            }
+            
+            await browser.close();
+          } catch (verifyError) {
+            await browser.close();
+            console.error('❌ Error al verificar código de reserva:', verifyError.message);
+            // Si falla la verificación, incluir el código de todas formas (puede ser un problema temporal)
+            console.log('⚠️ Incluyendo código a pesar del error de verificación');
+            extractedData.reservationCode = reservation.code;
+          }
+        } catch (browserError) {
+          console.error('❌ Error al crear browser para verificación:', browserError.message);
+          // Si no se puede crear el browser, incluir el código de todas formas
+          console.log('⚠️ Incluyendo código sin verificación');
+          extractedData.reservationCode = reservation.code;
+        }
+      } else {
+        // Si no se debe verificar, incluir el código directamente
+        extractedData.reservationCode = reservation.code;
+      }
     }
     
     res.json({
@@ -334,17 +391,29 @@ app.post('/api/rpa/create-reservation', async (req, res) => {
     
     console.log('✅ RPA ejecutado exitosamente');
     
+    // Si no se obtuvo código o no está validado, agregar advertencia
+    if (!resultado.reservationCode) {
+      console.log('⚠️ Advertencia: No se pudo obtener el código de reserva');
+    } else if (!resultado.codeValidated) {
+      console.log('⚠️ Advertencia: Código de reserva no validado, puede no existir en iTraffic');
+    }
+    
     res.json({
       success: true,
       data: resultado,
       message: 'Reserva creada exitosamente',
-      reservationCode: resultado.reservationCode || null
+      reservationCode: resultado.reservationCode || null,
+      codeValidated: resultado.codeValidated || false
     });
     
   } catch (error) {
     console.error('❌ Error al ejecutar RPA:', error);
     
-    res.status(500).json({
+    // Si es un error de reserva duplicada, retornar 400 (Bad Request) en lugar de 500
+    const isDuplicateError = error.message && error.message.includes('Ya existe una Reserva');
+    const statusCode = isDuplicateError ? 400 : 500;
+    
+    res.status(statusCode).json({
       success: false,
       error: error.message,
       stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
@@ -390,12 +459,15 @@ app.post('/api/rpa/edit-reservation', async (req, res) => {
     
     // Buscar el código de reserva si no viene en los datos
     // Prioridad: 1) codigo/reservationCode en datos, 2) buscar por conversationId
-    if (!reservationData.codigo && !reservationData.reservationCode) {
+    let reservationCode = reservationData.codigo || reservationData.reservationCode;
+    
+    if (!reservationCode) {
       if (reservationData.conversationId) {
         console.log(`🔍 Buscando código de reserva por conversationId: ${reservationData.conversationId}`);
         const reservation = await masterDataService.getReservationByConversationId(reservationData.conversationId);
         if (reservation && reservation.code) {
-          console.log(`✅ Código de reserva encontrado: ${reservation.code}`);
+          console.log(`✅ Código de reserva encontrado en BD: ${reservation.code}`);
+          reservationCode = reservation.code;
           reservationData.codigo = reservation.code;
         } else {
           console.log('⚠️ No se encontró código de reserva para este conversationId');
@@ -409,6 +481,61 @@ app.post('/api/rpa/edit-reservation', async (req, res) => {
           success: false,
           error: 'Se requiere código de reserva (codigo/reservationCode) o conversationId para editar una reserva'
         });
+      }
+    }
+    
+    // Verificar que el código realmente existe en iTraffic antes de intentar editar
+    if (reservationCode) {
+      console.log(`🔍 Verificando que el código de reserva existe en iTraffic: ${reservationCode}`);
+      try {
+        // Crear una instancia temporal del browser para verificar el código
+        const { createBrowser } = await import('../rpa/browser.js');
+        const { loginITraffic } = await import('../rpa/login.js');
+        const { ensureSession } = await import('../rpa/session.js');
+        const { navigateToDashboard } = await import('../rpa/dashboard.js');
+        const { verifyReservationCodeExists } = await import('../rpa/verifyReservationCode.js');
+        
+        const { browser, page } = await createBrowser();
+        
+        try {
+          // Verificar sesión y navegar al dashboard
+          const hasSession = await ensureSession(page);
+          if (!hasSession) {
+            await loginITraffic(page);
+          }
+          await navigateToDashboard(page);
+          
+          // Verificar que el código existe
+          const codeExists = await verifyReservationCodeExists(page, reservationCode);
+          
+          if (!codeExists) {
+            console.log(`❌ Código de reserva no existe en iTraffic: ${reservationCode}`);
+            // Eliminar el registro inválido de la BD
+            if (reservationData.conversationId) {
+              await masterDataService.deleteReservationByConversationId(reservationData.conversationId);
+              console.log(`🗑️ Registro inválido eliminado de reservations_history`);
+            }
+            
+            await browser.close();
+            
+            return res.status(404).json({
+              success: false,
+              error: `La reserva con código ${reservationCode} no existe en iTraffic. El registro ha sido limpiado. Por favor, crea una nueva reserva.`
+            });
+          }
+          
+          console.log(`✅ Código de reserva verificado: ${reservationCode} existe en iTraffic`);
+          await browser.close();
+        } catch (verifyError) {
+          await browser.close();
+          console.error('❌ Error al verificar código de reserva:', verifyError.message);
+          // Si falla la verificación, continuar de todas formas (puede ser un problema temporal)
+          console.log('⚠️ Continuando con la edición a pesar del error de verificación');
+        }
+      } catch (browserError) {
+        console.error('❌ Error al crear browser para verificación:', browserError.message);
+        // Si no se puede crear el browser, continuar de todas formas
+        console.log('⚠️ Continuando con la edición sin verificación previa');
       }
     }
 
