@@ -35,11 +35,11 @@ export async function addItemToReservation(page, service, itemText = "Agregar Se
     .filter({ hasText: itemText })
     .first();
 
-  await addButton.waitFor({ state: "visible", timeout: 15000 });
+  await addButton.waitFor({ state: "visible", timeout: 8000 });
   await addButton.scrollIntoViewIfNeeded();
   await addButton.evaluate(el => el.click());
 
-  await page.waitForTimeout(1000);
+  await page.waitForTimeout(500);
   await takeScreenshot(page, `18-addItem-01-${itemType}`);
 
   if (service.estado) {
@@ -47,7 +47,7 @@ export async function addItemToReservation(page, service, itemText = "Agregar Se
       'div[id^="s2id_"][id*="Det_rvaEditorDialog"][id*="Estadoope"]';
 
     await select2BySearch(page, estadoSelector, service.estado);
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(300);
   }
 
   if (itemType === "eventual") {
@@ -74,10 +74,10 @@ export async function addItemToReservation(page, service, itemText = "Agregar Se
       .locator(`a.inplace-button[title="${title}"]`)
       .first();
 
-    await searchBtn.waitFor({ state: "visible", timeout: 10000 });
+    await searchBtn.waitFor({ state: "visible", timeout: 5000 });
     await searchBtn.evaluate(el => el.click());
 
-    await page.waitForTimeout(1200);
+    await page.waitForTimeout(600);
 
     /* =========================
        FILTROS
@@ -116,15 +116,15 @@ export async function addItemToReservation(page, service, itemText = "Agregar Se
         await fillQuickFilterDateRange(page, service.in, service.out);
     }
 
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(800);
 
     await selectBestMatchFromTable(page, service, itemType);
   }
 
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(500);
   // Si es un hotel, configurar la cantidad de habitaciones antes de guardar
     await selectAndFillRoomQuantity(page, service, passengers);
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(500);
 
   console.log("💾 Guardando item…");
 
@@ -134,7 +134,7 @@ export async function addItemToReservation(page, service, itemText = "Agregar Se
     '.ui-dialog:has(input[id*="Det_rvaEditorDialog"])'
   ).last();
   
-  await itemDialog.waitFor({ state: 'visible', timeout: 15000 });
+  await itemDialog.waitFor({ state: 'visible', timeout: 8000 });
   
   // 🧠 DEBUG útil
   console.log('🪟 Item dialog encontrado');
@@ -146,16 +146,15 @@ export async function addItemToReservation(page, service, itemText = "Agregar Se
     .first();
   
   // 3️⃣ esperar presencia real (no strict)
-  await saveButton.waitFor({ state: 'attached', timeout: 10000 });
+  await saveButton.waitFor({ state: 'attached', timeout: 5000 });
   await saveButton.scrollIntoViewIfNeeded();
   
   // 4️⃣ CLICK DOM (ignora overlays fantasmas)
-  await safeDialogClick(page, saveButton);
-  
+  await saveButton.click();
   console.log('💾 Click Guardar ejecutado');
-  
+  await page.waitForTimeout(300);  
   // 5️⃣ esperar cierre REAL del diálogo
-  await itemDialog.waitFor({ state: 'hidden', timeout: 15000 });
+  await itemDialog.waitFor({ state: 'hidden', timeout: 8000 });
   
   await takeScreenshot(page, '18-addItem-06-saved');
   
