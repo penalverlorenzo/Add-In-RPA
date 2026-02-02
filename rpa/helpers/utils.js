@@ -92,56 +92,56 @@ export async function select2BySearch(page, containerSelector, valueToSelect) {
         ? page.locator(containerSelector)
         : containerSelector;
     
-    // Timeout extendido a 30s para la visibilidad del Select2
-    await selectContainer.waitFor({ state: 'visible', timeout: 30000 });
-    await selectContainer.waitFor({ state: 'attached', timeout: 10000 });
+    // Timeout optimizado para la visibilidad del Select2
+    await selectContainer.waitFor({ state: 'visible', timeout: 10000 });
+    await selectContainer.waitFor({ state: 'attached', timeout: 5000 });
     
     // Hacer scroll y click
     await selectContainer.scrollIntoViewIfNeeded();
-    await page.waitForTimeout(200);
+    await page.waitForTimeout(100);
     await selectContainer.click();
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(200);
 
     // Esperar a que el dropdown se abra
     const visibleDropdown = page.locator('div.select2-drop:visible').first();
-    await visibleDropdown.waitFor({ state: 'visible', timeout: 10000 });
-    await page.waitForTimeout(300);
+    await visibleDropdown.waitFor({ state: 'visible', timeout: 5000 });
+    await page.waitForTimeout(200);
     
     const searchInput = visibleDropdown.locator('input.select2-input');
-    await searchInput.waitFor({ state: 'visible', timeout: 5000 });
+    await searchInput.waitFor({ state: 'visible', timeout: 3000 });
     
     // Limpiar y llenar el campo de búsqueda
     await searchInput.click();
     await page.waitForTimeout(100);
     await searchInput.fill(valueToSelect);
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(300);
     
     // VERIFICAR que el valor se llenó
     const searchValue = await searchInput.inputValue();
     if (searchValue !== valueToSelect) {
       console.log(`⚠️ Valor de búsqueda no coincidente. Reintentando...`);
       await searchInput.fill(valueToSelect);
-      await page.waitForTimeout(500);
+      await page.waitForTimeout(300);
     }
     
     // Esperar un momento para que se filtren los resultados
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(800);
 
     // Tomar el PRIMER resultado disponible (sin importar el texto exacto)
     const resultLocator = visibleDropdown.locator('li.select2-results-dept-0').first();
     
-    // Timeout extendido a 30s para esperar el resultado de la búsqueda
-    await resultLocator.waitFor({ state: 'visible', timeout: 30000 });
-    await page.waitForTimeout(200);
+    // Timeout optimizado para esperar el resultado de la búsqueda
+    await resultLocator.waitFor({ state: 'visible', timeout: 10000 });
+    await page.waitForTimeout(100);
     await resultLocator.click();
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(300);
     
     // VERIFICAR que el valor se seleccionó (leer el texto del contenedor)
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(300);
     const selectedText = await selectContainer.locator('.select2-chosen').textContent();
     console.log(`✅ Select2 seleccionado. Valor mostrado: "${selectedText}"`);
     
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(200);
 }
 
 /**
@@ -157,8 +157,8 @@ export async function fillInput(page, target, value, isDate = false) {
       typeof target === 'string' ? page.locator(target) : target;
     
     // Esperar a que esté visible y habilitado
-    await inputLocator.waitFor({ state: 'visible', timeout: 60000 });
-    await inputLocator.waitFor({ state: 'attached', timeout: 10000 });
+    await inputLocator.waitFor({ state: 'visible', timeout: 10000 });
+    await inputLocator.waitFor({ state: 'attached', timeout: 5000 });
     
     // Verificar que no esté deshabilitado
     const isDisabled = await inputLocator.evaluate(el => {
@@ -290,14 +290,14 @@ export async function fillQuickFilterDateRange(page, fechaDesde, fechaHasta = nu
   
     // 🔒 Scope al diálogo visible
     const dialog = page.locator('.ui-dialog:has(.ui-dialog-title:text("Búsqueda de Disponibilidad"))');
-    await dialog.waitFor({ state: 'visible', timeout: 15000 });
-    await page.waitForTimeout(500);
+    await dialog.waitFor({ state: 'visible', timeout: 8000 });
+    await page.waitForTimeout(300);
     
     // DESDE
     const desdeInput = dialog.locator(
       'div.quick-filter-item:has(span.quick-filter-label:text("Fecha")) input[id*="FecDesde"]'
     ).first();
-    await desdeInput.waitFor({ state: 'visible', timeout: 10000 });
+    await desdeInput.waitFor({ state: 'visible', timeout: 5000 });
     await fillInput(page, desdeInput, desdeFormatted, true);
     
     // VERIFICAR que la fecha desde se llenó
@@ -305,12 +305,12 @@ export async function fillQuickFilterDateRange(page, fechaDesde, fechaHasta = nu
     if (desdeValue !== desdeFormatted) {
       console.log(`⚠️ Fecha DESDE no coincidente. Reintentando...`);
       await fillInput(page, desdeInput, desdeFormatted, true);
-      await page.waitForTimeout(500);
+      await page.waitForTimeout(300);
     } else {
       console.log(`✅ Fecha DESDE llenada correctamente: "${desdeFormatted}"`);
     }
     
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(500);
     
     // HASTA
     if (hastaFormatted) {
@@ -330,7 +330,7 @@ export async function fillQuickFilterDateRange(page, fechaDesde, fechaHasta = nu
       console.log(`📅 Inputs de fecha encontrados: DESDE=1, HASTA=${hastaCount}`);
       
       if (hastaCount > 0) {
-        await hastaInput.waitFor({ state: 'visible', timeout: 10000 });
+        await hastaInput.waitFor({ state: 'visible', timeout: 5000 });
         await fillInput(page, hastaInput, hastaFormatted, true);
         
         // VERIFICAR que la fecha hasta se llenó
@@ -342,7 +342,7 @@ export async function fillQuickFilterDateRange(page, fechaDesde, fechaHasta = nu
           console.log("Clicked on hastaInput");
           await hastaInput.press('Tab');
           console.log("Pressed Tab");
-          await page.waitForTimeout(500);
+          await page.waitForTimeout(300);
         } else {
           console.log(`✅ Fecha HASTA llenada correctamente: "${hastaFormatted}"`);
         }
@@ -351,7 +351,7 @@ export async function fillQuickFilterDateRange(page, fechaDesde, fechaHasta = nu
       }
     }
     
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(500);
   }
   
 
@@ -369,8 +369,8 @@ export async function selectQuickFilterSelect2(page, fieldPattern, valueToSelect
 
     // 🔒 Scope al diálogo visible del quick filter
     const dialog = page.locator('.ui-dialog:has(.ui-dialog-title:text("Búsqueda de Disponibilidad"))');
-    await dialog.waitFor({ state: 'visible', timeout: 15000 });
-    await page.waitForTimeout(300);
+    await dialog.waitFor({ state: 'visible', timeout: 8000 });
+    await page.waitForTimeout(200);
 
     // Construir selector para el contenedor Select2 en el filtro rápido
     // El patrón es: div[id^="s2id_"][id*="{fieldPattern}"]
@@ -386,7 +386,7 @@ export async function selectQuickFilterSelect2(page, fieldPattern, valueToSelect
     await select2BySearch(page, selector, valueToSelect);
     
     // VERIFICAR que el valor se seleccionó
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(300);
     const selectedText = await selector.locator('.select2-chosen').textContent();
     console.log(`✅ Select2 "${fieldPattern}" seleccionado. Valor mostrado: "${selectedText}"`);
     

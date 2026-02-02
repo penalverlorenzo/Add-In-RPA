@@ -12,14 +12,14 @@ export async function selectBestMatchFromTable(page, service, itemType) {
   // Buscar el botón OK del diálogo de búsqueda de tarifas
   // Este es el diálogo que se abre después del botón de búsqueda
   const okButton = page.locator('div.ui-dialog-buttonset button:has-text("OK")').first();
-  await okButton.waitFor({ state: 'visible', timeout: 10000 });
+  await okButton.waitFor({ state: 'visible', timeout: 5000 });
   
   // Encontrar el diálogo que contiene este botón OK usando evaluateHandle
   const dialog = page.locator('div.ui-dialog:visible').filter({ has: okButton }).first();
 
-  await dialog.waitFor({ state: 'visible', timeout: 5000 });
+  await dialog.waitFor({ state: 'visible', timeout: 3000 });
   
-  await page.waitForTimeout(1500); // Dar tiempo para que se carguen los resultados
+  await page.waitForTimeout(800); // Dar tiempo para que se carguen los resultados
   
   // Buscar la tabla dentro del diálogo - usar el grid-canvas que contiene las filas de datos
   // El grid-canvas-top-grid-canvas-left es el que contiene las filas principales
@@ -30,7 +30,7 @@ export async function selectBestMatchFromTable(page, service, itemType) {
   console.log("Existe tableContainer? Su valor: ", await tableContainer.isVisible());
   // Obtener todas las filas dentro del grid-canvas del diálogo (excluyendo las filas de grupo)
   // Buscar las filas dentro del grid-canvas específico del diálogo
-  await page.waitForTimeout(1000);
+  await page.waitForTimeout(500);
   const rows = tableContainer.locator('div.ui-widget-content.slick-row:not(.slick-group)');
   const rowCount = await rows.count();
   
@@ -42,7 +42,7 @@ export async function selectBestMatchFromTable(page, service, itemType) {
       const cancelButton = dialog.locator('div.ui-dialog-buttonset button:has-text("Cancel")');
       if (await cancelButton.count() > 0) {
           await cancelButton.click();
-          await page.waitForTimeout(500);
+          await page.waitForTimeout(300);
       }
       return;
   }
@@ -145,7 +145,7 @@ export async function selectBestMatchFromTable(page, service, itemType) {
       // Hacer click en la fila para seleccionarla
       await bestRow.click();
       await bestRow.click();
-      await page.waitForTimeout(500);
+      await page.waitForTimeout(300);
       
       // Hacer click en el botón OK dentro del diálogo (usar el mismo okButton que encontramos al inicio)
       await okButton.click();
@@ -156,9 +156,9 @@ export async function selectBestMatchFromTable(page, service, itemType) {
       if (rowCount > 0) {
           console.log(`📌 Seleccionando primera fila por defecto`);
           await rows.first().click();
-          await page.waitForTimeout(500);
+          await page.waitForTimeout(300);
           await okButton.click();
-          await page.waitForTimeout(1000);
+          await page.waitForTimeout(500);
           console.log(`✅ Primera fila seleccionada y modal cerrado`);
       } else {
           // Si no hay filas, hacer click en Cancelar
@@ -166,7 +166,7 @@ export async function selectBestMatchFromTable(page, service, itemType) {
           const cancelButton = dialog.locator('div.ui-dialog-buttonset button:has-text("Cancelar")');
           if (await cancelButton.count() > 0) {
               await cancelButton.click();
-              await page.waitForTimeout(500);
+              await page.waitForTimeout(300);
           }
       }
   }
