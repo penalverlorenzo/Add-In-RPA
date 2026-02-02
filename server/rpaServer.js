@@ -189,12 +189,15 @@ app.post('/api/extract', async (req, res) => {
     
     console.log(`📧 Extrayendo datos del email (${emailContent.length} caracteres)...`);
     const extraction = await masterDataService.getExtractionByConversationId(conversationId);
+    
+    // Buscar si existe una reserva creada para este conversationId
+    const reservation = await masterDataService.getReservationByConversationId(conversationId);
+    const doesReservationExist = !!(reservation && reservation.code);
+    
     if (extraction && !isReExtract) {
       console.log('✅ Extracción encontrada para la conversación:', extraction.id);
       
-      // Buscar si existe una reserva creada para este conversationId
-      const reservation = await masterDataService.getReservationByConversationId(conversationId);
-      if (reservation && reservation.code) {
+      if (doesReservationExist) {
         console.log(`📋 Reserva encontrada con código: ${reservation.code}`);
         extraction.reservationCode = reservation.code;
       }
@@ -203,7 +206,8 @@ app.post('/api/extract', async (req, res) => {
         success: true,
         data: extraction,
         message: 'Extracción encontrada, no se necesita extraer nuevamente',
-        didExtractionExist: true
+        didExtractionExist: true,
+        doesReservationExist: doesReservationExist
       });
     }
     // Obtener datos maestros para que la IA pueda mapear correctamente
@@ -250,9 +254,10 @@ app.post('/api/extract', async (req, res) => {
     console.log('✅ Extracción completada exitosamente');
     console.log(`   Pasajeros extraídos: ${extractedData.passengers?.length || 0}`);
     
-    // Buscar si existe una reserva creada para este conversationId
-    const reservation = await masterDataService.getReservationByConversationId(conversationId);
-    if (reservation && reservation.code) {
+    // Si existe una reserva, agregar el código a los datos extraídos
+    let finalDoesReservationExist = doesReservationExist;
+    
+    if (doesReservationExist) {
       console.log(`📋 Reserva encontrada en BD con código: ${reservation.code}`);
       
       // Verificar que el código sigue siendo válido en iTraffic
@@ -288,7 +293,9 @@ app.post('/api/extract', async (req, res) => {
               // Eliminar el registro inválido de la BD
               await masterDataService.deleteReservationByConversationId(conversationId);
               console.log(`🗑️ Registro inválido eliminado de reservations_history`);
-              // No agregar reservationCode a extractedData
+              // No agregar reservationCode a extractedData y actualizar doesReservationExist
+              extractedData.reservationCode = null;
+              finalDoesReservationExist = false;
             } else {
               console.log(`✅ Código de reserva verificado: ${reservation.code} es válido`);
               extractedData.reservationCode = reservation.code;
@@ -318,7 +325,8 @@ app.post('/api/extract', async (req, res) => {
       success: true,
       data: extractedData,
       message: 'Datos extraídos exitosamente',
-      didExtractionExist: false
+      didExtractionExist: false,
+      doesReservationExist: finalDoesReservationExist
     });
     
   } catch (error) {
