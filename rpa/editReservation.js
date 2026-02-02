@@ -22,14 +22,14 @@ export async function editReservation(page, reservationData = null) {
 
     // Buscar el input de filtro rápido por código
     const codigoInput = page.locator('#Softur_Serene_E_Ventas_ReservaGrid0_QuickFilter_Rva');
-    await codigoInput.waitFor({ state: 'visible', timeout: 10000 });
+    await codigoInput.waitFor({ state: 'visible', timeout: 5000 });
     
     // Llenar el input con el código
     await fillInput(page, codigoInput, codigo, false);
     await takeScreenshot(page, 'editReservation-02-codigo-filled');
     
     // Esperar a que se filtren los resultados (la tabla se actualiza)
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(500);
     
     // Buscar la fila que contiene el código en la segunda columna
     // El código está en un link dentro de la segunda columna (l1 r1)
@@ -41,7 +41,7 @@ export async function editReservation(page, reservationData = null) {
     console.log('✅ codigoLinkText: ', await codigoLink.textContent());
     // Esperar a que aparezca el link con el código
     try {
-        await codigoLink.waitFor({ state: 'visible', timeout: 10000 });
+        await codigoLink.waitFor({ state: 'visible', timeout: 5000 });
         console.log(`✅ Reserva encontrada con código: ${codigo}`);
         await takeScreenshot(page, 'editReservation-03-reservation-found');
         

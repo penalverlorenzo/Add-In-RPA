@@ -145,10 +145,10 @@ export async function runRpa(reservationData = null, isEdit = false) {
                 // Ir a la pestaña de pasajeros
                 const tabPassengers = page.locator('#ui-id-2');
                 try {
-                    await tabPassengers.waitFor({ state: 'visible', timeout: 5000 });
+                    await tabPassengers.waitFor({ state: 'visible', timeout: 3000 });
                     await tabPassengers.evaluate(el => el.click());
                     console.log('✅ Pestaña Pasajeros activa');
-                    await page.waitForTimeout(500);
+                    await page.waitForTimeout(300);
                 } catch (error) {
                     console.log('⚠️ No se pudo hacer click en la pestaña Pasajeros, continuando...', error.message);
                 }
@@ -186,7 +186,7 @@ export async function runRpa(reservationData = null, isEdit = false) {
                     console.log('✅ Datos del pasajero completados');
                     
                     // Esperar a que el modal se cierre completamente antes del siguiente pasajero
-                    await page.waitForTimeout(1000);
+                    await page.waitForTimeout(500);
                 }
             } else {
                 console.log('⏭️  Saltando pasajeros (ninguno cambió)');
@@ -201,9 +201,28 @@ export async function runRpa(reservationData = null, isEdit = false) {
         
         // Obtener el código de la reserva generado
         const reservationCode = await getReservationCode(page);
+        let codeValidated = false;
         
-        // Si se obtuvo el código y hay datos de usuario, guardar en la base de datos
-        if (reservationCode && reservationData) {
+        // Validar que el código realmente existe en iTraffic antes de guardar en BD
+        if (reservationCode) {
+            try {
+                const { verifyReservationCodeExists } = await import('./verifyReservationCode.js');
+                codeValidated = await verifyReservationCodeExists(page, reservationCode);
+                
+                if (codeValidated) {
+                    console.log(`✅ Código de reserva validado: ${reservationCode} existe en iTraffic`);
+                } else {
+                    console.log(`⚠️ Código de reserva no validado: ${reservationCode} no se encontró en iTraffic`);
+                }
+            } catch (verifyError) {
+                console.error('⚠️ Error al verificar código de reserva:', verifyError.message);
+                // Si falla la verificación, no validar pero continuar
+                codeValidated = false;
+            }
+        }
+        
+        // Solo guardar en BD si el código existe y está validado
+        if (reservationCode && codeValidated && reservationData) {
             try {
                 // Importar el servicio de base de datos dinámicamente para evitar dependencias circulares
                 const { default: masterDataService } = await import('../services/mysqlMasterDataService.js');
@@ -222,6 +241,8 @@ export async function runRpa(reservationData = null, isEdit = false) {
         } else {
             if (!reservationCode) {
                 console.log('⚠️ No se pudo obtener el código de reserva');
+            } else if (!codeValidated) {
+                console.log('⚠️ Código de reserva no validado, no se guardará en BD');
             }
             if (!reservationData) {
                 console.log('⚠️ No hay datos de reserva para guardar en BD');
@@ -232,6 +253,7 @@ export async function runRpa(reservationData = null, isEdit = false) {
             success: true,
             message: 'Reserva creada exitosamente',
             reservationCode: reservationCode || null,
+            codeValidated: codeValidated,
             timestamp: new Date().toISOString()
         };
 

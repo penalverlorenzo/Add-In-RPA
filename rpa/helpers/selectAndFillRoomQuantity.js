@@ -33,11 +33,11 @@ export async function selectAndFillRoomQuantity(page, service, passengers = []) 
   
   // Buscar la tabla de habitaciones dentro del diálogo del item
   const itemDialog = page.locator('.ui-dialog:has(input[id*="Det_rvaEditorDialog"])').last();
-  await itemDialog.waitFor({ state: 'visible', timeout: 10000 });
+  await itemDialog.waitFor({ state: 'visible', timeout: 5000 });
   
   // Buscar el grid de Det_rvah (tabla de habitaciones)
   const roomGrid = itemDialog.locator('div[id*="Det_rvah"] .grid-canvas.grid-canvas-top.grid-canvas-left').first();
-  await roomGrid.waitFor({ state: 'visible', timeout: 10000 });
+  await roomGrid.waitFor({ state: 'visible', timeout: 5000 });
   
   // Obtener todas las filas de habitaciones (excluyendo grupos)
   const roomRows = roomGrid.locator('div.ui-widget-content.slick-row:not(.slick-group)');
@@ -120,15 +120,15 @@ export async function selectAndFillRoomQuantity(page, service, passengers = []) 
   // Buscar el input de cantidad en la fila (l3 = Cantidad)
   const quantityInput = targetRow.locator('div.slick-cell.l3.r3 input[data-field="Cantiphab"]').first();
   
-  await quantityInput.waitFor({ state: 'visible', timeout: 5000 });
+  await quantityInput.waitFor({ state: 'visible', timeout: 3000 });
   await quantityInput.click();
-  await page.waitForTimeout(200);
+  await page.waitForTimeout(100);
   await quantityInput.fill(String(quantity));
-  await page.waitForTimeout(300);
+  await page.waitForTimeout(200);
   
   // Presionar Tab para confirmar el cambio
   await quantityInput.press('Tab');
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(300);
   
   console.log(`✅ Cantidad de habitaciones configurada: ${quantity}`);
 }

@@ -65,18 +65,18 @@ export async function dataPassenger(page, passengerData) {
 
   const modalContent = page.locator('.ui-dialog-content:visible').first();
   await modalContent.evaluate(el => el.scrollTo(0, 0));
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(300);
 
   // const modal = page.locator('.ui-dialog:has(.ui-dialog-title:text("New Pasajero"))');
    const modal = page.locator('.ui-dialog:has(.ui-dialog-title:text("Nuevo Pasajero"))');
   await modal.locator('.tool-button.save-and-close-button', { hasText: 'Guardar' }).click();
   
   // Esperar a que el modal se cierre completamente
-  await page.waitForTimeout(1000);
+  await page.waitForTimeout(500);
   
   // Verificar que el modal se haya cerrado
   try {
-    await modal.waitFor({ state: 'hidden', timeout: 5000 });
+    await modal.waitFor({ state: 'hidden', timeout: 3000 });
     console.log(`✅ Pasajero ${passengerData.lastName} agregado y guardado.`);
   } catch (error) {
     console.log(`⚠️ Pasajero guardado, pero el modal no se cerró como se esperaba`);

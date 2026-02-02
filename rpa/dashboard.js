@@ -5,9 +5,9 @@ import { takeScreenshot } from './utils/screenshot.js';
 export async function navigateToDashboard(page) {
   // Esperar que el dashboard esté completamente cargado
   try {
-    await page.waitForLoadState('domcontentloaded', { timeout: 5000 });
+    await page.waitForLoadState('domcontentloaded', { timeout: 3000 });
   } catch (e) {
-    await page.waitForTimeout(4000);
+    await page.waitForTimeout(2000);
   }
 
   await takeScreenshot(page, '6-dashboard-01-loaded');
@@ -16,7 +16,7 @@ export async function navigateToDashboard(page) {
  const goToNewReservationBtn = page.locator('a[href="/iTraffic_Aymara/E_Ventas/Reserva"]', { hasText: 'Nueva Reserva' });
  // const goToNewReservationBtn = page.locator('a[href="/iTraffic_Aymara/E_Ventas/Reserva"]', { hasText: 'New Reservation' });
 
-  await goToNewReservationBtn.waitFor({ state: 'visible', timeout: 10000 });
+  await goToNewReservationBtn.waitFor({ state: 'visible', timeout: 5000 });
 
   // Click en el botón
   await goToNewReservationBtn.click();

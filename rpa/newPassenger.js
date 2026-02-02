@@ -31,11 +31,11 @@ export async function newPassenger(page) {
 
   // 🔥 3) Ir a pestaña Pasajeros
   const tabPassengers = page.locator('#ui-id-2');
-  await tabPassengers.waitFor({ state: 'visible', timeout: 10000 });
+  await tabPassengers.waitFor({ state: 'visible', timeout: 5000 });
   await tabPassengers.evaluate(el => el.click());
   console.log('✅ Pestaña Pasajeros activa');
 
-  await page.waitForTimeout(1200);
+  await page.waitForTimeout(600);
 
   // 🔥 4) Click en "New Pasajero"
   const newPassengerBtn = page
@@ -44,14 +44,14 @@ export async function newPassenger(page) {
     .filter({ hasText: 'Nuevo Pasajero' })
     .first();
 
-  await newPassengerBtn.waitFor({ state: 'visible', timeout: 15000 });
+  await newPassengerBtn.waitFor({ state: 'visible', timeout: 8000 });
   await newPassengerBtn.scrollIntoViewIfNeeded();
 
   // Click DOM directo (anti overlay)
   await newPassengerBtn.evaluate(el => el.click());
 
   console.log('🆕 Click en Nuevo Pasajero');
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(300);
 
   await takeScreenshot(page, '14-newPassenger-01-modal-opened');
 
@@ -60,7 +60,7 @@ export async function newPassenger(page) {
     'div[id^="s2id_"][id*="RvapaxEditorDialog"][id$="_Idtipopaxe"]'
   );
 
-  await tipoPasajeroField.waitFor({ state: 'visible', timeout: 15000 });
+  await tipoPasajeroField.waitFor({ state: 'visible', timeout: 8000 });
 
   console.log('✅ Modal "New Pasajero" listo');
 }
