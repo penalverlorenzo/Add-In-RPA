@@ -391,19 +391,16 @@ app.post('/api/rpa/create-reservation', async (req, res) => {
     
     console.log('✅ RPA ejecutado exitosamente');
     
-    // Si no se obtuvo código o no está validado, agregar advertencia
+    // Si no se obtuvo código, agregar advertencia
     if (!resultado.reservationCode) {
       console.log('⚠️ Advertencia: No se pudo obtener el código de reserva');
-    } else if (!resultado.codeValidated) {
-      console.log('⚠️ Advertencia: Código de reserva no validado, puede no existir en iTraffic');
     }
     
     res.json({
       success: true,
       data: resultado,
       message: 'Reserva creada exitosamente',
-      reservationCode: resultado.reservationCode || null,
-      codeValidated: resultado.codeValidated || false
+      reservationCode: resultado.reservationCode || null
     });
     
   } catch (error) {

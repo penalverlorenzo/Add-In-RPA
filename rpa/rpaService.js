@@ -201,28 +201,9 @@ export async function runRpa(reservationData = null, isEdit = false) {
         
         // Obtener el código de la reserva generado
         const reservationCode = await getReservationCode(page);
-        let codeValidated = false;
         
-        // Validar que el código realmente existe en iTraffic antes de guardar en BD
-        if (reservationCode) {
-            try {
-                const { verifyReservationCodeExists } = await import('./verifyReservationCode.js');
-                codeValidated = await verifyReservationCodeExists(page, reservationCode);
-                
-                if (codeValidated) {
-                    console.log(`✅ Código de reserva validado: ${reservationCode} existe en iTraffic`);
-                } else {
-                    console.log(`⚠️ Código de reserva no validado: ${reservationCode} no se encontró en iTraffic`);
-                }
-            } catch (verifyError) {
-                console.error('⚠️ Error al verificar código de reserva:', verifyError.message);
-                // Si falla la verificación, no validar pero continuar
-                codeValidated = false;
-            }
-        }
-        
-        // Solo guardar en BD si el código existe y está validado
-        if (reservationCode && codeValidated && reservationData) {
+        // Guardar en BD si se obtuvo el código (no validamos aquí porque saveReservation ya detecta duplicados)
+        if (reservationCode && reservationData) {
             try {
                 // Importar el servicio de base de datos dinámicamente para evitar dependencias circulares
                 const { default: masterDataService } = await import('../services/mysqlMasterDataService.js');
@@ -241,8 +222,6 @@ export async function runRpa(reservationData = null, isEdit = false) {
         } else {
             if (!reservationCode) {
                 console.log('⚠️ No se pudo obtener el código de reserva');
-            } else if (!codeValidated) {
-                console.log('⚠️ Código de reserva no validado, no se guardará en BD');
             }
             if (!reservationData) {
                 console.log('⚠️ No hay datos de reserva para guardar en BD');
@@ -253,7 +232,6 @@ export async function runRpa(reservationData = null, isEdit = false) {
             success: true,
             message: 'Reserva creada exitosamente',
             reservationCode: reservationCode || null,
-            codeValidated: codeValidated,
             timestamp: new Date().toISOString()
         };
 
