@@ -599,6 +599,39 @@ async function getReservationByConversationId(conversationId) {
     }
 }
 
+/**
+ * Elimina un registro de reservations_history por conversationId
+ * Útil para limpiar registros inválidos cuando el código no existe en iTraffic
+ * @param {string} conversationId - ID de la conversación
+ * @returns {Promise<boolean>} true si se eliminó, false si no se encontró o hubo error
+ */
+async function deleteReservationByConversationId(conversationId) {
+    const pool = getMySQLConnection();
+    if (!pool) {
+        console.warn('⚠️ MySQL connection pool not available for deleteReservationByConversationId');
+        return false;
+    }
+
+    try {
+        const [result] = await pool.query(
+            `DELETE FROM ?? WHERE conversationId = ?`,
+            [config.mysql.tables.reservationsHistory, conversationId]
+        );
+        
+        if (result.affectedRows > 0) {
+            console.log(`✅ Registro eliminado de reservations_history para conversationId: ${conversationId}`);
+            return true;
+        } else {
+            console.log(`ℹ️ No se encontró registro para eliminar (conversationId: ${conversationId})`);
+            return false;
+        }
+    } catch (error) {
+        console.error('❌ Error eliminando reserva por conversationId:', error.message);
+        console.error('   Error code:', error.code);
+        return false;
+    }
+}
+
 // ============================================================================
 // USERS
 // ============================================================================
@@ -667,6 +700,7 @@ export default {
     createCategory,
     saveReservation,
     getReservationByConversationId,
+    deleteReservationByConversationId,
     saveExtraction,
     getExtractionByConversationId,
     getUserById,
