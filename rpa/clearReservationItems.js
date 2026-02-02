@@ -12,7 +12,7 @@ export async function clearServicesAndHotels(page) {
         // Los links tienen la clase s-Serene-E_Ventas-Det_rvaEditorLink
         // Excluir los que están en filas con clase "new-row" (filas vacías nuevas)
         const itemLinks = page.locator('div.slick-row:not(.new-row) a.s-Serene-E_Ventas-Det_rvaEditorLink');
-        await page.waitForTimeout(500); // Esperar a que la tabla se cargue completamente
+        await page.waitForTimeout(300); // Esperar a que la tabla se cargue completamente
         const itemCount = await itemLinks.count();
         
         console.log(`📋 Encontrados ${itemCount} items (servicios/hoteles) para eliminar`);
@@ -32,7 +32,7 @@ export async function clearServicesAndHotels(page) {
                 // Hacer click en el link del item
                 await itemLink.scrollIntoViewIfNeeded();
                 await itemLink.click();
-                await page.waitForTimeout(600);
+                await page.waitForTimeout(300);
                 
                 // Esperar a que aparezca el diálogo "Editar Items"
                 // Buscar por el título del diálogo
@@ -41,28 +41,28 @@ export async function clearServicesAndHotels(page) {
                 
                 // Buscar el botón de borrar dentro del diálogo
                 const deleteButton = editDialog.locator('.tool-button.delete-button').first();
-                await deleteButton.waitFor({ state: 'visible', timeout: 5000 });
+                await deleteButton.waitFor({ state: 'visible', timeout: 3000 });
                 
                 // Hacer click en borrar
                 await deleteButton.scrollIntoViewIfNeeded();
                 await deleteButton.click();
-                await page.waitForTimeout(300);
+                await page.waitForTimeout(200);
                 
                 // Esperar a que aparezca el diálogo de confirmación
                 const confirmDialog = page.locator('.ui-dialog.s-ConfirmDialog:has(.ui-dialog-title:has-text("Confirmar"))').first();
                 try {
-                    await confirmDialog.waitFor({ state: 'visible', timeout: 5000 });
+                    await confirmDialog.waitFor({ state: 'visible', timeout: 3000 });
                     console.log('✅ Diálogo de confirmación encontrado');
                     
                     // Buscar el botón "Sí" dentro del diálogo de confirmación
                     const yesButton = confirmDialog.locator('button:has-text("Sí")').first();
-                    await yesButton.waitFor({ state: 'visible', timeout: 3000 });
+                    await yesButton.waitFor({ state: 'visible', timeout: 2000 });
                     await yesButton.click();
                     console.log('✅ Click en botón "Sí" de confirmación');
-                    await page.waitForTimeout(300);
+                    await page.waitForTimeout(200);
                     
                     // Esperar a que el diálogo de confirmación se cierre
-                    await confirmDialog.waitFor({ state: 'hidden', timeout: 5000 });
+                    await confirmDialog.waitFor({ state: 'hidden', timeout: 3000 });
                 } catch (confirmError) {
                     console.log('⚠️ No se encontró diálogo de confirmación o botón "Sí"', confirmError.message);
                 }
@@ -76,12 +76,12 @@ export async function clearServicesAndHotels(page) {
                     const closeButton = editDialog.locator('.ui-dialog-titlebar-close').first();
                     if (await closeButton.isVisible().catch(() => false)) {
                         await closeButton.click();
-                        await page.waitForTimeout(200);
+                        await page.waitForTimeout(100);
                     }
                 }
                 
                 console.log(`✅ Item ${i + 1} eliminado`);
-                await page.waitForTimeout(500);
+                await page.waitForTimeout(200);
                 
             } catch (error) {
                 console.error(`❌ Error al eliminar item ${i + 1}:`, error.message);
@@ -118,7 +118,7 @@ export async function clearPassengers(page) {
         // Buscar directamente los links de pasajeros sin necesidad de encontrar el contenedor del grid
         // Los links tienen la clase s-Serene-E_Ventas-RvapaxEditorLink
         const passengerLinks = page.locator('a.s-Serene-E_Ventas-RvapaxEditorLink');
-        await page.waitForTimeout(600); // Esperar a que la tabla se cargue completamente
+        await page.waitForTimeout(300); // Esperar a que la tabla se cargue completamente
         const passengerCount = await passengerLinks.count();
         
         console.log(`📋 Encontrados ${passengerCount} pasajeros para eliminar`);
@@ -138,7 +138,7 @@ export async function clearPassengers(page) {
                 // Hacer click en el link del pasajero
                 await passengerLink.scrollIntoViewIfNeeded();
                 await passengerLink.click();
-                await page.waitForTimeout(500);
+                await page.waitForTimeout(300);
                 
                 // Esperar a que aparezca el diálogo "Editar Pasajero"
                 const editDialog = page.locator('.ui-dialog:has(.ui-dialog-title:has-text("Editar Pasajero"))').first();
@@ -151,30 +151,30 @@ export async function clearPassengers(page) {
                 // Hacer click en borrar
                 await deleteButton.scrollIntoViewIfNeeded();
                 await deleteButton.click();
-                await page.waitForTimeout(300);
+                await page.waitForTimeout(200);
                 
                 // Esperar a que aparezca el diálogo de confirmación
                 const confirmDialog = page.locator('.ui-dialog.s-ConfirmDialog:has(.ui-dialog-title:has-text("Confirmar"))').first();
                 try {
-                    await confirmDialog.waitFor({ state: 'visible', timeout: 5000 });
+                    await confirmDialog.waitFor({ state: 'visible', timeout: 3000 });
                     console.log('✅ Diálogo de confirmación encontrado');
                     
                     // Buscar el botón "Sí" dentro del diálogo de confirmación
                     const yesButton = confirmDialog.locator('button:has-text("Sí")').first();
-                    await yesButton.waitFor({ state: 'visible', timeout: 3000 });
+                    await yesButton.waitFor({ state: 'visible', timeout: 2000 });
                     await yesButton.click();
                     console.log('✅ Click en botón "Sí" de confirmación');
-                    await page.waitForTimeout(300);
+                    await page.waitForTimeout(200);
                     
                     // Esperar a que el diálogo de confirmación se cierre
-                    await confirmDialog.waitFor({ state: 'hidden', timeout: 5000 });
+                    await confirmDialog.waitFor({ state: 'hidden', timeout: 3000 });
                 } catch (confirmError) {
                     console.log('⚠️ No se encontró diálogo de confirmación o botón "Sí"', confirmError.message);
                 }
                 
                 // Esperar a que el diálogo de edición se cierre
                 try {
-                    await editDialog.waitFor({ state: 'hidden', timeout: 5000 });
+                    await editDialog.waitFor({ state: 'hidden', timeout: 3000 });
                 } catch (e) {
                     console.log('⚠️ El diálogo de edición no se cerró automáticamente');
                     // Intentar cerrar el diálogo principal si aún está abierto
@@ -185,7 +185,7 @@ export async function clearPassengers(page) {
                 }
                 
                 console.log(`✅ Pasajero ${i + 1} eliminado`);
-                await page.waitForTimeout(500);
+                await page.waitForTimeout(200);
                 
             } catch (error) {
                 console.error(`❌ Error al eliminar pasajero ${i + 1}:`, error.message);
