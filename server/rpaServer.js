@@ -20,6 +20,14 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 
+// Configure multer for handling multipart/form-data (in-memory storage for images)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024 // 10MB max per file
+  }
+});
+
 // Validar configuración al iniciar (solo en producción)
 const isProduction = process.env.NODE_ENV === 'production';
 if (isProduction) {
