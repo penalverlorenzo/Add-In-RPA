@@ -32,9 +32,19 @@ CONTEXTO:
 - Los emails pueden contener hilos de conversación (múltiples forwards)
 - Los datos pueden estar en español, portugués o inglés
 - Formato de salida: JSON estrictamente estructurado
+- ⚠️ IMPORTANTE SOBRE IMÁGENES ADJUNTAS:
+  * Los emails pueden incluir imágenes adjuntas que contienen información CRÍTICA para la extracción
+  * Las imágenes pueden mostrar: tablas, formularios, vouchers, confirmaciones, facturas, itinerarios, capturas de pantalla
+  * Pueden contener información de: pasajeros (nombres, documentos, fechas de nacimiento), hoteles (nombres, fechas check-in/out, tipos de habitación), servicios (nombres, fechas, precios, descripciones), clientes (nombres de agencias), vendedores, fechas de viaje, códigos de reserva, montos, etc.
+  * DEBES analizar cuidadosamente TODAS las imágenes proporcionadas y extraer TODA la información relevante
+  * La información en las imágenes tiene la MISMA PRIORIDAD que el texto del email
+  * Si hay discrepancias entre texto e imágenes, prioriza la información más completa y detallada
+  * NO omitas información que solo aparezca en las imágenes
+  * Si una imagen contiene una tabla o lista de servicios/hoteles/pasajeros, extrae TODOS los elementos mencionados
+  * Las imágenes pueden contener texto OCR-izable, así que lee cuidadosamente todo el contenido visible
 
 TAREA:
-Extrae la siguiente información de los emails, prestando especial atención a los campos requeridos por el sistema "iTraffic":
+Extrae la siguiente información de los emails Y sus imágenes adjuntas (si las hay), prestando especial atención a los campos requeridos por el sistema "iTraffic":
 
 1. PASAJEROS (Array de objetos):
    - firstName: Primer nombre
@@ -564,90 +574,128 @@ async function extractReservationData(emailContent, userId = 'unknown', masterDa
         console.log(`📤 Enviando ${imageMessages.length} imagen(es) a OpenAI junto con el texto del email`);
     }
 
-    try {
-        const response = await client.chat.completions.create({
-            model: config.openai.deployment || 'gpt-4o-mini',
-            messages: [
-                { role: 'system', content: systemPrompt },
-                { role: 'user', content: userContent }
-            ],
-            temperature: 0.2, // Low temperature for more deterministic extraction
-            max_tokens: 2000,
-            top_p: 0.95,
-            response_format: { type: 'json_object' }
-        });
-
-        const content = response.choices[0].message.content.trim();
-        console.log(`✅ OpenAI response received (${content.length} chars)`);
-        
-        // Log token usage
-        if (response.usage) {
-            const { prompt_tokens, completion_tokens, total_tokens } = response.usage;
-            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-            console.log('📊 TOKEN USAGE REPORT');
-            console.log(`   📥 Prompt tokens: ${prompt_tokens.toLocaleString()}`);
-            console.log(`   📤 Completion tokens: ${completion_tokens.toLocaleString()}`);
-            console.log(`   📊 Total tokens: ${total_tokens.toLocaleString()}`);
-            if (images && images.length > 0) {
-                console.log(`   🖼️ Images included: ${images.length} image(s)`);
-            }
-            console.log(`   🤖 Model: ${config.openai.deployment || 'gpt-4o-mini'}`);
-            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-        } else {
-            console.log('⚠️ Token usage information not available in response');
-        }
-
-        // Parse JSON response
-        let extractedData;
+    // Retry logic with exponential backoff for rate limits
+    const maxRetries = 3;
+    let retryCount = 0;
+    let lastError = null;
+    
+    while (retryCount <= maxRetries) {
         try {
-            extractedData = JSON.parse(content);
-        } catch (parseError) {
-            console.error('❌ Failed to parse OpenAI response as JSON:', content);
-            throw new Error('OpenAI returned invalid JSON format');
-        }
+            const response = await client.chat.completions.create({
+                model: config.openai.deployment || 'gpt-4o-mini',
+                messages: [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: userContent }
+                ],
+                temperature: 0.2, // Low temperature for more deterministic extraction
+                max_tokens: 2000,
+                top_p: 0.95,
+                response_format: { type: 'json_object' }
+            });
 
-        // Validate and normalize extracted data
-        const validatedData = validateExtractionResult(extractedData);
-
-        // Enrich services with Azure Search data
-        if (validatedData.services && validatedData.services.length > 0) {
-            try {
-                console.log(`🔍 Enriching ${validatedData.services.length} service(s) with Azure Search data...`);
-                const enrichedServices = await searchServices(validatedData, emailContent);
-                validatedData.services = enrichedServices;
-                console.log(`✅ Services enriched: ${enrichedServices.length} service(s)`);
-            } catch (error) {
-                console.error('⚠️ Error enriching services with Azure Search, using original services:', error.message);
-                // Continue with original services if enrichment fails
+            const content = response.choices[0].message.content.trim();
+            console.log(`✅ OpenAI response received (${content.length} chars)`);
+            
+            // Log token usage
+            if (response.usage) {
+                const { prompt_tokens, completion_tokens, total_tokens } = response.usage;
+                console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+                console.log('📊 TOKEN USAGE REPORT');
+                console.log(`   📥 Prompt tokens: ${prompt_tokens.toLocaleString()}`);
+                console.log(`   📤 Completion tokens: ${completion_tokens.toLocaleString()}`);
+                console.log(`   📊 Total tokens: ${total_tokens.toLocaleString()}`);
+                if (images && images.length > 0) {
+                    console.log(`   🖼️ Images included: ${images.length} image(s)`);
+                }
+                console.log(`   🤖 Model: ${config.openai.deployment || 'gpt-4o-mini'}`);
+                console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            } else {
+                console.log('⚠️ Token usage information not available in response');
             }
+
+            // Parse JSON response
+            let extractedData;
+            try {
+                extractedData = JSON.parse(content);
+            } catch (parseError) {
+                console.error('❌ Failed to parse OpenAI response as JSON:', content);
+                throw new Error('OpenAI returned invalid JSON format');
+            }
+
+            // Validate and normalize extracted data
+            const validatedData = validateExtractionResult(extractedData);
+
+            // Enrich services with Azure Search data
+            if (validatedData.services && validatedData.services.length > 0) {
+                try {
+                    console.log(`🔍 Enriching ${validatedData.services.length} service(s) with Azure Search data...`);
+                    const enrichedServices = await searchServices(validatedData, emailContent);
+                    validatedData.services = enrichedServices;
+                    console.log(`✅ Services enriched: ${enrichedServices.length} service(s)`);
+                } catch (error) {
+                    console.error('⚠️ Error enriching services with Azure Search, using original services:', error.message);
+                    // Continue with original services if enrichment fails
+                }
+            }
+
+            // Add metadata
+            validatedData.extractedAt = new Date().toISOString();
+            validatedData.userId = userId;
+            validatedData.modelUsed = config.openai.deployment || 'gpt-4o-mini';
+            validatedData.emailContentLength = emailContent.length;
+            validatedData.conversationId = conversationId;
+            console.log(`✅ Extraction completed successfully`);
+            console.log(`   Passengers: ${validatedData.passengers?.length || 0}`);
+            console.log(`   Client: ${validatedData.client || 'N/A'}`);
+            console.log(`   Travel Date: ${validatedData.travelDate || 'N/A'}`);
+            console.log(`   Services: ${validatedData.services?.length || 0}`);
+
+            return validatedData;
+            
+        } catch (error) {
+            lastError = error;
+            
+            // Check if it's a rate limit error
+            const isRateLimit = error.status === 429 || 
+                               error.code === 'RateLimitReached' ||
+                               (error.message && error.message.includes('rate limit'));
+            
+            if (isRateLimit && retryCount < maxRetries) {
+                // Extract retry-after from headers if available
+                const retryAfter = error.headers?.['retry-after'] || 
+                                 error.headers?.['Retry-After'] ||
+                                 (error.message.match(/retry after (\d+)/i)?.[1]);
+                
+                const waitTime = retryAfter ? parseInt(retryAfter) * 1000 : Math.pow(2, retryCount) * 1000;
+                const waitSeconds = Math.ceil(waitTime / 1000);
+                
+                retryCount++;
+                console.log(`⚠️ Rate limit alcanzado. Reintentando en ${waitSeconds} segundos (intento ${retryCount}/${maxRetries})...`);
+                console.log(`   Error: ${error.message}`);
+                
+                // Wait before retrying
+                await new Promise(resolve => setTimeout(resolve, waitTime));
+                continue;
+            }
+            
+            // If it's not a rate limit error, or we've exhausted retries, throw the error
+            throw error;
         }
-
-        // Add metadata
-        validatedData.extractedAt = new Date().toISOString();
-        validatedData.userId = userId;
-        validatedData.modelUsed = config.openai.deployment || 'gpt-4o-mini';
-        validatedData.emailContentLength = emailContent.length;
-        validatedData.conversationId = conversationId;
-        console.log(`✅ Extraction completed successfully`);
-        console.log(`   Passengers: ${validatedData.passengers?.length || 0}`);
-        console.log(`   Client: ${validatedData.client || 'N/A'}`);
-        console.log(`   Travel Date: ${validatedData.travelDate || 'N/A'}`);
-        console.log(`   Services: ${validatedData.services?.length || 0}`);
-
-        return validatedData;
-
-    } catch (error) {
-        console.error('❌ Error extracting reservation data:', error);
+    }
+    
+    // If we get here, all retries failed
+    if (lastError) {
+        console.error('❌ Error extracting reservation data:', lastError);
         
-        if (error.message.includes('timeout')) {
+        if (lastError.message.includes('timeout')) {
             throw new Error('Extraction timeout: OpenAI service is taking too long');
-        } else if (error.message.includes('rate limit')) {
+        } else if (lastError.message.includes('rate limit')) {
             throw new Error('Rate limit exceeded: Please try again in a few moments');
-        } else if (error.message.includes('invalid')) {
+        } else if (lastError.message.includes('invalid')) {
             throw new Error('Invalid email content: Unable to extract reservation data');
         }
         
-        throw new Error(`Extraction failed: ${error.message}`);
+        throw new Error(`Extraction failed: ${lastError.message}`);
     }
 }
 
