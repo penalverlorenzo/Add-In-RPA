@@ -84,20 +84,24 @@ Extrae la siguiente información de los emails, prestando especial atención a l
      * "DIRECTO [CODI]" para directo
      * "CORPORATIVA [COCO]" para corporativa
      * Si no estás seguro, dejalo vacio
+     * ⚠️ CRÍTICO: Debes hacer DOBLE VERIFICACIÓN de este campo. Revisa el email completo (texto e imágenes) y asegúrate de seleccionar el tipo correcto de la lista de opciones disponibles. Este campo NO puede tener errores.
    - status: Estado de la reserva. Analiza el CONTEXTO COMPLETO, TONO e INTENCIÓN del email para determinar el estado correcto:
      * "CONFIRMACION [FI]" si el email AFIRMA o CONFIRMA algo: "confirmamos la reserva", "reserva confirmada", "confirmo la reserva", "todo listo", "reserva aprobada", "confirmado", incluye vouchers/códigos/números de reserva
      * "CANCELADO [CX]" si el email CANCELA algo: "cancelar la reserva", "necesito cancelar", "cancelo la reserva", "reserva cancelada", "se canceló"
      * "PENDIENTE DE CONFIRMACION [PC]" si el email PREGUNTA o SOLICITA algo: "¿puedes confirmar?", "necesito confirmación", "confirmar disponibilidad", "solicito cotización", "consulta de disponibilidad", "cotización", "presupuesto", "solicitud de reserva", "quiero reservar"
      * Si no encuentras indicadores claros, usa "PENDIENTE DE CONFIRMACION [PC]"
+     * ⚠️ CRÍTICO: Debes hacer DOBLE VERIFICACIÓN de este campo. Revisa el email completo (texto e imágenes) y asegúrate de seleccionar el estado correcto de la lista de opciones disponibles. Este campo NO puede tener errores.
    - estadoDeuda: Estado de deuda (ej: "Pagada", "Pendiente", "Parcial")
    - reservationDate: Fecha de alta de la reserva (YYYY-MM-DD)
    - travelDate: Fecha de inicio del viaje (YYYY-MM-DD)
    - tourEndDate: Fecha de fin del viaje (YYYY-MM-DD)
    - dueDate: Fecha de vencimiento de la reserva (YYYY-MM-DD)
    - seller: Vendedor o agente responsable. Busca en la firma del email (ej: "Atentamente, Nombre" o "Equipe...").
+     * ⚠️ CRÍTICO: Debes hacer DOBLE VERIFICACIÓN de este campo. Revisa el email completo (texto e imágenes) y asegúrate de seleccionar el vendedor correcto de la lista de opciones disponibles. Este campo NO puede tener errores.
    - client: Cliente a facturar. DEBE ser el nombre de la Agencia/Operador que envía el email, NO el pasajero.
      Busca nombres como "DESPEGAR", "ALMUNDO", "GRAYLINE", nombre de la agencia remitente, etc.
      Si no encuentras el nombre de la agencia, dejalo vacio
+     * ⚠️ CRÍTICO: Debes hacer DOBLE VERIFICACIÓN de este campo. Revisa el email completo (texto e imágenes) y asegúrate de seleccionar el cliente correcto de la lista de opciones disponibles. Este campo NO puede tener errores.
    - contact: Nombre de la persona de contacto en la agencia/cliente
    - currency: Moneda de la transacción (ej: "USD", "ARS", "EUR", "BRL"). Si no está explícita, intenta deducirla por el país de la agencia (ej: CVC Brasil -> BRL).
    - exchangeRate: Tipo de cambio (si se menciona explícitamente)
@@ -111,6 +115,11 @@ Extrae la siguiente información de los emails, prestando especial atención a l
    - infants: Cantidad de infantes
 
 3. TIPO DE DETALLE Y INFORMACIÓN RESPECTIVA:
+   ⚠️ CRÍTICO: Debes hacer DOBLE VERIFICACIÓN para asegurarte de que NO se está saltando ningún servicio ni hotel mencionado en el email (texto e imágenes). Revisa cuidadosamente:
+   - Si el email menciona servicios, deben estar TODOS en el array "services"
+   - Si el email menciona un hotel, debe estar en el objeto "hotel"
+   - NO omitas ningún servicio u hotel mencionado, incluso si están en imágenes o tablas
+   
    DEBES identificar el tipo de detalle que se está solicitando o confirmando en el email. Analiza el contenido para determinar si es:
    
    - "hotel": Cuando el email menciona alojamiento, hotel, hospedaje, check-in, check-out, habitación, room, accommodation
@@ -439,9 +448,10 @@ NO incluyas ningún texto adicional fuera del JSON. NO incluyas markdown code bl
  * @param {string} userId - User ID for tracking
  * @param {Object} masterData - Available options from master data (optional)
  * @param {string} conversationId - Conversation ID for tracking
+ * @param {Array} images - Array of image files from FormData (optional)
  * @returns {Promise<Object>} Extracted reservation data
  */
-async function extractReservationData(emailContent, userId = 'unknown', masterData = null, conversationId = null) {
+async function extractReservationData(emailContent, userId = 'unknown', masterData = null, conversationId = null, images = []) {
     const client = getOpenAIClient();
     if (!client) {
         throw new Error('OpenAI client not configured. Please check your .env file.');
@@ -520,12 +530,46 @@ async function extractReservationData(emailContent, userId = 'unknown', masterDa
         console.log('📋 Prompt enriquecido con datos maestros del sistema');
     }
 
+    // Prepare images for OpenAI if available
+    const imageMessages = [];
+    if (images && images.length > 0) {
+        console.log(`🖼️ Procesando ${images.length} imagen(es) para enviar a OpenAI...`);
+        for (const image of images) {
+            try {
+                // Convert buffer to base64
+                const base64Image = image.buffer.toString('base64');
+                const dataUrl = `data:${image.mimetype};base64,${base64Image}`;
+                
+                imageMessages.push({
+                    type: 'image_url',
+                    image_url: {
+                        url: dataUrl
+                    }
+                });
+                console.log(`   ✅ Imagen procesada: ${image.originalname} (${image.size} bytes, ${image.mimetype})`);
+            } catch (imgError) {
+                console.error(`   ⚠️ Error procesando imagen ${image.originalname}:`, imgError.message);
+            }
+        }
+    }
+    
+    // Build user message content
+    const userContent = [
+        { type: 'text', text: `Extrae la información de reserva del siguiente email:\n\n${truncatedContent}` }
+    ];
+    
+    // Add images if available
+    if (imageMessages.length > 0) {
+        userContent.push(...imageMessages);
+        console.log(`📤 Enviando ${imageMessages.length} imagen(es) a OpenAI junto con el texto del email`);
+    }
+
     try {
         const response = await client.chat.completions.create({
             model: config.openai.deployment || 'gpt-4o-mini',
             messages: [
                 { role: 'system', content: systemPrompt },
-                { role: 'user', content: `Extrae la información de reserva del siguiente email:\n\n${truncatedContent}` }
+                { role: 'user', content: userContent }
             ],
             temperature: 0.2, // Low temperature for more deterministic extraction
             max_tokens: 2000,
@@ -535,6 +579,23 @@ async function extractReservationData(emailContent, userId = 'unknown', masterDa
 
         const content = response.choices[0].message.content.trim();
         console.log(`✅ OpenAI response received (${content.length} chars)`);
+        
+        // Log token usage
+        if (response.usage) {
+            const { prompt_tokens, completion_tokens, total_tokens } = response.usage;
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            console.log('📊 TOKEN USAGE REPORT');
+            console.log(`   📥 Prompt tokens: ${prompt_tokens.toLocaleString()}`);
+            console.log(`   📤 Completion tokens: ${completion_tokens.toLocaleString()}`);
+            console.log(`   📊 Total tokens: ${total_tokens.toLocaleString()}`);
+            if (images && images.length > 0) {
+                console.log(`   🖼️ Images included: ${images.length} image(s)`);
+            }
+            console.log(`   🤖 Model: ${config.openai.deployment || 'gpt-4o-mini'}`);
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        } else {
+            console.log('⚠️ Token usage information not available in response');
+        }
 
         // Parse JSON response
         let extractedData;

@@ -9,6 +9,7 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import multer from 'multer';
 import { extractReservationData, calculateQualityScore } from '../services/extractionService.js';
 import masterDataService from '../services/mysqlMasterDataService.js';
 import config from '../config/index.js';
@@ -148,12 +149,72 @@ app.get('/api/master-data', async (req, res) => {
   }
 });
 
+// Middleware para detectar si es JSON o FormData
+const handleExtractRequest = async (req, res, next) => {
+  // Detectar si es multipart/form-data
+  const isMultipart = req.headers['content-type'] && req.headers['content-type'].includes('multipart/form-data');
+  
+  if (isMultipart) {
+    // Usar multer para procesar FormData
+    upload.fields([{ name: 'images', maxCount: 20 }])(req, res, (err) => {
+      if (err) {
+        console.error('❌ Error procesando FormData:', err.message);
+        return res.status(400).json({
+          success: false,
+          error: `Error procesando FormData: ${err.message}`
+        });
+      }
+      next();
+    });
+  } else {
+    // Para JSON, usar el middleware de express.json() que ya está configurado
+    next();
+  }
+};
+
 // Ruta para extraer datos del email con IA
-app.post('/api/extract', async (req, res) => {
+app.post('/api/extract', handleExtractRequest, async (req, res) => {
   try {
     console.log('🤖 Petición recibida para extracción con IA');
     const startTime = Date.now();
-    const { emailContent, userId, conversationId, isReExtract } = req.body;
+    
+    // Detectar formato de la petición
+    const isMultipart = req.headers['content-type'] && req.headers['content-type'].includes('multipart/form-data');
+    
+    let emailContent, userId, conversationId, isReExtract, images = [];
+    
+    if (isMultipart) {
+      // Formato FormData
+      console.log('📦 Formato detectado: multipart/form-data');
+      emailContent = req.body.emailContent;
+      userId = req.body.userId;
+      conversationId = req.body.conversationId;
+      isReExtract = req.body.isReExtract;
+      
+      // Extraer imágenes del campo "images" (puede ser múltiples archivos con el mismo nombre)
+      if (req.files && req.files.images) {
+        images = Array.isArray(req.files.images) ? req.files.images : [req.files.images];
+        console.log(`📷 Imágenes recibidas: ${images.length}`);
+        images.forEach((img, index) => {
+          console.log(`   Imagen ${index + 1}: ${img.originalname} (${img.mimetype}, ${img.size} bytes)`);
+        });
+      } else {
+        console.log('ℹ️ No se recibieron imágenes en el FormData');
+      }
+    } else {
+      // Formato JSON
+      console.log('📦 Formato detectado: application/json');
+      emailContent = req.body.emailContent;
+      userId = req.body.userId;
+      conversationId = req.body.conversationId;
+      isReExtract = req.body.isReExtract;
+      images = []; // Sin imágenes en JSON
+    }
+    
+    // Convertir isReExtract de string a booleano
+    if (typeof isReExtract === 'string') {
+      isReExtract = isReExtract.toLowerCase() === 'true';
+    }
     let user;
     try {
       user = await masterDataService.getUserById(userId);
@@ -232,8 +293,8 @@ app.post('/api/extract', async (req, res) => {
     };
     const processingTimeMs = Date.now() - startTime;
     console.log('📋 Datos maestros obtenidos para contexto de IA');
-    // Extraer datos con IA, pasando los datos maestros como contexto
-    const extractedData = await extractReservationData(emailContent, userId || 'outlook-user', masterData, conversationId);
+    // Extraer datos con IA, pasando los datos maestros como contexto y las imágenes si están disponibles
+    const extractedData = await extractReservationData(emailContent, userId || 'outlook-user', masterData, conversationId, images);
     const qualityScore = calculateQualityScore(extractedData);
     extractedData.qualityScore = qualityScore;
     
