@@ -186,12 +186,19 @@ Extrae la siguiente información del email y del texto extraído de imágenes (s
 
 2. DATOS DE RESERVA (ITRAFFIC):
    - codigo: Código interno o número de expediente (si aparece)
-   - reservationType: Tipo de reserva. Ejemplos:
-     * "AGENCIAS [COAG]" para agencias
-     * "MAYORISTA [COMA]" para mayoristas
-     * "DIRECTO [CODI]" para directo
-     * "CORPORATIVA [COCO]" para corporativa
-     * Si no estás seguro, dejalo vacio
+   - reservationType: Tipo de reserva. DEBE ser EXACTAMENTE uno de los siguientes valores disponibles:
+     * "ADMINISTRATIVAS"
+     * "AGENCIAS"
+     * "CVC"
+     * "DESPEGAR"
+     * "DIRECTOS O PARTICULARES"
+     * "ESPECIALES"
+     * "EXTERIOR"
+     * "INFOTERA"
+     * "MAYORISTA"
+     * "OPORTUNMUNDO"
+     * "RESERVAS SUCURSAL CALAFATE"
+     * Si no estás seguro o no encuentras una coincidencia clara, dejalo vacio
      * ⚠️ CRÍTICO: Debes hacer DOBLE VERIFICACIÓN de este campo. Revisa el email completo (texto del email y texto de imágenes si está presente) y asegúrate de seleccionar el tipo correcto de la lista de opciones disponibles. Este campo NO puede tener errores.
    - status: Estado de la reserva. Analiza el CONTEXTO COMPLETO, TONO e INTENCIÓN del email para determinar el estado correcto:
      * "CONFIRMACION [FI]" si el email AFIRMA o CONFIRMA algo: "confirmamos la reserva", "reserva confirmada", "confirmo la reserva", "todo listo", "reserva aprobada", "confirmado", incluye vouchers/códigos/números de reserva
