@@ -9,12 +9,13 @@ import { searchServices } from './servicesExtractionService.js';
 
 let openaiClient = null;
 
-function getOpenAIClient() {
-    if (!openaiClient && config.openai.apiKey && config.openai.endpoint) {
+function getOpenAIClient(isImageExtraction = false) {
+    const isImageExtractionConfig = isImageExtraction ? config.openai.imageExtraction : config.openai;
+    if (!openaiClient && isImageExtractionConfig.apiKey && isImageExtractionConfig.endpoint) {
         openaiClient = new AzureOpenAI({
-            apiKey: config.openai.apiKey,
-            endpoint: config.openai.endpoint,
-            apiVersion: config.openai.apiVersion
+            apiKey: isImageExtractionConfig.apiKey,
+            endpoint: isImageExtractionConfig.endpoint,
+            apiVersion: isImageExtractionConfig.apiVersion
         });
     }
     return openaiClient;
@@ -581,7 +582,14 @@ async function extractReservationData(emailContent, userId = 'unknown', masterDa
     
     while (retryCount <= maxRetries) {
         try {
-            const response = await client.chat.completions.create({
+            // Use image extraction client if images are present, otherwise use regular client
+            const hasImages = images && images.length > 0;
+            const extractionClient = hasImages ? getOpenAIClient(true) : getOpenAIClient(false);
+            if (!extractionClient) {
+                throw new Error(`OpenAI client ${hasImages ? 'for image extraction' : ''} not configured. Please check your .env file.`);
+            }
+            
+            const response = await extractionClient.chat.completions.create({
                 model: config.openai.deployment || 'gpt-4o-mini',
                 messages: [
                     { role: 'system', content: systemPrompt },
@@ -596,16 +604,18 @@ async function extractReservationData(emailContent, userId = 'unknown', masterDa
             const content = response.choices[0].message.content.trim();
             console.log(`✅ OpenAI response received (${content.length} chars)`);
             
-            // Log token usage
+            // Log token usage for both text and image extraction
             if (response.usage) {
                 const { prompt_tokens, completion_tokens, total_tokens } = response.usage;
                 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-                console.log('📊 TOKEN USAGE REPORT');
+                console.log(`📊 TOKEN USAGE REPORT ${hasImages ? '(Image Extraction)' : '(Text Extraction)'}`);
                 console.log(`   📥 Prompt tokens: ${prompt_tokens.toLocaleString()}`);
                 console.log(`   📤 Completion tokens: ${completion_tokens.toLocaleString()}`);
                 console.log(`   📊 Total tokens: ${total_tokens.toLocaleString()}`);
-                if (images && images.length > 0) {
+                if (hasImages) {
                     console.log(`   🖼️ Images included: ${images.length} image(s)`);
+                } else {
+                    console.log(`   📝 Text-only extraction`);
                 }
                 console.log(`   🤖 Model: ${config.openai.deployment || 'gpt-4o-mini'}`);
                 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
