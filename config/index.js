@@ -12,13 +12,13 @@ export default {
         apiKey: process.env.AZURE_OPENAI_API_KEY,
         endpoint: process.env.AZURE_OPENAI_ENDPOINT,
         deployment: process.env.AZURE_OPENAI_DEPLOYMENT || 'gpt-4o-mini',
-        apiVersion: '2024-08-01-preview',
-        imageExtraction: {
-            apiKey: process.env.AZURE_OPENAI_IMAGE_EXTRACTOR_API_KEY,
-            endpoint: process.env.AZURE_OPENAI_IMAGE_EXTRACTOR_ENDPOINT,
-            deployment: process.env.AZURE_OPENAI_IMAGE_EXTRACTOR_DEPLOYMENT || 'gpt-4o-mini',
-            apiVersion: '2024-08-01-preview',
-        }
+        apiVersion: '2024-08-01-preview'
+    },
+
+    // Azure Computer Vision Configuration (for OCR)
+    // Uses the same API key as OpenAI, only endpoint is different
+    computerVision: {
+        endpoint: process.env.AZURE_COMPUTER_VISION_ENDPOINT
     },
 
     // Server Configuration

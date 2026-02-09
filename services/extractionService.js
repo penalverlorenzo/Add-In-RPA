@@ -8,82 +8,110 @@ import config from '../config/index.js';
 import { searchServices } from './servicesExtractionService.js';
 
 let openaiClient = null;
-let imageExtractionClient = null;
 
-function getOpenAIClient(isImageExtraction = false) {
-    if (isImageExtraction) {
-        // Use separate client for image extraction
-        if (!imageExtractionClient && config.openai.imageExtraction.apiKey && config.openai.imageExtraction.endpoint) {
-            imageExtractionClient = new AzureOpenAI({
-                apiKey: config.openai.imageExtraction.apiKey,
-                endpoint: config.openai.imageExtraction.endpoint,
-                apiVersion: config.openai.imageExtraction.apiVersion
-            });
-        }
-        return imageExtractionClient;
-    } else {
-        // Use regular client for text extraction
-        if (!openaiClient && config.openai.apiKey && config.openai.endpoint) {
-            openaiClient = new AzureOpenAI({
-                apiKey: config.openai.apiKey,
-                endpoint: config.openai.endpoint,
-                apiVersion: config.openai.apiVersion
-            });
-        }
-        return openaiClient;
+function getOpenAIClient() {
+    if (!openaiClient && config.openai.apiKey && config.openai.endpoint) {
+        openaiClient = new AzureOpenAI({
+            apiKey: config.openai.apiKey,
+            endpoint: config.openai.endpoint,
+            apiVersion: config.openai.apiVersion
+        });
     }
+    return openaiClient;
 }
 
 /**
- * Extract text from an image using OpenAI Vision
+ * Extract text from an image using Azure Computer Vision OCR
  * @param {Object} image - Image file object with buffer and mimetype
  * @returns {Promise<string>} Extracted text from the image
  */
 async function extractTextFromImage(image) {
-    const imageExtractionClient = getOpenAIClient(true);
-    if (!imageExtractionClient) {
-        throw new Error('OpenAI client for image extraction not configured. Please check your .env file.');
+    if (!config.computerVision.endpoint) {
+        throw new Error('Azure Computer Vision endpoint not configured. Please check your .env file (AZURE_COMPUTER_VISION_ENDPOINT).');
+    }
+
+    if (!config.openai.apiKey) {
+        throw new Error('Azure OpenAI API key not configured. Please check your .env file (AZURE_OPENAI_API_KEY).');
     }
 
     try {
-        // Convert buffer to base64
-        const base64Image = image.buffer.toString('base64');
-        const dataUrl = `data:${image.mimetype};base64,${base64Image}`;
+        const endpoint = config.computerVision.endpoint.replace(/\/$/, ''); // Remove trailing slash
+        const apiVersion = '2023-02-01-preview'; // Standard Computer Vision API version
+        const apiKey = config.openai.apiKey; // Use the same API key as OpenAI
 
-        const model = config.openai.imageExtraction.deployment || 'gpt-4o-mini';
+        // Step 1: Submit image for OCR analysis
+        const analyzeUrl = `${endpoint}/vision/v3.2/read/analyze?api-version=${apiVersion}`;
         
-        const response = await imageExtractionClient.chat.completions.create({
-            model: model,
-            messages: [
-                {
-                    role: 'user',
-                    content: [
-                        {
-                            type: 'text',
-                            text: 'Extrae TODO el texto visible en esta imagen. Incluye tablas, listas, números, fechas, nombres, y cualquier información relevante. Preserva la estructura cuando sea posible (por ejemplo, si hay una tabla, mantén el formato de tabla). Si no hay texto visible, responde con "No se encontró texto en la imagen".'
-                        },
-                        {
-                            type: 'image_url',
-                            image_url: {
-                                url: dataUrl
-                            }
-                        }
-                    ]
-                }
-            ],
-            temperature: 0.1, // Low temperature for more accurate text extraction
-            max_tokens: 2000
+        const analyzeResponse = await fetch(analyzeUrl, {
+            method: 'POST',
+            headers: {
+                'Ocp-Apim-Subscription-Key': apiKey,
+                'Content-Type': image.mimetype || 'application/octet-stream'
+            },
+            body: image.buffer
         });
 
-        const extractedText = response.choices[0].message.content.trim();
-        
-        // Log token usage for image text extraction
-        if (response.usage) {
-            const { prompt_tokens, completion_tokens, total_tokens } = response.usage;
-            console.log(`   📊 OCR tokens: ${total_tokens.toLocaleString()} (prompt: ${prompt_tokens.toLocaleString()}, completion: ${completion_tokens.toLocaleString()})`);
+        if (!analyzeResponse.ok) {
+            const errorText = await analyzeResponse.text();
+            throw new Error(`Computer Vision API error: ${analyzeResponse.status} - ${errorText}`);
         }
 
-        return extractedText;
+        // Get operation location from response headers
+        const operationLocation = analyzeResponse.headers.get('Operation-Location');
+        if (!operationLocation) {
+            throw new Error('No Operation-Location header in response');
+        }
+
+        // Step 2: Poll for results (Azure Computer Vision is async)
+        let resultResponse;
+        let attempts = 0;
+        const maxAttempts = 30; // Max 30 seconds wait
+        const pollInterval = 1000; // 1 second
+
+        while (attempts < maxAttempts) {
+            await new Promise(resolve => setTimeout(resolve, pollInterval));
+            attempts++;
+
+            resultResponse = await fetch(operationLocation, {
+                method: 'GET',
+                headers: {
+                    'Ocp-Apim-Subscription-Key': apiKey
+                }
+            });
+
+            if (!resultResponse.ok) {
+                const errorText = await resultResponse.text();
+                throw new Error(`Computer Vision result API error: ${resultResponse.status} - ${errorText}`);
+            }
+
+            const result = await resultResponse.json();
+            
+            if (result.status === 'succeeded') {
+                // Extract text from all lines
+                const extractedLines = [];
+                if (result.analyzeResult && result.analyzeResult.readResults) {
+                    for (const readResult of result.analyzeResult.readResults) {
+                        if (readResult.lines) {
+                            for (const line of readResult.lines) {
+                                if (line.text) {
+                                    extractedLines.push(line.text);
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                const extractedText = extractedLines.join('\n');
+                console.log(`   📊 OCR completed: ${extractedText.length} characters extracted`);
+                
+                return extractedText || 'No se encontró texto en la imagen';
+            } else if (result.status === 'failed') {
+                throw new Error(`OCR analysis failed: ${result.error?.message || 'Unknown error'}`);
+            }
+            // If status is 'running' or 'notStarted', continue polling
+        }
+
+        throw new Error('OCR analysis timeout: operation did not complete in time');
     } catch (error) {
         console.error(`   ⚠️ Error extrayendo texto de imagen ${image.originalname}:`, error.message);
         throw error;
@@ -657,7 +685,7 @@ async function extractReservationData(emailContent, userId = 'unknown', masterDa
     while (retryCount <= maxRetries) {
         try {
             // Always use regular client for text extraction (images are already processed as text)
-            const extractionClient = getOpenAIClient(false);
+            const extractionClient = getOpenAIClient();
             if (!extractionClient) {
                 throw new Error('OpenAI client not configured. Please check your .env file.');
             }
