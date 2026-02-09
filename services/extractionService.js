@@ -8,17 +8,30 @@ import config from '../config/index.js';
 import { searchServices } from './servicesExtractionService.js';
 
 let openaiClient = null;
+let imageExtractionClient = null;
 
 function getOpenAIClient(isImageExtraction = false) {
-    const isImageExtractionConfig = isImageExtraction ? config.openai.imageExtraction : config.openai;
-    if (!openaiClient && isImageExtractionConfig.apiKey && isImageExtractionConfig.endpoint) {
-        openaiClient = new AzureOpenAI({
-            apiKey: isImageExtractionConfig.apiKey,
-            endpoint: isImageExtractionConfig.endpoint,
-            apiVersion: isImageExtractionConfig.apiVersion
-        });
+    if (isImageExtraction) {
+        // Use separate client for image extraction
+        if (!imageExtractionClient && config.openai.imageExtraction.apiKey && config.openai.imageExtraction.endpoint) {
+            imageExtractionClient = new AzureOpenAI({
+                apiKey: config.openai.imageExtraction.apiKey,
+                endpoint: config.openai.imageExtraction.endpoint,
+                apiVersion: config.openai.imageExtraction.apiVersion
+            });
+        }
+        return imageExtractionClient;
+    } else {
+        // Use regular client for text extraction
+        if (!openaiClient && config.openai.apiKey && config.openai.endpoint) {
+            openaiClient = new AzureOpenAI({
+                apiKey: config.openai.apiKey,
+                endpoint: config.openai.endpoint,
+                apiVersion: config.openai.apiVersion
+            });
+        }
+        return openaiClient;
     }
-    return openaiClient;
 }
 
 /**
@@ -463,11 +476,6 @@ NO incluyas ningún texto adicional fuera del JSON. NO incluyas markdown code bl
  * @returns {Promise<Object>} Extracted reservation data
  */
 async function extractReservationData(emailContent, userId = 'unknown', masterData = null, conversationId = null, images = []) {
-    const client = getOpenAIClient();
-    if (!client) {
-        throw new Error('OpenAI client not configured. Please check your .env file.');
-    }
-
     if (!conversationId) {
         throw new Error('Conversation ID is required');
     }
@@ -589,8 +597,13 @@ async function extractReservationData(emailContent, userId = 'unknown', masterDa
                 throw new Error(`OpenAI client ${hasImages ? 'for image extraction' : ''} not configured. Please check your .env file.`);
             }
             
+            // Use the correct model based on extraction type
+            const model = hasImages 
+                ? (config.openai.imageExtraction.deployment || 'gpt-4o-mini')
+                : (config.openai.deployment || 'gpt-4o-mini');
+            
             const response = await extractionClient.chat.completions.create({
-                model: config.openai.deployment || 'gpt-4o-mini',
+                model: model,
                 messages: [
                     { role: 'system', content: systemPrompt },
                     { role: 'user', content: userContent }
@@ -617,7 +630,7 @@ async function extractReservationData(emailContent, userId = 'unknown', masterDa
                 } else {
                     console.log(`   📝 Text-only extraction`);
                 }
-                console.log(`   🤖 Model: ${config.openai.deployment || 'gpt-4o-mini'}`);
+                console.log(`   🤖 Model: ${model}`);
                 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
             } else {
                 console.log('⚠️ Token usage information not available in response');
@@ -651,7 +664,7 @@ async function extractReservationData(emailContent, userId = 'unknown', masterDa
             // Add metadata
             validatedData.extractedAt = new Date().toISOString();
             validatedData.userId = userId;
-            validatedData.modelUsed = config.openai.deployment || 'gpt-4o-mini';
+            validatedData.modelUsed = model;
             validatedData.emailContentLength = emailContent.length;
             validatedData.conversationId = conversationId;
             console.log(`✅ Extraction completed successfully`);
