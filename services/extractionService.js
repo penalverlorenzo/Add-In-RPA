@@ -35,6 +35,62 @@ function getOpenAIClient(isImageExtraction = false) {
 }
 
 /**
+ * Extract text from an image using OpenAI Vision
+ * @param {Object} image - Image file object with buffer and mimetype
+ * @returns {Promise<string>} Extracted text from the image
+ */
+async function extractTextFromImage(image) {
+    const imageExtractionClient = getOpenAIClient(true);
+    if (!imageExtractionClient) {
+        throw new Error('OpenAI client for image extraction not configured. Please check your .env file.');
+    }
+
+    try {
+        // Convert buffer to base64
+        const base64Image = image.buffer.toString('base64');
+        const dataUrl = `data:${image.mimetype};base64,${base64Image}`;
+
+        const model = config.openai.imageExtraction.deployment || 'gpt-4o-mini';
+        
+        const response = await imageExtractionClient.chat.completions.create({
+            model: model,
+            messages: [
+                {
+                    role: 'user',
+                    content: [
+                        {
+                            type: 'text',
+                            text: 'Extrae TODO el texto visible en esta imagen. Incluye tablas, listas, números, fechas, nombres, y cualquier información relevante. Preserva la estructura cuando sea posible (por ejemplo, si hay una tabla, mantén el formato de tabla). Si no hay texto visible, responde con "No se encontró texto en la imagen".'
+                        },
+                        {
+                            type: 'image_url',
+                            image_url: {
+                                url: dataUrl
+                            }
+                        }
+                    ]
+                }
+            ],
+            temperature: 0.1, // Low temperature for more accurate text extraction
+            max_tokens: 2000
+        });
+
+        const extractedText = response.choices[0].message.content.trim();
+        
+        // Log token usage for image text extraction
+        if (response.usage) {
+            const { prompt_tokens, completion_tokens, total_tokens } = response.usage;
+            console.log(`   📊 OCR tokens: ${total_tokens.toLocaleString()} (prompt: ${prompt_tokens.toLocaleString()}, completion: ${completion_tokens.toLocaleString()})`);
+        }
+
+        return extractedText;
+    } catch (error) {
+        console.error(`   ⚠️ Error extrayendo texto de imagen ${image.originalname}:`, error.message);
+        throw error;
+    }
+}
+
+/**
  * System prompt for reservation data extraction
  */
 const services = []
@@ -46,19 +102,19 @@ CONTEXTO:
 - Los emails pueden contener hilos de conversación (múltiples forwards)
 - Los datos pueden estar en español, portugués o inglés
 - Formato de salida: JSON estrictamente estructurado
-- ⚠️ IMPORTANTE SOBRE IMÁGENES ADJUNTAS:
-  * Los emails pueden incluir imágenes adjuntas que contienen información CRÍTICA para la extracción
-  * Las imágenes pueden mostrar: tablas, formularios, vouchers, confirmaciones, facturas, itinerarios, capturas de pantalla
-  * Pueden contener información de: pasajeros (nombres, documentos, fechas de nacimiento), hoteles (nombres, fechas check-in/out, tipos de habitación), servicios (nombres, fechas, precios, descripciones), clientes (nombres de agencias), vendedores, fechas de viaje, códigos de reserva, montos, etc.
-  * DEBES analizar cuidadosamente TODAS las imágenes proporcionadas y extraer TODA la información relevante
-  * La información en las imágenes tiene la MISMA PRIORIDAD que el texto del email
-  * Si hay discrepancias entre texto e imágenes, prioriza la información más completa y detallada
-  * NO omitas información que solo aparezca en las imágenes
-  * Si una imagen contiene una tabla o lista de servicios/hoteles/pasajeros, extrae TODOS los elementos mencionados
-  * Las imágenes pueden contener texto OCR-izable, así que lee cuidadosamente todo el contenido visible
+- ⚠️ IMPORTANTE SOBRE TEXTO DE IMÁGENES:
+  * El contenido del email puede incluir texto extraído de imágenes adjuntas (si las hay)
+  * Este texto aparece en una sección marcada como "=== TEXTO EXTRAÍDO DE IMÁGENES ADJUNTAS ==="
+  * El texto de imágenes puede contener: tablas, formularios, vouchers, confirmaciones, facturas, itinerarios, capturas de pantalla
+  * Puede incluir información de: pasajeros (nombres, documentos, fechas de nacimiento), hoteles (nombres, fechas check-in/out, tipos de habitación), servicios (nombres, fechas, precios, descripciones), clientes (nombres de agencias), vendedores, fechas de viaje, códigos de reserva, montos, etc.
+  * DEBES analizar cuidadosamente TODO el texto extraído de imágenes y extraer TODA la información relevante
+  * La información del texto de imágenes tiene la MISMA PRIORIDAD que el texto del email
+  * Si hay discrepancias entre texto del email y texto de imágenes, prioriza la información más completa y detallada
+  * NO omitas información que solo aparezca en el texto extraído de imágenes
+  * Si el texto de imágenes contiene una tabla o lista de servicios/hoteles/pasajeros, extrae TODOS los elementos mencionados
 
 TAREA:
-Extrae la siguiente información de los emails Y sus imágenes adjuntas (si las hay), prestando especial atención a los campos requeridos por el sistema "iTraffic":
+Extrae la siguiente información del email y del texto extraído de imágenes (si está presente), prestando especial atención a los campos requeridos por el sistema "iTraffic":
 
 1. PASAJEROS (Array de objetos):
    - firstName: Primer nombre
@@ -108,24 +164,24 @@ Extrae la siguiente información de los emails Y sus imágenes adjuntas (si las 
      * "DIRECTO [CODI]" para directo
      * "CORPORATIVA [COCO]" para corporativa
      * Si no estás seguro, dejalo vacio
-     * ⚠️ CRÍTICO: Debes hacer DOBLE VERIFICACIÓN de este campo. Revisa el email completo (texto e imágenes) y asegúrate de seleccionar el tipo correcto de la lista de opciones disponibles. Este campo NO puede tener errores.
+     * ⚠️ CRÍTICO: Debes hacer DOBLE VERIFICACIÓN de este campo. Revisa el email completo (texto del email y texto de imágenes si está presente) y asegúrate de seleccionar el tipo correcto de la lista de opciones disponibles. Este campo NO puede tener errores.
    - status: Estado de la reserva. Analiza el CONTEXTO COMPLETO, TONO e INTENCIÓN del email para determinar el estado correcto:
      * "CONFIRMACION [FI]" si el email AFIRMA o CONFIRMA algo: "confirmamos la reserva", "reserva confirmada", "confirmo la reserva", "todo listo", "reserva aprobada", "confirmado", incluye vouchers/códigos/números de reserva
      * "CANCELADO [CX]" si el email CANCELA algo: "cancelar la reserva", "necesito cancelar", "cancelo la reserva", "reserva cancelada", "se canceló"
      * "PENDIENTE DE CONFIRMACION [PC]" si el email PREGUNTA o SOLICITA algo: "¿puedes confirmar?", "necesito confirmación", "confirmar disponibilidad", "solicito cotización", "consulta de disponibilidad", "cotización", "presupuesto", "solicitud de reserva", "quiero reservar"
      * Si no encuentras indicadores claros, usa "PENDIENTE DE CONFIRMACION [PC]"
-     * ⚠️ CRÍTICO: Debes hacer DOBLE VERIFICACIÓN de este campo. Revisa el email completo (texto e imágenes) y asegúrate de seleccionar el estado correcto de la lista de opciones disponibles. Este campo NO puede tener errores.
+     * ⚠️ CRÍTICO: Debes hacer DOBLE VERIFICACIÓN de este campo. Revisa el email completo (texto del email y texto de imágenes si está presente) y asegúrate de seleccionar el estado correcto de la lista de opciones disponibles. Este campo NO puede tener errores.
    - estadoDeuda: Estado de deuda (ej: "Pagada", "Pendiente", "Parcial")
    - reservationDate: Fecha de alta de la reserva (YYYY-MM-DD)
    - travelDate: Fecha de inicio del viaje (YYYY-MM-DD)
    - tourEndDate: Fecha de fin del viaje (YYYY-MM-DD)
    - dueDate: Fecha de vencimiento de la reserva (YYYY-MM-DD)
    - seller: Vendedor o agente responsable. Busca en la firma del email (ej: "Atentamente, Nombre" o "Equipe...").
-     * ⚠️ CRÍTICO: Debes hacer DOBLE VERIFICACIÓN de este campo. Revisa el email completo (texto e imágenes) y asegúrate de seleccionar el vendedor correcto de la lista de opciones disponibles. Este campo NO puede tener errores.
+     * ⚠️ CRÍTICO: Debes hacer DOBLE VERIFICACIÓN de este campo. Revisa el email completo (texto del email y texto de imágenes si está presente) y asegúrate de seleccionar el vendedor correcto de la lista de opciones disponibles. Este campo NO puede tener errores.
    - client: Cliente a facturar. DEBE ser el nombre de la Agencia/Operador que envía el email, NO el pasajero.
      Busca nombres como "DESPEGAR", "ALMUNDO", "GRAYLINE", nombre de la agencia remitente, etc.
      Si no encuentras el nombre de la agencia, dejalo vacio
-     * ⚠️ CRÍTICO: Debes hacer DOBLE VERIFICACIÓN de este campo. Revisa el email completo (texto e imágenes) y asegúrate de seleccionar el cliente correcto de la lista de opciones disponibles. Este campo NO puede tener errores.
+     * ⚠️ CRÍTICO: Debes hacer DOBLE VERIFICACIÓN de este campo. Revisa el email completo (texto del email y texto de imágenes si está presente) y asegúrate de seleccionar el cliente correcto de la lista de opciones disponibles. Este campo NO puede tener errores.
    - contact: Nombre de la persona de contacto en la agencia/cliente
    - currency: Moneda de la transacción (ej: "USD", "ARS", "EUR", "BRL"). Si no está explícita, intenta deducirla por el país de la agencia (ej: CVC Brasil -> BRL).
    - exchangeRate: Tipo de cambio (si se menciona explícitamente)
@@ -139,7 +195,7 @@ Extrae la siguiente información de los emails Y sus imágenes adjuntas (si las 
    - infants: Cantidad de infantes
 
 3. TIPO DE DETALLE Y INFORMACIÓN RESPECTIVA:
-   ⚠️ CRÍTICO: Debes hacer DOBLE VERIFICACIÓN para asegurarte de que NO se está saltando ningún servicio ni hotel mencionado en el email (texto e imágenes). Revisa cuidadosamente:
+   ⚠️ CRÍTICO: Debes hacer DOBLE VERIFICACIÓN para asegurarte de que NO se está saltando ningún servicio ni hotel mencionado en el email (texto del email y texto de imágenes si está presente). Revisa cuidadosamente:
    - Si el email menciona servicios, deben estar TODOS en el array "services"
    - Si el email menciona un hotel, debe estar en el objeto "hotel"
    - NO omitas ningún servicio u hotel mencionado, incluso si están en imágenes o tablas
@@ -549,38 +605,48 @@ async function extractReservationData(emailContent, userId = 'unknown', masterDa
         console.log('📋 Prompt enriquecido con datos maestros del sistema');
     }
 
-    // Prepare images for OpenAI if available
-    const imageMessages = [];
+    // Extract text from images if available
+    let extractedImageText = '';
     if (images && images.length > 0) {
-        console.log(`🖼️ Procesando ${images.length} imagen(es) para enviar a OpenAI...`);
-        for (const image of images) {
+        console.log(`🖼️ Extrayendo texto de ${images.length} imagen(es)...`);
+        const imageTexts = [];
+        
+        for (let i = 0; i < images.length; i++) {
+            const image = images[i];
             try {
-                // Convert buffer to base64
-                const base64Image = image.buffer.toString('base64');
-                const dataUrl = `data:${image.mimetype};base64,${base64Image}`;
+                console.log(`   📄 Extrayendo texto de imagen ${i + 1}/${images.length}: ${image.originalname}`);
+                const imageText = await extractTextFromImage(image);
                 
-                imageMessages.push({
-                    type: 'image_url',
-                    image_url: {
-                        url: dataUrl
-                    }
-                });
-                console.log(`   ✅ Imagen procesada: ${image.originalname} (${image.size} bytes, ${image.mimetype})`);
+                if (imageText && imageText !== 'No se encontró texto en la imagen') {
+                    imageTexts.push(`\n\n--- TEXTO EXTRAÍDO DE IMAGEN ${i + 1} (${image.originalname}) ---\n${imageText}`);
+                    console.log(`   ✅ Texto extraído de ${image.originalname} (${imageText.length} caracteres)`);
+                } else {
+                    console.log(`   ⚠️ No se encontró texto en ${image.originalname}`);
+                }
             } catch (imgError) {
-                console.error(`   ⚠️ Error procesando imagen ${image.originalname}:`, imgError.message);
+                console.error(`   ❌ Error extrayendo texto de ${image.originalname}:`, imgError.message);
+                // Continue with other images even if one fails
             }
+        }
+        
+        if (imageTexts.length > 0) {
+            extractedImageText = imageTexts.join('\n');
+            console.log(`✅ Texto extraído de ${imageTexts.length} imagen(es) (total: ${extractedImageText.length} caracteres)`);
         }
     }
     
-    // Build user message content
+    // Combine email content with extracted image text
+    const combinedContent = extractedImageText 
+        ? `${truncatedContent}\n\n=== TEXTO EXTRAÍDO DE IMÁGENES ADJUNTAS ===${extractedImageText}`
+        : truncatedContent;
+    
+    // Build user message content (text only, no images)
     const userContent = [
-        { type: 'text', text: `Extrae la información de reserva del siguiente email:\n\n${truncatedContent}` }
+        { type: 'text', text: `Extrae la información de reserva del siguiente email:\n\n${combinedContent}` }
     ];
     
-    // Add images if available
-    if (imageMessages.length > 0) {
-        userContent.push(...imageMessages);
-        console.log(`📤 Enviando ${imageMessages.length} imagen(es) a OpenAI junto con el texto del email`);
+    if (extractedImageText) {
+        console.log(`📤 Enviando texto del email + texto extraído de ${images.length} imagen(es) a OpenAI`);
     }
 
     // Retry logic with exponential backoff for rate limits
@@ -590,17 +656,14 @@ async function extractReservationData(emailContent, userId = 'unknown', masterDa
     
     while (retryCount <= maxRetries) {
         try {
-            // Use image extraction client if images are present, otherwise use regular client
-            const hasImages = images && images.length > 0;
-            const extractionClient = hasImages ? getOpenAIClient(true) : getOpenAIClient(false);
+            // Always use regular client for text extraction (images are already processed as text)
+            const extractionClient = getOpenAIClient(false);
             if (!extractionClient) {
-                throw new Error(`OpenAI client ${hasImages ? 'for image extraction' : ''} not configured. Please check your .env file.`);
+                throw new Error('OpenAI client not configured. Please check your .env file.');
             }
             
-            // Use the correct model based on extraction type
-            const model = hasImages 
-                ? (config.openai.imageExtraction.deployment || 'gpt-4o-mini')
-                : (config.openai.deployment || 'gpt-4o-mini');
+            // Always use regular model (text extraction)
+            const model = config.openai.deployment || 'gpt-4o-mini';
             
             const response = await extractionClient.chat.completions.create({
                 model: model,
@@ -617,16 +680,17 @@ async function extractReservationData(emailContent, userId = 'unknown', masterDa
             const content = response.choices[0].message.content.trim();
             console.log(`✅ OpenAI response received (${content.length} chars)`);
             
-            // Log token usage for both text and image extraction
+            // Log token usage for text extraction
+            const hasImages = images && images.length > 0;
             if (response.usage) {
                 const { prompt_tokens, completion_tokens, total_tokens } = response.usage;
                 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-                console.log(`📊 TOKEN USAGE REPORT ${hasImages ? '(Image Extraction)' : '(Text Extraction)'}`);
+                console.log(`📊 TOKEN USAGE REPORT (Text Extraction${hasImages ? ' - includes extracted image text' : ''})`);
                 console.log(`   📥 Prompt tokens: ${prompt_tokens.toLocaleString()}`);
                 console.log(`   📤 Completion tokens: ${completion_tokens.toLocaleString()}`);
                 console.log(`   📊 Total tokens: ${total_tokens.toLocaleString()}`);
                 if (hasImages) {
-                    console.log(`   🖼️ Images included: ${images.length} image(s)`);
+                    console.log(`   📝 Text extraction (includes text from ${images.length} image(s))`);
                 } else {
                     console.log(`   📝 Text-only extraction`);
                 }
