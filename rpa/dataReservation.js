@@ -92,9 +92,16 @@ export async function dataReservation(page, reservationData = null, originData =
 
     // Cliente (Usando select2BySearch para búsqueda más robusta)
     if (!isEdit || changes?.client) {
+        // Si el cliente es Despegar, usar "Consumidor Final" en su lugar
+        let clientToUse = data.client;
+        if (data.client && data.client.toLowerCase().includes('despegar')) {
+            clientToUse = 'Consumidor Final';
+            console.log(`🔄 Cliente cambiado de "${data.client}" a "Consumidor Final" (regla especial para Despegar)`);
+        }
+        
         await select2BySearch(page,
             '#s2id_Softur_Serene_E_Ventas_ReservaDialog22_Cod_agcia',
-            data.client
+            clientToUse
         );
         await takeScreenshot(page, '12-dataReservation-05-client');
     } else {
