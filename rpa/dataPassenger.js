@@ -56,9 +56,30 @@ export async function dataPassenger(page, passengerData) {
   await fillInput(page, 'input[id*="PasajeroWidgetEditor"][id$="__Pasajero_Cel_Tel"]', passengerData.telefono || '');
   console.log(`✅ Teléfono: ${passengerData.telefono || 'N/A'}`);
 
-  // Dirección (obligatorio)
-  await fillInput(page, 'input[id*="PasajeroWidgetEditor"][id$="__Pasajero_Direccion"]', passengerData.direccion);
-  console.log(`✅ Dirección: ${passengerData.direccion}`);
+  // Dirección (obligatorio) - Eliminar comas y truncar a 40 caracteres máximo si es necesario
+  const maxDireccionLength = 40;
+  let direccionToUse = passengerData.direccion || '';
+  const originalDireccion = direccionToUse;
+  
+  // Paso 1: Eliminar todas las comas (sin importar dónde estén)
+  direccionToUse = direccionToUse.replace(/,/g, '');
+  
+  // Paso 2: Si aún excede el límite, truncar
+  if (direccionToUse.length > maxDireccionLength) {
+    const beforeTruncate = direccionToUse;
+    direccionToUse = direccionToUse.substring(0, maxDireccionLength);
+    console.log(`⚠️ Dirección procesada:`);
+    console.log(`   Original: "${originalDireccion}" (${originalDireccion.length} caracteres)`);
+    console.log(`   Después de eliminar comas: "${beforeTruncate}" (${beforeTruncate.length} caracteres)`);
+    console.log(`   Truncada: "${direccionToUse}" (${direccionToUse.length} caracteres)`);
+  } else if (originalDireccion !== direccionToUse) {
+    console.log(`ℹ️ Dirección limpiada (sin truncar):`);
+    console.log(`   Original: "${originalDireccion}" (${originalDireccion.length} caracteres)`);
+    console.log(`   Sin comas: "${direccionToUse}" (${direccionToUse.length} caracteres)`);
+  }
+  
+  await fillInput(page, 'input[id*="PasajeroWidgetEditor"][id$="__Pasajero_Direccion"]', direccionToUse);
+  console.log(`✅ Dirección: ${direccionToUse}`);
 
   await takeScreenshot(page, '16-dataPassenger-02-form-filled');
   console.log('✅ Datos del pasajero completados');
