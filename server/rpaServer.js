@@ -306,8 +306,8 @@ app.post('/api/extract', handleExtractRequest, async (req, res) => {
     const qualityScore = calculateQualityScore(extractedData);
     extractedData.qualityScore = qualityScore;
     
-    // Save extraction to MySQL database
-    await masterDataService.saveExtraction({
+    // Save extraction to MySQL database (disabled temporarily)
+    /* await masterDataService.saveExtraction({
       userId,
       userEmail: user.email,
       conversationId,
@@ -318,7 +318,7 @@ app.post('/api/extract', handleExtractRequest, async (req, res) => {
       passengersCount: extractedData.passengers?.length || 0,
       extractedAt: new Date().toISOString(),
       processingTimeMs
-    });
+    }); */
     
     console.log('✅ Extracción completada exitosamente');
     console.log(`   Pasajeros extraídos: ${extractedData.passengers?.length || 0}`);

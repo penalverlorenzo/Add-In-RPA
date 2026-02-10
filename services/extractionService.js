@@ -212,11 +212,12 @@ Extrae la siguiente información del email y del texto extraído de imágenes (s
    - tourEndDate: Fecha de fin del viaje (YYYY-MM-DD)
    - dueDate: Fecha de vencimiento de la reserva (YYYY-MM-DD)
    - seller: Vendedor o agente responsable. Busca en la firma del email (ej: "Atentamente, Nombre" o "Equipe...").
-     * ⚠️ CRÍTICO: Debes hacer DOBLE VERIFICACIÓN de este campo. Revisa el email completo (texto del email y texto de imágenes si está presente) y asegúrate de seleccionar el vendedor correcto de la lista de opciones disponibles. Este campo NO puede tener errores.
+     * ⚠️ OBLIGATORIO: Este campo SIEMPRE debe tener un valor. El vendedor SIEMPRE está presente en el email (texto o imágenes). Busca cuidadosamente en firmas, encabezados, o cualquier mención del remitente.
+     * ⚠️ CRÍTICO: Debes hacer DOBLE VERIFICACIÓN de este campo. Revisa el email completo (texto del email y texto de imágenes si está presente) y asegúrate de seleccionar el vendedor correcto de la lista de opciones disponibles. Este campo NO puede tener errores y NO puede estar vacío.
    - client: Cliente a facturar. DEBE ser el nombre de la Agencia/Operador que envía el email, NO el pasajero.
      Busca nombres como "DESPEGAR", "ALMUNDO", "GRAYLINE", nombre de la agencia remitente, etc.
-     Si no encuentras el nombre de la agencia, dejalo vacio
-     * ⚠️ CRÍTICO: Debes hacer DOBLE VERIFICACIÓN de este campo. Revisa el email completo (texto del email y texto de imágenes si está presente) y asegúrate de seleccionar el cliente correcto de la lista de opciones disponibles. Este campo NO puede tener errores.
+     * ⚠️ OBLIGATORIO: Este campo SIEMPRE debe tener un valor. El cliente SIEMPRE está presente en el email (texto o imágenes). Busca en el remitente del email, en el dominio del correo, o en cualquier mención de la agencia/operador.
+     * ⚠️ CRÍTICO: Debes hacer DOBLE VERIFICACIÓN de este campo. Revisa el email completo (texto del email y texto de imágenes si está presente) y asegúrate de seleccionar el cliente correcto de la lista de opciones disponibles. Este campo NO puede tener errores y NO puede estar vacío.
    - contact: Nombre de la persona de contacto en la agencia/cliente
    - currency: Moneda de la transacción (ej: "USD", "ARS", "EUR", "BRL"). Si no está explícita, intenta deducirla por el país de la agencia (ej: CVC Brasil -> BRL).
    - exchangeRate: Tipo de cambio (si se menciona explícitamente)
@@ -248,7 +249,8 @@ Extrae la siguiente información del email y del texto extraído de imágenes (s
    IMPORTANTE: El tipo "hotel" tiene una estructura ESPECIAL diferente a los otros tipos:
    
    Para HOTEL, extrae ÚNICAMENTE la siguiente información:
-   - nombre_hotel: Nombre del hotel SIN la palabra "Hotel" al inicio. CRÍTICO: Extrae solo el nombre del hotel, eliminando la palabra "Hotel" si aparece al principio.
+   - nombre_hotel: Nombre del hotel SIN la palabra "Hotel" al inicio. CRÍTICO: Este campo es OBLIGATORIO. Si no puedes identificar el nombre del hotel, NO devuelvas el objeto "hotel" (deja "hotel": null en el JSON).
+     * ⚠️ REGLA CRÍTICA: Solo devuelve el objeto "hotel" si puedes extraer el nombre_hotel. Si no hay nombre de hotel claro, NO devuelvas un objeto hotel con solo fechas u otros campos. Deja "hotel": null.
      * Ejemplos:
        - "Hotel Juanes de Sol Mendoza" → "Juanes de Sol"
        - "Hotel Sheraton Mendoza" → "Sheraton"
@@ -256,6 +258,7 @@ Extrae la siguiente información del email y del texto extraído de imágenes (s
        - "Hotel Mendoza Plaza" → "Mendoza Plaza"
      * Si el nombre completo es "Hotel [Nombre] [Ciudad]", extrae solo "[Nombre]"
      * Si el nombre completo es "Hotel [Nombre]", extrae solo "[Nombre]"
+     * Si NO encuentras un nombre de hotel claro, NO devuelvas el objeto hotel
    - tipo_habitacion: Tipo de habitación. DEBE ser uno de estos CÓDIGOS:
      * "SGL" para: Single, sencilla, individual, 1 persona, single room
      * "DWL" para: Double, doble, 2 personas, matrimonial, double room, twin
@@ -526,8 +529,9 @@ El campo "confidence" debe reflejar tu nivel de confianza en la extracción (0.0
 IMPORTANTE: 
 - El campo "detailType" debe identificar el tipo principal de detalle solicitado o confirmado en el email
 - Si el detalle es "hotel", completa el objeto "hotel" con la estructura ESPECIAL: nombre_hotel, tipo_habitacion, Ciudad, Categoria, in, out
+  * ⚠️ CRÍTICO: Solo devuelve el objeto "hotel" si puedes extraer el nombre_hotel. Si no hay nombre de hotel identificable, deja "hotel": null. NO devuelvas un objeto hotel con solo fechas u otros campos sin el nombre.
   * NO uses la estructura unificada (destino, nts, basePax, servicio, descripcion, estado) para hoteles
-  * El objeto hotel debe contener: nombre_hotel (SIN la palabra "Hotel" al inicio), tipo_habitacion, Ciudad, Categoria, in (fecha check-in), out (fecha check-out)
+  * El objeto hotel debe contener: nombre_hotel (SIN la palabra "Hotel" al inicio, OBLIGATORIO), tipo_habitacion, Ciudad, Categoria, in (fecha check-in), out (fecha check-out)
   * Las fechas "in" y "out" son OBLIGATORIAS para hoteles - siempre intenta extraerlas del email
 - Si el detalle es "servicio", "eventual" o "programa", agrégalo al array "services" con la estructura unificada
 - Los servicios/eventuales/programas usan la estructura: destino, in, out, nts, basePax, servicio, descripcion, estado
@@ -1010,10 +1014,8 @@ function validateExtractionResult(data) {
             out: validateDate(data.hotel.out)
         };
         
-        // Si todos los campos son null, establecer hotel como null
-        if (!validated.hotel.nombre_hotel && !validated.hotel.tipo_habitacion && 
-            !validated.hotel.Ciudad && !validated.hotel.Categoria && 
-            !validated.hotel.in && !validated.hotel.out) {
+        // Si no hay nombre_hotel, establecer hotel como null (no devolver hotel sin nombre)
+        if (!validated.hotel.nombre_hotel) {
             validated.hotel = null;
         }
     } else {
