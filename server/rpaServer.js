@@ -409,6 +409,130 @@ app.post('/api/extract', handleExtractRequest, async (req, res) => {
   }
 });
 
+/**
+ * Transforma los datos del formulario al formato de extracción original
+ * @param {Object} formData - Datos del formulario (formato del frontend)
+ * @param {Object} originalData - Datos originales de la extracción
+ * @returns {Object} Datos transformados al formato de extracción
+ */
+function transformFormDataToExtractionFormat(formData, originalData) {
+  // Helper para obtener valor o mantener original
+  const getValue = (formValue, originalValue) => {
+    if (formValue !== null && formValue !== undefined && formValue !== '') {
+      return formValue;
+    }
+    return originalValue;
+  };
+
+  // Transformar pasajeros
+  const transformedPassengers = formData.passengers?.map((p, index) => {
+    const originalPassenger = originalData.passengers?.[index] || {};
+    
+    return {
+      firstName: getValue(p.nombre, originalPassenger.firstName),
+      lastName: getValue(p.apellido, originalPassenger.lastName),
+      documentType: getValue(p.tipoDoc?.toUpperCase(), originalPassenger.documentType),
+      documentNumber: getValue(p.dni, originalPassenger.documentNumber),
+      nationality: getValue(p.nacionalidad?.toUpperCase(), originalPassenger.nationality),
+      dateOfBirth: getValue(p.fechaNacimiento, originalPassenger.dateOfBirth),
+      sex: getValue(p.sexo?.toUpperCase(), originalPassenger.sex),
+      cuilCuit: getValue(p.cuil, originalPassenger.cuilCuit),
+      direccion: getValue(p.direccion, originalPassenger.direccion),
+      passengerType: getValue(
+        p.tipoPasajero === 'adulto' ? 'ADU' : p.tipoPasajero === 'menor' ? 'CHD' : p.tipoPasajero === 'infante' ? 'INF' : null,
+        originalPassenger.passengerType
+      ),
+      phoneNumber: getValue(p.telefono, originalPassenger.phoneNumber)
+    };
+  }) || originalData.passengers || [];
+
+  // Transformar servicios - si viene vacío, mantener los originales
+  const transformedServices = (formData.services && formData.services.length > 0) 
+    ? formData.services.map((s, index) => {
+        const originalService = originalData.services?.[index] || {};
+        return {
+          destino: getValue(s.destino, originalService.destino),
+          in: getValue(s.in, originalService.in),
+          out: getValue(s.out, originalService.out),
+          nts: getValue(s.nts, originalService.nts),
+          basePax: getValue(s.basePax, originalService.basePax),
+          servicio: getValue(s.servicio, originalService.servicio),
+          descripcion: getValue(s.descripcion, originalService.descripcion),
+          estado: getValue(s.estado, originalService.estado)
+        };
+      })
+    : (originalData.services || []);
+
+  // Transformar vuelos - mantener estructura similar
+  const transformedFlights = (formData.flights && formData.flights.length > 0)
+    ? formData.flights.map((f, index) => {
+        const originalFlight = originalData.flights?.[index] || {};
+        return {
+          flightNumber: getValue(f.flightNumber, originalFlight.flightNumber),
+          airline: getValue(f.airline, originalFlight.airline),
+          origin: getValue(f.origin, originalFlight.origin),
+          destination: getValue(f.destination, originalFlight.destination),
+          departureDate: getValue(f.departureDate, originalFlight.departureDate),
+          departureTime: getValue(f.departureTime, originalFlight.departureTime),
+          arrivalDate: getValue(f.arrivalDate, originalFlight.arrivalDate),
+          arrivalTime: getValue(f.arrivalTime, originalFlight.arrivalTime)
+        };
+      })
+    : (originalData.flights || []);
+
+  // Construir objeto transformado
+  const transformed = {
+    // Campos principales
+    client: getValue(formData.cliente, originalData.client),
+    seller: getValue(formData.vendedor, originalData.seller),
+    status: getValue(formData.estadoReserva, originalData.status),
+    reservationType: getValue(formData.tipoReserva, originalData.reservationType),
+    travelDate: getValue(formData.fechaViaje, originalData.travelDate),
+    tourEndDate: getValue(formData.tourEndDate, originalData.tourEndDate),
+    reservationDate: getValue(formData.reservationDate, originalData.reservationDate),
+    dueDate: getValue(formData.dueDate, originalData.dueDate),
+    contact: getValue(formData.contact, originalData.contact),
+    contactEmail: getValue(formData.contactEmail, originalData.contactEmail),
+    contactPhone: getValue(formData.contactPhone, originalData.contactPhone),
+    currency: getValue(formData.currency, originalData.currency),
+    exchangeRate: getValue(formData.exchangeRate, originalData.exchangeRate),
+    commission: getValue(formData.commission, originalData.commission),
+    netAmount: getValue(formData.netAmount, originalData.netAmount),
+    grossAmount: getValue(formData.grossAmount, originalData.grossAmount),
+    tripName: getValue(formData.tripName, originalData.tripName),
+    productCode: getValue(formData.productCode, originalData.productCode),
+    codigo: getValue(formData.codigo, originalData.codigo),
+    estadoDeuda: getValue(formData.estadoDeuda, originalData.estadoDeuda),
+    reservationCode: getValue(formData.reservationCode, originalData.reservationCode),
+    provider: getValue(formData.provider, originalData.provider),
+    
+    // Contadores
+    adults: getValue(formData.adults, originalData.adults),
+    children: getValue(formData.children, originalData.children),
+    infants: getValue(formData.infants, originalData.infants),
+    
+    // Arrays y objetos
+    passengers: transformedPassengers,
+    services: transformedServices,
+    flights: transformedFlights,
+    hotel: getValue(formData.hotel, originalData.hotel),
+    checkIn: getValue(formData.checkIn, originalData.checkIn),
+    checkOut: getValue(formData.checkOut, originalData.checkOut),
+    detailType: getValue(formData.detailType, originalData.detailType),
+    
+    // Metadatos originales (preservar)
+    conversationId: originalData.conversationId,
+    userId: originalData.userId,
+    modelUsed: originalData.modelUsed,
+    emailContentLength: originalData.emailContentLength,
+    confidence: originalData.confidence,
+    qualityScore: originalData.qualityScore,
+    extractedAt: originalData.extractedAt
+  };
+
+  return transformed;
+}
+
 // Ruta para actualizar extracción
 app.post('/api/extract/update', async (req, res) => {
   try {
@@ -416,49 +540,49 @@ app.post('/api/extract/update', async (req, res) => {
     console.log('Datos recibidos:', JSON.stringify(req.body, null, 2));
     
     // Los datos pueden venir directamente o dentro de req.body.data
-    let reservationData = req.body;
+    let formData = req.body;
     
     // Si los datos vienen dentro de un objeto con estructura { success, data, message }
-    if (req.body.data && typeof req.body.data === 'object' && req.body.data.passengers) {
+    if (req.body.data && typeof req.body.data === 'object' && (req.body.data.passengers || req.body.data.cliente)) {
       console.log('📦 Datos encontrados dentro de req.body.data, extrayendo...');
-      reservationData = req.body.data;
+      formData = req.body.data;
     }
     
     // Validar que se recibió conversationId
-    if (!reservationData.conversationId) {
+    if (!formData.conversationId) {
       return res.status(400).json({
         success: false,
         error: 'conversationId es requerido para actualizar la extracción'
       });
     }
     
-    // Validar que se recibieron datos
-    if (!reservationData || !reservationData.passengers || reservationData.passengers.length === 0) {
-      console.error('❌ Validación fallida - reservationData:', {
-        hasReservationData: !!reservationData,
-        hasPassengers: !!(reservationData && reservationData.passengers),
-        passengersLength: reservationData?.passengers?.length || 0,
-        reqBodyKeys: Object.keys(req.body || {}),
-        reqBodyDataKeys: req.body?.data ? Object.keys(req.body.data) : []
-      });
-      return res.status(400).json({
+    console.log(`🔄 Actualizando extracción para conversationId: ${formData.conversationId}`);
+    
+    // Obtener la extracción original
+    const originalExtraction = await masterDataService.getExtractionByConversationId(formData.conversationId);
+    
+    if (!originalExtraction) {
+      return res.status(404).json({
         success: false,
-        error: 'No se recibieron datos de pasajeros'
+        error: `No se encontró extracción para conversationId: ${formData.conversationId}`
       });
     }
     
-    console.log(`🔄 Actualizando extracción para conversationId: ${reservationData.conversationId}`);
+    console.log('📋 Extracción original encontrada, transformando datos...');
+    
+    // Transformar los datos del formulario al formato de extracción
+    const transformedData = transformFormDataToExtractionFormat(formData, originalExtraction);
     
     // Limpiar hotel si viene como "[object Object]"
-    if (reservationData.hotel && typeof reservationData.hotel === 'string' && reservationData.hotel === '[object Object]') {
+    if (transformedData.hotel && typeof transformedData.hotel === 'string' && transformedData.hotel === '[object Object]') {
       console.log('⚠️ Hotel recibido como "[object Object]", eliminando campo inválido');
-      delete reservationData.hotel;
+      transformedData.hotel = null;
     }
     
     // Actualizar la extracción en la base de datos
     const updatedExtraction = await masterDataService.updateExtraction(
-      reservationData.conversationId,
-      reservationData
+      formData.conversationId,
+      transformedData
     );
     
     console.log('✅ Extracción actualizada exitosamente');
@@ -467,7 +591,7 @@ app.post('/api/extract/update', async (req, res) => {
       success: true,
       data: {
         conversationId: updatedExtraction.conversationId,
-        extractedData: updatedExtraction.data.extractedData || reservationData
+        extractedData: updatedExtraction.data.extractedData || transformedData
       },
       message: 'Extracción actualizada exitosamente'
     });
