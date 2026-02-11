@@ -232,9 +232,10 @@ Extrae la siguiente información del email y del texto extraído de imágenes (s
 
 3. TIPO DE DETALLE Y INFORMACIÓN RESPECTIVA:
    ⚠️ CRÍTICO: Debes hacer DOBLE VERIFICACIÓN para asegurarte de que NO se está saltando ningún servicio ni hotel mencionado en el email (texto del email y texto de imágenes si está presente). Revisa cuidadosamente:
-   - Si el email menciona servicios, deben estar TODOS en el array "services"
+   - Si el email menciona servicios, deben estar TODOS en el array "services" (SOLO los de Mendoza/Argentina)
    - Si el email menciona un hotel, debe estar en el objeto "hotel"
    - NO omitas ningún servicio u hotel mencionado, incluso si están en imágenes o tablas
+   - ⚠️ IMPORTANTE: Solo incluye servicios, eventuales y programas de Mendoza/Argentina. Ignora servicios fuera de Mendoza/Argentina (especialmente transfers desde aeropuertos internacionales fuera de Argentina hacia destinos fuera de Mendoza)
    
    DEBES identificar el tipo de detalle que se está solicitando o confirmando en el email. Analiza el contenido para determinar si es:
    
@@ -245,6 +246,27 @@ Extrae la siguiente información del email y del texto extraído de imágenes (s
    - "eventual": Cuando el email menciona eventos, actividades especiales, fiestas, celebraciones, eventos corporativos
    
    - "programa": Cuando el email menciona programas de viaje, paquetes turísticos, itinerarios completos, circuitos
+   
+   ⚠️ REGLA CRÍTICA PARA SERVICIOS, EVENTUALES Y PROGRAMAS:
+   - SOLO extrae servicios, eventuales y programas que sean de MENDOZA o ARGENTINA
+   - NO extraigas servicios que estén fuera de Mendoza/Argentina, ya que el sistema RPA solo opera para servicios de Mendoza
+   - Específicamente, IGNORA los siguientes servicios si NO son de Mendoza/Argentina:
+     * Transfer in/transfer out desde/hacia aeropuertos fuera de Mendoza/Argentina
+     * Traslados desde/hacia aeropuertos internacionales fuera de Argentina (ej: GRU, SCL, MVD, etc.) hacia destinos fuera de Mendoza
+     * Servicios, excursiones, tours o actividades en ciudades fuera de Mendoza/Argentina
+     * Eventuales o programas fuera de Mendoza/Argentina
+   - Si un servicio menciona un aeropuerto internacional fuera de Argentina (ej: GRU, SCL, MVD, LIM, etc.) y el destino no es Mendoza/Argentina, NO lo incluyas
+   - Si un transfer menciona "aeropuerto [código fuera de Argentina]" hacia un hotel fuera de Mendoza, NO lo incluyas
+   - Ejemplos de servicios a IGNORAR:
+     * "Transfer desde aeropuerto GRU (São Paulo) hasta hotel en São Paulo" → NO incluir
+     * "Transfer desde aeropuerto SCL (Santiago) hasta hotel en Santiago" → NO incluir
+     * "Tour por Buenos Aires" → Solo incluir si el destino inferido es Mendoza o si es claramente un servicio de Mendoza
+     * "Traslado desde EZE hasta hotel en Buenos Aires" → Solo incluir si el destino final es Mendoza
+   - Ejemplos de servicios a INCLUIR:
+     * "Transfer desde aeropuerto MDZ (Mendoza) hasta hotel en Mendoza" → SÍ incluir
+     * "Transfer desde EZE (Buenos Aires) hasta hotel en Mendoza" → SÍ incluir (destino final es Mendoza)
+     * "Excursión por bodegas de Mendoza" → SÍ incluir
+     * "Tour por viñedos mendocinos" → SÍ incluir
    
    IMPORTANTE: El tipo "hotel" tiene una estructura ESPECIAL diferente a los otros tipos:
    
@@ -371,8 +393,8 @@ Extrae la siguiente información del email y del texto extraído de imágenes (s
 4. VUELOS (Array de objetos):
    - flightNumber: Número de vuelo (ej: "G3 7486")
    - airline: Aerolínea. Si no está explícita, intenta deducirla por el código de vuelo (ej: G3->GOL, AR->Aerolíneas Argentinas, LA->LATAM, JA->JetSmart).
-   - origin: Origen (código IATA de 3 letras, ej: "GRU")
-   - destination: Destino (código IATA)
+   - origin: Origen (código IATA de 3 letras entre corchetes, ej: "[GRU]"). ⚠️ CRÍTICO: El código IATA DEBE estar entre corchetes [XXX]. Si el email dice "GRU" o "Aeropuerto de São Paulo (GRU)", devuelve "[GRU]".
+   - destination: Destino (código IATA de 3 letras entre corchetes, ej: "[EZE]"). ⚠️ CRÍTICO: El código IATA DEBE estar entre corchetes [XXX]. Si el email dice "EZE" o "Aeropuerto de Buenos Aires (EZE)", devuelve "[EZE]".
    - departureDate: Fecha de salida (YYYY-MM-DD)
    - departureTime: Hora de salida (HH:MM)
    - arrivalDate: Fecha de llegada (YYYY-MM-DD)
@@ -386,7 +408,8 @@ REGLAS IMPORTANTES:
 - Si un dato no está presente, usa null en lugar de inventar información
 - Extrae TODOS los pasajeros mencionados en el email
 - Las fechas DEBEN estar en formato ISO 8601 (YYYY-MM-DD)
-- Los códigos de aeropuerto DEBEN ser códigos IATA de 3 letras en MAYÚSCULAS
+- Los códigos de aeropuerto (origin y destination) DEBEN ser códigos IATA de 3 letras en MAYÚSCULAS entre corchetes [XXX] (ej: "[GRU]", "[EZE]", "[MDZ]")
+- ⚠️ CRÍTICO: SOLO extrae servicios, eventuales y programas de MENDOZA/ARGENTINA. NO incluyas servicios fuera de Mendoza/Argentina (especialmente transfers desde aeropuertos internacionales fuera de Argentina hacia destinos fuera de Mendoza). El sistema RPA solo opera para servicios de Mendoza.
 - Busca información en todo el hilo de emails (incluyendo forwards)
 - Presta atención a tablas, listas y formatos estructurados
 - Ignora firmas de email, disclaimers y contenido no relacionado con la reserva
@@ -507,8 +530,8 @@ Responde ÚNICAMENTE con JSON válido en este formato exacto:
     {
       "flightNumber": "string",
       "airline": "string",
-      "origin": "XXX",
-      "destination": "XXX",
+      "origin": "[XXX]",
+      "destination": "[XXX]",
       "departureDate": "YYYY-MM-DD",
       "departureTime": "HH:MM",
       "arrivalDate": "YYYY-MM-DD | null",
@@ -836,7 +859,15 @@ function validateTime(timeStr) {
 function sanitizeIATACode(code) {
     if (!code || typeof code !== 'string') return null;
     
-    const cleaned = code.trim().toUpperCase();
+    let cleaned = code.trim().toUpperCase();
+    
+    // Si el código viene entre corchetes, extraer el contenido
+    const bracketMatch = cleaned.match(/^\[([A-Z]{3})\]$/);
+    if (bracketMatch) {
+        cleaned = bracketMatch[1];
+    }
+    
+    // Validar que sea un código IATA de 3 letras
     const iataRegex = /^[A-Z]{3}$/;
     
     return iataRegex.test(cleaned) ? cleaned : null;

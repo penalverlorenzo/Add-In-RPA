@@ -31,6 +31,7 @@ export function compareReservationData(newData, originData) {
             infants: true,
             hotel: true,
             services: true,
+            flights: true,
             passengers: true
         };
     }
@@ -119,6 +120,9 @@ export function compareReservationData(newData, originData) {
         
         // Servicios (comparar array completo)
         services: !isArrayEqual(newData.services || [], originData.services || []),
+        
+        // Vuelos (comparar array completo)
+        flights: !isArrayEqual(newData.flights || [], originData.flights || []),
         
         // Pasajeros (comparar array completo)
         passengers: !isArrayEqual(newData.passengers || [], originData.passengers || [])
