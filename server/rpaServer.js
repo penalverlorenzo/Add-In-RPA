@@ -409,6 +409,82 @@ app.post('/api/extract', handleExtractRequest, async (req, res) => {
   }
 });
 
+// Ruta para actualizar extracción
+app.post('/api/extract/update', async (req, res) => {
+  try {
+    console.log('📥 Petición recibida para actualizar extracción');
+    console.log('Datos recibidos:', JSON.stringify(req.body, null, 2));
+    
+    // Los datos pueden venir directamente o dentro de req.body.data
+    let reservationData = req.body;
+    
+    // Si los datos vienen dentro de un objeto con estructura { success, data, message }
+    if (req.body.data && typeof req.body.data === 'object' && req.body.data.passengers) {
+      console.log('📦 Datos encontrados dentro de req.body.data, extrayendo...');
+      reservationData = req.body.data;
+    }
+    
+    // Validar que se recibió conversationId
+    if (!reservationData.conversationId) {
+      return res.status(400).json({
+        success: false,
+        error: 'conversationId es requerido para actualizar la extracción'
+      });
+    }
+    
+    // Validar que se recibieron datos
+    if (!reservationData || !reservationData.passengers || reservationData.passengers.length === 0) {
+      console.error('❌ Validación fallida - reservationData:', {
+        hasReservationData: !!reservationData,
+        hasPassengers: !!(reservationData && reservationData.passengers),
+        passengersLength: reservationData?.passengers?.length || 0,
+        reqBodyKeys: Object.keys(req.body || {}),
+        reqBodyDataKeys: req.body?.data ? Object.keys(req.body.data) : []
+      });
+      return res.status(400).json({
+        success: false,
+        error: 'No se recibieron datos de pasajeros'
+      });
+    }
+    
+    console.log(`🔄 Actualizando extracción para conversationId: ${reservationData.conversationId}`);
+    
+    // Limpiar hotel si viene como "[object Object]"
+    if (reservationData.hotel && typeof reservationData.hotel === 'string' && reservationData.hotel === '[object Object]') {
+      console.log('⚠️ Hotel recibido como "[object Object]", eliminando campo inválido');
+      delete reservationData.hotel;
+    }
+    
+    // Actualizar la extracción en la base de datos
+    const updatedExtraction = await masterDataService.updateExtraction(
+      reservationData.conversationId,
+      reservationData
+    );
+    
+    console.log('✅ Extracción actualizada exitosamente');
+    
+    res.json({
+      success: true,
+      data: {
+        conversationId: updatedExtraction.conversationId,
+        extractedData: updatedExtraction.data.extractedData || reservationData
+      },
+      message: 'Extracción actualizada exitosamente'
+    });
+    
+  } catch (error) {
+    console.error('❌ Error al actualizar extracción:', error);
+    
+    const statusCode = error.message && error.message.includes('No extraction found') ? 404 : 500;
+    
+    res.status(statusCode).json({
+      success: false,
+      error: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
+});
+
 // Ruta para crear reserva
 app.post('/api/rpa/create-reservation', async (req, res) => {
   try {
@@ -669,6 +745,7 @@ loadRpaService().then(() => {
     console.log(`   - GET  /api/rpa/health`);
     console.log(`   - GET  /api/master-data`);
     console.log(`   - POST /api/extract`);
+    console.log(`   - POST /api/extract/update`);
     console.log(`   - POST /api/rpa/create-reservation`);
   });
 }).catch(error => {

@@ -457,6 +457,98 @@ async function getExtractionByConversationId(conversationId) {
 }
 
 // ============================================================================
+// UPDATE EXTRACTION
+// ============================================================================
+
+async function updateExtraction(conversationId, extractedData) {
+    const pool = getMySQLConnection();
+    if (!pool) throw new Error('MySQL not configured');
+
+    try {
+        const tableName = config.mysql.tables.extractions;
+        
+        // First, get the existing extraction
+        const [existingRows] = await pool.query(
+            `SELECT * FROM ?? WHERE conversationId = ? LIMIT 1`,
+            [tableName, conversationId]
+        );
+
+        if (existingRows.length === 0) {
+            throw new Error(`No extraction found for conversationId: ${conversationId}`);
+        }
+
+        const existingRecord = existingRows[0];
+        
+        // Parse existing data
+        let existingData = {};
+        if (existingRecord.data) {
+            try {
+                existingData = typeof existingRecord.data === 'string' 
+                    ? JSON.parse(existingRecord.data) 
+                    : existingRecord.data;
+            } catch (parseError) {
+                console.error('Error parsing existing data JSON:', parseError);
+                existingData = {};
+            }
+        }
+
+        // Update the extractedData while preserving other metadata
+        const updatedDataJson = {
+            ...existingData,
+            extractedData: extractedData,
+            updatedAt: new Date().toISOString()
+        };
+
+        // Recalculate quality score if needed
+        if (extractedData) {
+            const { calculateQualityScore } = await import('../services/extractionService.js');
+            updatedDataJson.qualityScore = calculateQualityScore(extractedData);
+            updatedDataJson.passengersCount = extractedData.passengers?.length || 0;
+        }
+
+        // Update the record
+        await pool.query(
+            `UPDATE ?? SET data = ? WHERE conversationId = ?`,
+            [tableName, JSON.stringify(updatedDataJson), conversationId]
+        );
+
+        // Retrieve the updated record
+        const [updatedRows] = await pool.query(
+            `SELECT * FROM ?? WHERE conversationId = ? LIMIT 1`,
+            [tableName, conversationId]
+        );
+
+        const updatedRecord = updatedRows[0];
+        
+        // Parse the updated data JSON for return
+        let parsedData = {};
+        if (updatedRecord && updatedRecord.data) {
+            try {
+                parsedData = typeof updatedRecord.data === 'string' 
+                    ? JSON.parse(updatedRecord.data) 
+                    : updatedRecord.data;
+            } catch (parseError) {
+                console.error('Error parsing updated data JSON:', parseError);
+                parsedData = updatedDataJson;
+            }
+        } else {
+            parsedData = updatedDataJson;
+        }
+
+        return {
+            id: updatedRecord.id,
+            userId: updatedRecord.userId,
+            userEmail: updatedRecord.userEmail,
+            conversationId: updatedRecord.conversationId,
+            data: parsedData
+        };
+    } catch (error) {
+        console.error('Error updating extraction:', error);
+        throw error;
+    }
+}
+
+// ============================================================================
 // CATEGORIES
 // ============================================================================
 
@@ -702,6 +794,7 @@ export default {
     getReservationByConversationId,
     deleteReservationByConversationId,
     saveExtraction,
+    updateExtraction,
     getExtractionByConversationId,
     getUserById,
     getUserByEmail

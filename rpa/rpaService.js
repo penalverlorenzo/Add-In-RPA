@@ -10,6 +10,7 @@ import { dataPassenger } from './dataPassenger.js';
 import { saveReservation } from './saveReservation.js';
 import { getReservationCode } from './getReservationCode.js';
 import { addItemToReservation } from './addItemToReservation.js';
+import { addFlightsToReservation } from './addFlightsToReservation.js';
 import { compareReservationData, getChangedPassengers } from './helpers/compareReservationData.js';
 import { clearServicesAndHotels, clearPassengers } from './clearReservationItems.js';
 
@@ -75,7 +76,14 @@ export async function runRpa(reservationData = null, isEdit = false) {
             await newReservation(page, reservationData);
             console.log('✅ Modal de nueva reserva completado');
         }
-        
+          // Procesar vuelos solo si es nuevo o si cambiaron
+          if (reservationData && reservationData.flights && reservationData.flights.length > 0 && (!isEdit || changes?.flights)) {
+            console.log(`\n✈️ Procesando ${reservationData.flights.length} vuelo(s)...`);
+            await addFlightsToReservation(page, reservationData.flights);
+            console.log('✅ Vuelos guardados');
+        } else if (isEdit && !changes?.flights) {
+            console.log('⏭️  Saltando vuelos (sin cambios)');
+        }
         // Obtener datos originales para comparación (para uso en hotel, servicios, pasajeros)
         const originData = reservationData?.originData || null;
         const changes = originData ? compareReservationData(reservationData, originData) : null;
