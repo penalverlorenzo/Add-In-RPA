@@ -1,4 +1,4 @@
-import { select2BySearch, fillInput } from './helpers/utils.js';
+import { select2BySearch, fillInput, convertToDDMMYYYY } from './helpers/utils.js';
 import { takeScreenshot } from './utils/screenshot.js';
 
 /**
@@ -33,7 +33,7 @@ export async function dataPassenger(page, passengerData) {
 
   // Fecha de nacimiento (obligatorio)
   await fillInput(page, 'input[id*="PasajeroWidgetEditor"][id$="__Pasajero_Fec_nac"]', passengerData.birthDate, true);
-  console.log(`✅ Fecha de nacimiento: ${passengerData.birthDate}`);
+  console.log(`✅ Fecha de nacimiento: ${convertToDDMMYYYY(passengerData.birthDate)}`);
 
   // Nacionalidad (obligatorio)
   await select2BySearch(page, 'div[id^="s2id_"][id*="PasajeroWidgetEditor"][id$="__Pasajero_Nacion"]', passengerData.nationality);
