@@ -32,7 +32,7 @@ export async function dataPassenger(page, passengerData) {
   console.log(`✅ Nombre: ${passengerData.firstName}`);
 
   // Fecha de nacimiento (obligatorio)
-  await fillInput(page, 'input[id*="PasajeroWidgetEditor"][id$="__Pasajero_Fec_nac"]', passengerData.birthDate, true);
+  await fillInput(page, 'input[id*="PasajeroWidgetEditor"][id$="__Pasajero_Fec_nac"]', convertToDDMMYYYY(passengerData.birthDate), true);
   console.log(`✅ Fecha de nacimiento: ${convertToDDMMYYYY(passengerData.birthDate)}`);
 
   // Nacionalidad (obligatorio)
