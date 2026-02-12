@@ -1,6 +1,131 @@
 import { takeScreenshot } from "./utils/screenshot.js";
 
 /**
+ * Limpia todos los vuelos de la reserva
+ * @param {import('playwright').Page} page - Página de Playwright
+ */
+export async function clearFlights(page) {
+    try {
+        console.log('🧹 Limpiando vuelos existentes...');
+        
+        // Primero, expandir la categoría "Ficha de Transporte" si está colapsada
+        const categoryTitle = page.locator('.category-title').filter({ hasText: 'Ficha de Transporte' });
+        const categoryExists = await categoryTitle.count() > 0;
+        
+        if (categoryExists) {
+            const categoryContainer = categoryTitle.locator('..');
+            const isCollapsed = await categoryContainer.evaluate(el => el.classList.contains('collapsed'));
+            
+            if (isCollapsed) {
+                console.log('📂 Expandiendo categoría "Ficha de Transporte"...');
+                const plusIcon = categoryTitle.locator('i.fa-plus');
+                await plusIcon.waitFor({ state: 'visible', timeout: 5000 });
+                await plusIcon.scrollIntoViewIfNeeded();
+                await plusIcon.evaluate(el => el.click());
+                await page.waitForTimeout(500);
+                console.log('✅ Categoría expandida');
+            }
+        }
+        
+        // Buscar directamente los links de vuelos sin necesidad de encontrar el contenedor del grid
+        // Los links tienen la clase s-Serene-E_Ventas-RvavueloEditorLink
+        // Excluir los que están en filas con clase "new-row" (filas vacías nuevas)
+        const flightLinks = page.locator('div.slick-row:not(.new-row) a.s-Serene-E_Ventas-RvavueloEditorLink');
+        await page.waitForTimeout(300); // Esperar a que la tabla se cargue completamente
+        const flightCount = await flightLinks.count();
+        
+        console.log(`📋 Encontrados ${flightCount} vuelos para eliminar`);
+        
+        if (flightCount === 0) {
+            console.log('✅ No hay vuelos para eliminar');
+            return;
+        }
+        
+        // Eliminar cada vuelo de atrás hacia adelante (para evitar problemas con índices)
+        for (let i = flightCount - 1; i >= 0; i--) {
+            try {
+                const flightLink = flightLinks.nth(i);
+                const flightText = await flightLink.textContent({timeout: 500});
+                console.log(`🗑️  Eliminando vuelo ${i + 1}/${flightCount}: ${flightText?.trim() || 'sin texto'}`);
+                
+                // Hacer click en el link del vuelo
+                await flightLink.scrollIntoViewIfNeeded();
+                await flightLink.click();
+                await page.waitForTimeout(300);
+                
+                // Esperar a que aparezca el diálogo "Editar Rvavuelo"
+                const editDialog = page.locator('.ui-dialog:has(.ui-dialog-title:has-text("Editar Rvavuelo"))').first();
+                await editDialog.waitFor({ state: 'visible', timeout: 2000 });
+                
+                // Buscar el botón de borrar dentro del diálogo
+                const deleteButton = editDialog.locator('.tool-button.delete-button').first();
+                await deleteButton.waitFor({ state: 'visible', timeout: 3000 });
+                
+                // Hacer click en borrar
+                await deleteButton.scrollIntoViewIfNeeded();
+                await deleteButton.click();
+                await page.waitForTimeout(200);
+                
+                // Esperar a que aparezca el diálogo de confirmación
+                const confirmDialog = page.locator('.ui-dialog.s-ConfirmDialog:has(.ui-dialog-title:has-text("Confirmar"))').first();
+                try {
+                    await confirmDialog.waitFor({ state: 'visible', timeout: 3000 });
+                    console.log('✅ Diálogo de confirmación encontrado');
+                    
+                    // Buscar el botón "Sí" dentro del diálogo de confirmación
+                    const yesButton = confirmDialog.locator('button:has-text("Sí")').first();
+                    await yesButton.waitFor({ state: 'visible', timeout: 2000 });
+                    await yesButton.click();
+                    console.log('✅ Click en botón "Sí" de confirmación');
+                    await page.waitForTimeout(200);
+                    
+                    // Esperar a que el diálogo de confirmación se cierre
+                    await confirmDialog.waitFor({ state: 'hidden', timeout: 3000 });
+                } catch (confirmError) {
+                    console.log('⚠️ No se encontró diálogo de confirmación o botón "Sí"', confirmError.message);
+                }
+                
+                // Esperar a que el diálogo de edición se cierre
+                try {
+                    await editDialog.waitFor({ state: 'hidden', timeout: 2000 });
+                } catch (e) {
+                    console.log('⚠️ El diálogo de edición no se cerró automáticamente');
+                    // Intentar cerrar el diálogo principal si aún está abierto
+                    const closeButton = editDialog.locator('.ui-dialog-titlebar-close').first();
+                    if (await closeButton.isVisible().catch(() => false)) {
+                        await closeButton.click();
+                        await page.waitForTimeout(100);
+                    }
+                }
+                
+                console.log(`✅ Vuelo ${i + 1} eliminado`);
+                await page.waitForTimeout(200);
+                
+            } catch (error) {
+                console.error(`❌ Error al eliminar vuelo ${i + 1}:`, error.message);
+                // Intentar cerrar el diálogo si está abierto
+                try {
+                    const closeButton = page.locator('.ui-dialog-titlebar-close').first();
+                    if (await closeButton.isVisible()) {
+                        await closeButton.click();
+                        await page.waitForTimeout(200);
+                    }
+                } catch (e) {
+                    // Ignorar error al cerrar
+                }
+            }
+        }
+        
+        console.log('✅ Limpieza de vuelos completada');
+        await takeScreenshot(page, 'clearFlights-completed');
+        
+    } catch (error) {
+        console.error('❌ Error al limpiar vuelos:', error.message);
+        throw error;
+    }
+}
+
+/**
  * Limpia todos los servicios/hoteles de la reserva
  * @param {import('playwright').Page} page - Página de Playwright
  */

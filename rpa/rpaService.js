@@ -12,7 +12,7 @@ import { getReservationCode } from './getReservationCode.js';
 import { addItemToReservation } from './addItemToReservation.js';
 import { addFlightsToReservation } from './addFlightsToReservation.js';
 import { compareReservationData, getChangedPassengers } from './helpers/compareReservationData.js';
-import { clearServicesAndHotels, clearPassengers } from './clearReservationItems.js';
+import { clearFlights, clearServicesAndHotels, clearPassengers } from './clearReservationItems.js';
 
 /**
  * Ejecuta el RPA de iTraffic
@@ -44,15 +44,25 @@ export async function runRpa(reservationData = null, isEdit = false) {
         await navigateToDashboard(page);
         console.log('✅ Dashboard completado');
         
+        // Obtener datos originales para comparación (disponible para todo el flujo)
+        const originData = reservationData?.originData || null;
+        const changes = originData ? compareReservationData(reservationData, originData) : null;
+        
         // PASO 2: Interactuar con el modal de nueva reserva o editar
         if (isEdit) {
             // Modo edición: abrir la reserva existente
             await editReservation(page, reservationData);
             console.log('✅ Reserva abierta para edición');
             
-            // Obtener datos originales para comparación
-            const originData = reservationData?.originData || null;
-            const changes = originData ? compareReservationData(reservationData, originData) : null;
+            // Limpiar vuelos si hay cambios (antes de agregar nuevos)
+            if (changes && changes.flights) {
+                console.log('🧹 Limpiando vuelos existentes antes de agregar nuevos...');
+                await clearFlights(page);
+            } else if (!originData && reservationData.flights && reservationData.flights.length > 0) {
+                // Si no hay datos originales pero hay vuelos nuevos, limpiar de todas formas
+                console.log('🧹 Limpiando vuelos existentes (no hay datos originales para comparar)...');
+                await clearFlights(page);
+            }
             
             // Limpiar servicios/hoteles si hay cambios (antes de agregar nuevos)
             if (changes && (changes.hotel || changes.services)) {
@@ -84,9 +94,6 @@ export async function runRpa(reservationData = null, isEdit = false) {
         } else if (isEdit && !changes?.flights) {
             console.log('⏭️  Saltando vuelos (sin cambios)');
         }
-        // Obtener datos originales para comparación (para uso en hotel, servicios, pasajeros)
-        const originData = reservationData?.originData || null;
-        const changes = originData ? compareReservationData(reservationData, originData) : null;
         // Procesar hotel solo si es nuevo o si cambió
         if (reservationData && reservationData.hotel && (!isEdit || changes?.hotel)) {
             let hotel = null;
