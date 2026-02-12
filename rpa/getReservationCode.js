@@ -25,7 +25,6 @@ export async function getReservationCode(page) {
             // Usar evaluate para hacer click directamente en el DOM, evitando overlays
             await reservaTab.evaluate(el => el.click());
             console.log('✅ Click realizado en la pestaña "Reserva"');
-            await page.pause();
             await page.waitForTimeout(500); // Esperar a que la pestaña se active
         } catch (tabError) {
             console.log('⚠️ No se pudo hacer click en la pestaña "Reserva", continuando...', tabError.message);

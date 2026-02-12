@@ -1,4 +1,5 @@
 // rpa/addFlightsToReservation.js
+import { checkForFlightNumberAlert } from './helpers/checkForFlightNumberAlert.js';
 import { select2BySearch, fillInput, convertToDDMMYYYY, disableJQueryUIOverlays } from './helpers/utils.js';
 import { takeScreenshot } from './utils/screenshot.js';
 
@@ -252,7 +253,23 @@ export async function addFlightsToReservation(page, flights) {
         await saveButton.scrollIntoViewIfNeeded();
         await saveButton.click();
         console.log('💾 Click Guardar ejecutado');
-        await page.waitForTimeout(300);
+        await page.waitForTimeout(500);
+
+        // Verificar si aparece un diálogo de alerta sobre número de vuelo inválido
+        const hasAlert = await checkForFlightNumberAlert(page);
+        if (hasAlert) {
+            // Cerrar el diálogo del vuelo si aún está abierto
+            try {
+                const closeButton = flightDialog.locator('.ui-dialog-titlebar-close').first();
+                if (await closeButton.isVisible({ timeout: 1000 }).catch(() => false)) {
+                    await closeButton.click();
+                    await page.waitForTimeout(300);
+                }
+            } catch (e) {
+                // Ignorar errores al cerrar
+            }
+            throw new Error(`Número de vuelo inválido. El número de vuelo "${flight.flightNumber || 'N/A'}" es demasiado largo o contiene caracteres no válidos.`);
+        }
 
         // Esperar a que el diálogo se cierre
         await flightDialog.waitFor({ state: 'hidden', timeout: 8000 });
