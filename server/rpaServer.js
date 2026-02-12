@@ -673,6 +673,46 @@ app.post('/api/rpa/create-reservation', async (req, res) => {
       console.log('⚠️ Advertencia: No se pudo obtener el código de reserva');
     }
     
+    // Actualizar la extracción con los datos usados para crear la reserva
+    if (reservationData.conversationId) {
+      try {
+        console.log(`🔄 Actualizando extracción para conversationId: ${reservationData.conversationId}`);
+        
+        // Obtener la extracción original
+        const originalExtraction = await masterDataService.getExtractionByConversationId(reservationData.conversationId);
+        
+        if (originalExtraction) {
+          // Transformar los datos del formulario al formato de extracción si es necesario
+          // Si reservationData ya está en formato de extracción, usarlo directamente
+          // Si viene en formato de formulario, transformarlo
+          let dataToUpdate = reservationData;
+          
+          // Verificar si viene en formato de formulario (tiene campos como 'cliente', 'vendedor', etc.)
+          if (reservationData.cliente || reservationData.vendedor || reservationData.estadoReserva) {
+            console.log('📋 Transformando datos del formulario al formato de extracción...');
+            dataToUpdate = transformFormDataToExtractionFormat(reservationData, originalExtraction);
+          }
+          
+          // Agregar el código de reserva si se obtuvo
+          if (resultado.reservationCode) {
+            dataToUpdate.reservationCode = resultado.reservationCode;
+            dataToUpdate.codigo = resultado.reservationCode;
+          }
+          
+          await masterDataService.updateExtraction(
+            reservationData.conversationId,
+            dataToUpdate
+          );
+          console.log('✅ Extracción actualizada exitosamente');
+        } else {
+          console.log('⚠️ No se encontró extracción para actualizar');
+        }
+      } catch (updateError) {
+        console.error('⚠️ Error al actualizar extracción (no crítico):', updateError.message);
+        // No lanzar error, solo loguear, ya que la reserva ya se creó exitosamente
+      }
+    }
+    
     res.json({
       success: true,
       data: resultado,
@@ -833,10 +873,50 @@ app.post('/api/rpa/edit-reservation', async (req, res) => {
     
     console.log('✅ RPA ejecutado exitosamente');
     
+    // Actualizar la extracción con los datos usados para editar la reserva
+    if (reservationData.conversationId) {
+      try {
+        console.log(`🔄 Actualizando extracción para conversationId: ${reservationData.conversationId}`);
+        
+        // Obtener la extracción original
+        const originalExtraction = await masterDataService.getExtractionByConversationId(reservationData.conversationId);
+        
+        if (originalExtraction) {
+          // Transformar los datos del formulario al formato de extracción si es necesario
+          // Si reservationData ya está en formato de extracción, usarlo directamente
+          // Si viene en formato de formulario, transformarlo
+          let dataToUpdate = reservationData;
+          
+          // Verificar si viene en formato de formulario (tiene campos como 'cliente', 'vendedor', etc.)
+          if (reservationData.cliente || reservationData.vendedor || reservationData.estadoReserva) {
+            console.log('📋 Transformando datos del formulario al formato de extracción...');
+            dataToUpdate = transformFormDataToExtractionFormat(reservationData, originalExtraction);
+          }
+          
+          // Agregar el código de reserva si se obtuvo
+          if (resultado.reservationCode) {
+            dataToUpdate.reservationCode = resultado.reservationCode;
+            dataToUpdate.codigo = resultado.reservationCode;
+          }
+          
+          await masterDataService.updateExtraction(
+            reservationData.conversationId,
+            dataToUpdate
+          );
+          console.log('✅ Extracción actualizada exitosamente');
+        } else {
+          console.log('⚠️ No se encontró extracción para actualizar');
+        }
+      } catch (updateError) {
+        console.error('⚠️ Error al actualizar extracción (no crítico):', updateError.message);
+        // No lanzar error, solo loguear, ya que la reserva ya se editó exitosamente
+      }
+    }
+    
     res.json({
       success: true,
       data: resultado,
-      message: 'Reserva creada exitosamente'
+      message: 'Reserva editada exitosamente'
     });
     
   } catch (error) {
