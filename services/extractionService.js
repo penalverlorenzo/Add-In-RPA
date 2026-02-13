@@ -4,10 +4,37 @@
  */
 
 import { AzureOpenAI } from 'openai';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import config from '../config/index.js';
 import { searchServices } from './servicesExtractionService.js';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const LOG_FILE = path.join(__dirname, '..', 'si.log');
+
 let openaiClient = null;
+
+/**
+ * Log message to both console and si.log file
+ * @param {string} message - Message to log
+ */
+function logToFile(message) {
+    const timestamp = new Date().toISOString();
+    const logMessage = `${timestamp} ${message}\n`;
+    
+    // Log to console
+    console.log(message);
+    
+    // Append to si.log file
+    try {
+        fs.appendFileSync(LOG_FILE, logMessage, 'utf8');
+    } catch (error) {
+        // If file write fails, just log to console
+        console.error('Error writing to si.log:', error.message);
+    }
+}
 
 function getOpenAIClient() {
     if (!openaiClient && config.openai.apiKey && config.openai.endpoint) {
@@ -23,9 +50,11 @@ function getOpenAIClient() {
 /**
  * Extract text from an image using Azure Computer Vision OCR
  * @param {Object} image - Image file object with buffer and mimetype
+ * @param {number} imageIndex - Index of the image (for logging)
+ * @param {number} totalImages - Total number of images (for logging)
  * @returns {Promise<string>} Extracted text from the image
  */
-async function extractTextFromImage(image) {
+async function extractTextFromImage(image, imageIndex = 0, totalImages = 0) {
     if (!config.computerVision.endpoint) {
         throw new Error('Azure Computer Vision endpoint not configured. Please check your .env file (AZURE_COMPUTER_VISION_ENDPOINT).');
     }
@@ -33,6 +62,9 @@ async function extractTextFromImage(image) {
     if (!config.openai.apiKey) {
         throw new Error('Azure OpenAI API key not configured. Please check your .env file (AZURE_OPENAI_API_KEY).');
     }
+
+    const startTime = Date.now();
+    const imageSize = image.buffer ? image.buffer.length : 0;
 
     try {
         const endpoint = config.computerVision.endpoint.replace(/\/$/, ''); // Remove trailing slash
@@ -102,6 +134,24 @@ async function extractTextFromImage(image) {
                 }
                 
                 const extractedText = extractedLines.join('\n');
+                const processingTime = Date.now() - startTime;
+                
+                // Log OCR token usage (Computer Vision doesn't return tokens, so we estimate based on image size)
+                // Estimate: ~1 token per 4 characters of extracted text + base overhead
+                const estimatedTokens = Math.ceil(extractedText.length / 4) + 100; // Base overhead ~100 tokens
+                
+                logToFile(`stdout F    📊 OCR completed: ${extractedText.length} characters extracted`);
+                logToFile(`stdout F    ✅ Texto extraído de ${image.originalname} (${extractedText.length} caracteres)`);
+                logToFile(`stdout F ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+                logToFile(`stdout F    📊 TOKEN USAGE REPORT (OCR - Image ${imageIndex + 1}/${totalImages})`);
+                logToFile(`stdout F       📄 Image: ${image.originalname}`);
+                logToFile(`stdout F       📦 Image size: ${(imageSize / 1024).toFixed(2)} KB`);
+                logToFile(`stdout F       📝 Extracted text: ${extractedText.length} characters`);
+                logToFile(`stdout F       🔢 Estimated tokens: ~${estimatedTokens.toLocaleString()}`);
+                logToFile(`stdout F       ⏱️  Processing time: ${processingTime}ms`);
+                logToFile(`stdout F       🤖 Service: Azure Computer Vision OCR`);
+                logToFile(`stdout F ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+                
                 console.log(`   📊 OCR completed: ${extractedText.length} characters extracted`);
                 
                 return extractedText || 'No se encontró texto en la imagen';
@@ -113,6 +163,10 @@ async function extractTextFromImage(image) {
 
         throw new Error('OCR analysis timeout: operation did not complete in time');
     } catch (error) {
+        const processingTime = Date.now() - startTime;
+        logToFile(`stderr F    ⚠️ Error extrayendo texto de imagen ${image.originalname}: ${error.message}`);
+        logToFile(`stderr F    ❌ Error extrayendo texto de ${image.originalname}: ${error.message}`);
+        logToFile(`stderr F       ⏱️  Processing time before error: ${processingTime}ms`);
         console.error(`   ⚠️ Error extrayendo texto de imagen ${image.originalname}:`, error.message);
         throw error;
     }
@@ -668,31 +722,75 @@ async function extractReservationData(emailContent, userId = 'unknown', masterDa
     }
 
     // Extract text from images if available
+    // Process images sequentially with delays to avoid rate limits
     let extractedImageText = '';
     if (images && images.length > 0) {
+        logToFile(`stdout F 🖼️ Extrayendo texto de ${images.length} imagen(es)...`);
         console.log(`🖼️ Extrayendo texto de ${images.length} imagen(es)...`);
         const imageTexts = [];
         
+        // OCR rate limit: Process images sequentially with delay between requests
+        // Azure Computer Vision has rate limits, so we add a delay between images
+        const OCR_DELAY_MS = 500; // 500ms delay between OCR requests to avoid rate limits
+        
         for (let i = 0; i < images.length; i++) {
             const image = images[i];
+            
+            // Add delay before processing (except for first image)
+            if (i > 0) {
+                await new Promise(resolve => setTimeout(resolve, OCR_DELAY_MS));
+            }
+            
             try {
+                logToFile(`stdout F    📄 Extrayendo texto de imagen ${i + 1}/${images.length}: ${image.originalname}`);
                 console.log(`   📄 Extrayendo texto de imagen ${i + 1}/${images.length}: ${image.originalname}`);
-                const imageText = await extractTextFromImage(image);
+                
+                const imageText = await extractTextFromImage(image, i, images.length);
                 
                 if (imageText && imageText !== 'No se encontró texto en la imagen') {
                     imageTexts.push(`\n\n--- TEXTO EXTRAÍDO DE IMAGEN ${i + 1} (${image.originalname}) ---\n${imageText}`);
-                    console.log(`   ✅ Texto extraído de ${image.originalname} (${imageText.length} caracteres)`);
                 } else {
+                    logToFile(`stdout F    ⚠️ No se encontró texto en ${image.originalname}`);
                     console.log(`   ⚠️ No se encontró texto en ${image.originalname}`);
                 }
             } catch (imgError) {
-                console.error(`   ❌ Error extrayendo texto de ${image.originalname}:`, imgError.message);
+                // Check if it's a rate limit error
+                const isRateLimit = imgError.message && (
+                    imgError.message.includes('rate limit') ||
+                    imgError.message.includes('429') ||
+                    imgError.message.includes('RateLimit')
+                );
+                
+                if (isRateLimit) {
+                    // If rate limited, wait longer before retrying
+                    const waitTime = 2000; // 2 seconds
+                    logToFile(`stderr F    ⚠️ Rate limit en OCR para ${image.originalname}. Esperando ${waitTime}ms...`);
+                    console.log(`   ⚠️ Rate limit en OCR para ${image.originalname}. Esperando ${waitTime}ms...`);
+                    await new Promise(resolve => setTimeout(resolve, waitTime));
+                    
+                    // Retry once
+                    try {
+                        logToFile(`stdout F    🔄 Reintentando extracción de ${image.originalname}...`);
+                        console.log(`   🔄 Reintentando extracción de ${image.originalname}...`);
+                        const imageText = await extractTextFromImage(image, i, images.length);
+                        if (imageText && imageText !== 'No se encontró texto en la imagen') {
+                            imageTexts.push(`\n\n--- TEXTO EXTRAÍDO DE IMAGEN ${i + 1} (${image.originalname}) ---\n${imageText}`);
+                        }
+                    } catch (retryError) {
+                        logToFile(`stderr F    ❌ Error extrayendo texto de ${image.originalname} (después de reintento): ${retryError.message}`);
+                        console.error(`   ❌ Error extrayendo texto de ${image.originalname} (después de reintento):`, retryError.message);
+                    }
+                } else {
+                    logToFile(`stderr F    ❌ Error extrayendo texto de ${image.originalname}: ${imgError.message}`);
+                    console.error(`   ❌ Error extrayendo texto de ${image.originalname}:`, imgError.message);
+                }
                 // Continue with other images even if one fails
             }
         }
         
         if (imageTexts.length > 0) {
             extractedImageText = imageTexts.join('\n');
+            logToFile(`stdout F ✅ Texto extraído de ${imageTexts.length} imagen(es) (total: ${extractedImageText.length} caracteres)`);
             console.log(`✅ Texto extraído de ${imageTexts.length} imagen(es) (total: ${extractedImageText.length} caracteres)`);
         }
     }
@@ -740,12 +838,29 @@ async function extractReservationData(emailContent, userId = 'unknown', masterDa
             });
 
             const content = response.choices[0].message.content.trim();
+            logToFile(`stdout F ✅ OpenAI response received (${content.length} chars)`);
             console.log(`✅ OpenAI response received (${content.length} chars)`);
             
-            // Log token usage for text extraction
+            // Log token usage for text extraction to both console and si.log
             const hasImages = images && images.length > 0;
             if (response.usage) {
                 const { prompt_tokens, completion_tokens, total_tokens } = response.usage;
+                
+                // Log to si.log
+                logToFile(`stdout F ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+                logToFile(`stdout F    📊 TOKEN USAGE REPORT (Text Extraction${hasImages ? ' - includes extracted image text' : ''})`);
+                logToFile(`stdout F       📥 Prompt tokens: ${prompt_tokens.toLocaleString()}`);
+                logToFile(`stdout F       📤 Completion tokens: ${completion_tokens.toLocaleString()}`);
+                logToFile(`stdout F       📊 Total tokens: ${total_tokens.toLocaleString()}`);
+                if (hasImages) {
+                    logToFile(`stdout F       📝 Text extraction (includes text from ${images.length} image(s))`);
+                } else {
+                    logToFile(`stdout F       📝 Text-only extraction`);
+                }
+                logToFile(`stdout F       🤖 Model: ${model}`);
+                logToFile(`stdout F ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+                
+                // Log to console
                 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
                 console.log(`📊 TOKEN USAGE REPORT (Text Extraction${hasImages ? ' - includes extracted image text' : ''})`);
                 console.log(`   📥 Prompt tokens: ${prompt_tokens.toLocaleString()}`);
@@ -759,6 +874,7 @@ async function extractReservationData(emailContent, userId = 'unknown', masterDa
                 console.log(`   🤖 Model: ${model}`);
                 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
             } else {
+                logToFile(`stderr F ⚠️ Token usage information not available in response`);
                 console.log('⚠️ Token usage information not available in response');
             }
 
@@ -819,6 +935,8 @@ async function extractReservationData(emailContent, userId = 'unknown', masterDa
                 const waitSeconds = Math.ceil(waitTime / 1000);
                 
                 retryCount++;
+                logToFile(`stdout F ⚠️ Rate limit alcanzado. Reintentando en ${waitSeconds} segundos (intento ${retryCount}/${maxRetries})...`);
+                logToFile(`stdout F    Error: ${error.message}`);
                 console.log(`⚠️ Rate limit alcanzado. Reintentando en ${waitSeconds} segundos (intento ${retryCount}/${maxRetries})...`);
                 console.log(`   Error: ${error.message}`);
                 
@@ -834,6 +952,7 @@ async function extractReservationData(emailContent, userId = 'unknown', masterDa
     
     // If we get here, all retries failed
     if (lastError) {
+        logToFile(`stderr F ❌ Error en extracción: ${lastError.message}`);
         console.error('❌ Error extracting reservation data:', lastError);
         
         if (lastError.message.includes('timeout')) {
