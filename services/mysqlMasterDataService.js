@@ -467,6 +467,8 @@ async function updateExtraction(conversationId, extractedData) {
     try {
         const tableName = config.mysql.tables.extractions;
         
+        console.log(`🔍 Buscando extracción existente para conversationId: ${conversationId}`);
+        
         // First, get the existing extraction
         const [existingRows] = await pool.query(
             `SELECT * FROM ?? WHERE conversationId = ? LIMIT 1`,
@@ -474,10 +476,12 @@ async function updateExtraction(conversationId, extractedData) {
         );
 
         if (existingRows.length === 0) {
+            console.error(`❌ No se encontró extracción para conversationId: ${conversationId}`);
             throw new Error(`No extraction found for conversationId: ${conversationId}`);
         }
 
         const existingRecord = existingRows[0];
+        console.log(`✅ Extracción encontrada con ID: ${existingRecord.id}`);
         
         // Parse existing data
         let existingData = {};
@@ -507,16 +511,52 @@ async function updateExtraction(conversationId, extractedData) {
         }
 
         // Update the record
-        await pool.query(
+        console.log(`🔄 Ejecutando UPDATE para conversationId: ${conversationId}`);
+        console.log(`📝 Tamaño de datos a actualizar: ${JSON.stringify(updatedDataJson).length} caracteres`);
+        
+        const updateResult = await pool.query(
             `UPDATE ?? SET data = ? WHERE conversationId = ?`,
             [tableName, JSON.stringify(updatedDataJson), conversationId]
         );
+        
+        // MySQL devuelve el resultado en formato [result, fields]
+        const affectedRows = updateResult[0]?.affectedRows || 0;
+        const changedRows = updateResult[0]?.changedRows || 0;
+        
+        console.log(`📊 Resultado del UPDATE:`, {
+            affectedRows: affectedRows,
+            changedRows: changedRows,
+            warningCount: updateResult[0]?.warningCount || 0
+        });
+        
+        if (affectedRows === 0) {
+            console.error(`⚠️ No se actualizó ningún registro. conversationId: ${conversationId}`);
+            console.error(`   Verificando si el registro existe...`);
+            
+            // Verificar nuevamente si el registro existe
+            const [verifyRows] = await pool.query(
+                `SELECT id, conversationId FROM ?? WHERE conversationId = ? LIMIT 1`,
+                [tableName, conversationId]
+            );
+            
+            if (verifyRows.length === 0) {
+                throw new Error(`El registro con conversationId "${conversationId}" no existe en la base de datos`);
+            } else {
+                throw new Error(`El registro existe pero el UPDATE no afectó ninguna fila. Posible problema con la query.`);
+            }
+        }
+        
+        console.log(`✅ UPDATE ejecutado exitosamente. Filas afectadas: ${affectedRows}`);
 
         // Retrieve the updated record
         const [updatedRows] = await pool.query(
             `SELECT * FROM ?? WHERE conversationId = ? LIMIT 1`,
             [tableName, conversationId]
         );
+        
+        if (updatedRows.length === 0) {
+            throw new Error(`No se pudo recuperar el registro actualizado para conversationId: ${conversationId}`);
+        }
 
         const updatedRecord = updatedRows[0];
         
