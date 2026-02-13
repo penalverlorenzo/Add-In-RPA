@@ -154,7 +154,7 @@ async function extractTextFromImage(image, imageIndex = 0, totalImages = 0) {
             
             throw error;
         }
-        console.log('------analyzeResponse ----', analyzeResponse.json());
+        console.log('------analyzeResponse ----', await analyzeResponse.json());
         // Get operation location from response headers
         const operationLocation = analyzeResponse.headers.get('Operation-Location');
         if (!operationLocation) {
