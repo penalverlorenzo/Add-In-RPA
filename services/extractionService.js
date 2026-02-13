@@ -4,82 +4,10 @@
  */
 
 import { AzureOpenAI } from 'openai';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
 import config from '../config/index.js';
 import { searchServices } from './servicesExtractionService.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const LOG_FILE = path.join(__dirname, '..', 'si.log');
-
 let openaiClient = null;
-
-/**
- * Log message to both console and si.log file
- * @param {string} message - Message to log
- */
-function logToFile(message) {
-    const timestamp = new Date().toISOString();
-    const logMessage = `${timestamp} ${message}\n`;
-    
-    // Log to console
-    console.log(message);
-    
-    // Append to si.log file
-    try {
-        fs.appendFileSync(LOG_FILE, logMessage, 'utf8');
-    } catch (error) {
-        // If file write fails, just log to console
-        console.error('Error writing to si.log:', error.message);
-    }
-}
-
-/**
- * Estimate token count for a text string
- * Rough estimation: ~4 characters per token for Spanish/English text
- * @param {string} text - Text to estimate tokens for
- * @returns {number} Estimated token count
- */
-function estimateTokens(text) {
-    if (!text || typeof text !== 'string') return 0;
-    // Rough estimation: ~4 characters per token for Spanish/English text
-    // This is a conservative estimate
-    return Math.ceil(text.length / 4);
-}
-
-/**
- * Truncate text to fit within token limit, preserving important content
- * @param {string} text - Text to truncate
- * @param {number} maxTokens - Maximum tokens allowed
- * @returns {string} Truncated text
- */
-function truncateToTokenLimit(text, maxTokens) {
-    if (!text || typeof text !== 'string') return '';
-    
-    const estimatedTokens = estimateTokens(text);
-    if (estimatedTokens <= maxTokens) {
-        return text;
-    }
-    
-    // Calculate max characters based on token limit
-    const maxChars = maxTokens * 4; // Conservative: 4 chars per token
-    
-    // Try to truncate at a sentence boundary if possible
-    const truncated = text.substring(0, maxChars);
-    const lastPeriod = truncated.lastIndexOf('.');
-    const lastNewline = truncated.lastIndexOf('\n');
-    const lastBreak = Math.max(lastPeriod, lastNewline);
-    
-    if (lastBreak > maxChars * 0.8) {
-        // If we found a good break point (within 80% of max), use it
-        return text.substring(0, lastBreak + 1) + '\n\n[...contenido truncado por límite de tokens...]';
-    }
-    
-    // Otherwise, just truncate at maxChars
-    return text.substring(0, maxChars) + '\n\n[...contenido truncado por límite de tokens...]';
-}
 
 function getOpenAIClient() {
     if (!openaiClient && config.openai.apiKey && config.openai.endpoint) {
@@ -93,27 +21,11 @@ function getOpenAIClient() {
 }
 
 /**
- * Check if error is an InvalidImageDimension error
- * @param {Error} error - Error to check
- * @returns {boolean} True if it's an InvalidImageDimension error
- */
-function isInvalidImageDimensionError(error) {
-    if (!error || !error.message) return false;
-    const errorMessage = error.message.toLowerCase();
-    return errorMessage.includes('invaliddimension') || 
-           errorMessage.includes('image dimension is out of range') ||
-           errorMessage.includes('minimum image/document page dimension is 50 x 50');
-}
-
-/**
  * Extract text from an image using Azure Computer Vision OCR
  * @param {Object} image - Image file object with buffer and mimetype
- * @param {number} imageIndex - Index of the image (for logging)
- * @param {number} totalImages - Total number of images (for logging)
  * @returns {Promise<string>} Extracted text from the image
- * @throws {Error} If image dimensions are invalid (InvalidImageDimension) - should be caught and ignored
  */
-async function extractTextFromImage(image, imageIndex = 0, totalImages = 0) {
+async function extractTextFromImage(image) {
     if (!config.computerVision.endpoint) {
         throw new Error('Azure Computer Vision endpoint not configured. Please check your .env file (AZURE_COMPUTER_VISION_ENDPOINT).');
     }
@@ -121,9 +33,6 @@ async function extractTextFromImage(image, imageIndex = 0, totalImages = 0) {
     if (!config.openai.apiKey) {
         throw new Error('Azure OpenAI API key not configured. Please check your .env file (AZURE_OPENAI_API_KEY).');
     }
-
-    const startTime = Date.now();
-    const imageSize = image.buffer ? image.buffer.length : 0;
 
     try {
         const endpoint = config.computerVision.endpoint.replace(/\/$/, ''); // Remove trailing slash
@@ -144,17 +53,9 @@ async function extractTextFromImage(image, imageIndex = 0, totalImages = 0) {
 
         if (!analyzeResponse.ok) {
             const errorText = await analyzeResponse.text();
-            const error = new Error(`Computer Vision API error: ${analyzeResponse.status} - ${errorText}`);
-            
-            // Check if it's an InvalidImageDimension error
-            if (analyzeResponse.status === 400 && errorText.includes('InvalidImageDimension')) {
-                // Mark this error so it can be caught and ignored
-                error.isInvalidDimension = true;
-            }
-            
-            throw error;
+            throw new Error(`Computer Vision API error: ${analyzeResponse.status} - ${errorText}`);
         }
-        console.log('------analyzeResponse ----', analyzeResponse.json());
+
         // Get operation location from response headers
         const operationLocation = analyzeResponse.headers.get('Operation-Location');
         if (!operationLocation) {
@@ -201,24 +102,6 @@ async function extractTextFromImage(image, imageIndex = 0, totalImages = 0) {
                 }
                 
                 const extractedText = extractedLines.join('\n');
-                const processingTime = Date.now() - startTime;
-                
-                // Log OCR token usage (Computer Vision doesn't return tokens, so we estimate based on image size)
-                // Estimate: ~1 token per 4 characters of extracted text + base overhead
-                const estimatedTokens = Math.ceil(extractedText.length / 4) + 100; // Base overhead ~100 tokens
-                
-                logToFile(`stdout F    📊 OCR completed: ${extractedText.length} characters extracted`);
-                logToFile(`stdout F    ✅ Texto extraído de ${image.originalname} (${extractedText.length} caracteres)`);
-                logToFile(`stdout F ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-                logToFile(`stdout F    📊 TOKEN USAGE REPORT (OCR - Image ${imageIndex + 1}/${totalImages})`);
-                logToFile(`stdout F       📄 Image: ${image.originalname}`);
-                logToFile(`stdout F       📦 Image size: ${(imageSize / 1024).toFixed(2)} KB`);
-                logToFile(`stdout F       📝 Extracted text: ${extractedText.length} characters`);
-                logToFile(`stdout F       🔢 Estimated tokens: ~${estimatedTokens.toLocaleString()}`);
-                logToFile(`stdout F       ⏱️  Processing time: ${processingTime}ms`);
-                logToFile(`stdout F       🤖 Service: Azure Computer Vision OCR`);
-                logToFile(`stdout F ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-                
                 console.log(`   📊 OCR completed: ${extractedText.length} characters extracted`);
                 
                 return extractedText || 'No se encontró texto en la imagen';
@@ -230,22 +113,6 @@ async function extractTextFromImage(image, imageIndex = 0, totalImages = 0) {
 
         throw new Error('OCR analysis timeout: operation did not complete in time');
     } catch (error) {
-        const processingTime = Date.now() - startTime;
-        
-        // Check if it's an InvalidImageDimension error
-        const isInvalidDimension = error.isInvalidDimension || isInvalidImageDimensionError(error);
-        
-        if (isInvalidDimension) {
-            // For invalid dimension errors, don't log as error - just mark it
-            error.isInvalidDimension = true;
-            // Don't log processing time for invalid dimensions (they fail immediately)
-            throw error; // Re-throw so caller can handle it
-        }
-        
-        // For other errors, log normally
-        logToFile(`stderr F    ⚠️ Error extrayendo texto de imagen ${image.originalname}: ${error.message}`);
-        logToFile(`stderr F    ❌ Error extrayendo texto de ${image.originalname}: ${error.message}`);
-        logToFile(`stderr F       ⏱️  Processing time before error: ${processingTime}ms`);
         console.error(`   ⚠️ Error extrayendo texto de imagen ${image.originalname}:`, error.message);
         throw error;
     }
@@ -746,8 +613,6 @@ async function extractReservationData(emailContent, userId = 'unknown', masterDa
     console.log(`📧 Email content length: ${emailContent.length} chars (truncated: ${truncatedContent.length})`);
 
     // Build enhanced prompt with master data context
-    // Reduce master data size when there are many images to avoid token limit
-    const hasManyImages = images && images.length > 5;
     let systemPrompt = EXTRACTION_SYSTEM_PROMPT;
     
     if (masterData) {
@@ -770,28 +635,24 @@ async function extractReservationData(emailContent, userId = 'unknown', masterDa
             systemPrompt += `\n`;
         }
         
-        // Reduce sellers/clients list when there are many images
-        const maxSellers = hasManyImages ? 10 : 20;
-        const maxClients = hasManyImages ? 10 : 20;
-        
         if (masterData.sellers && masterData.sellers.length > 0) {
             systemPrompt += `VENDEDORES DISPONIBLES:\n`;
-            masterData.sellers.slice(0, maxSellers).forEach(seller => {
+            masterData.sellers.slice(0, 20).forEach(seller => {
                 systemPrompt += `- "${seller}"\n`;
             });
-            if (masterData.sellers.length > maxSellers) {
-                systemPrompt += `... y ${masterData.sellers.length - maxSellers} más\n`;
+            if (masterData.sellers.length > 20) {
+                systemPrompt += `... y ${masterData.sellers.length - 20} más\n`;
             }
             systemPrompt += `\n`;
         }
         
         if (masterData.clients && masterData.clients.length > 0) {
             systemPrompt += `CLIENTES DISPONIBLES:\n`;
-            masterData.clients.slice(0, maxClients).forEach(client => {
+            masterData.clients.slice(0, 20).forEach(client => {
                 systemPrompt += `- "${client}"\n`;
             });
-            if (masterData.clients.length > maxClients) {
-                systemPrompt += `... y ${masterData.clients.length - maxClients} más\n`;
+            if (masterData.clients.length > 20) {
+                systemPrompt += `... y ${masterData.clients.length - 20} más\n`;
             }
             systemPrompt += `\n`;
         }
@@ -807,145 +668,39 @@ async function extractReservationData(emailContent, userId = 'unknown', masterDa
     }
 
     // Extract text from images if available
-    // Process images sequentially with delays to avoid rate limits
     let extractedImageText = '';
     if (images && images.length > 0) {
-        logToFile(`stdout F 🖼️ Extrayendo texto de ${images.length} imagen(es)...`);
         console.log(`🖼️ Extrayendo texto de ${images.length} imagen(es)...`);
         const imageTexts = [];
         
-        // OCR rate limit: Process images sequentially with delay between requests
-        // Azure Computer Vision has rate limits, so we add a delay between images
-        const OCR_DELAY_MS = 500; // 500ms delay between OCR requests to avoid rate limits
-        
         for (let i = 0; i < images.length; i++) {
             const image = images[i];
-            
-            // Add delay before processing (except for first image)
-            if (i > 0) {
-                await new Promise(resolve => setTimeout(resolve, OCR_DELAY_MS));
-            }
-            
             try {
-                logToFile(`stdout F    📄 Extrayendo texto de imagen ${i + 1}/${images.length}: ${image.originalname}`);
                 console.log(`   📄 Extrayendo texto de imagen ${i + 1}/${images.length}: ${image.originalname}`);
-                
-                const imageText = await extractTextFromImage(image, i, images.length);
+                const imageText = await extractTextFromImage(image);
                 
                 if (imageText && imageText !== 'No se encontró texto en la imagen') {
                     imageTexts.push(`\n\n--- TEXTO EXTRAÍDO DE IMAGEN ${i + 1} (${image.originalname}) ---\n${imageText}`);
+                    console.log(`   ✅ Texto extraído de ${image.originalname} (${imageText.length} caracteres)`);
                 } else {
-                    logToFile(`stdout F    ⚠️ No se encontró texto en ${image.originalname}`);
                     console.log(`   ⚠️ No se encontró texto en ${image.originalname}`);
                 }
             } catch (imgError) {
-                // Check if it's an InvalidImageDimension error - ignore it completely
-                const isInvalidDimension = imgError.isInvalidDimension || isInvalidImageDimensionError(imgError);
-                
-                if (isInvalidDimension) {
-                    // Ignore images with invalid dimensions - don't retry, don't log as error
-                    logToFile(`stdout F    ⏭️  Imagen ${image.originalname} ignorada: dimensiones inválidas (mínimo 50x50px, máximo 10000x10000px)`);
-                    console.log(`   ⏭️  Imagen ${image.originalname} ignorada: dimensiones inválidas (mínimo 50x50px, máximo 10000x10000px)`);
-                    // Continue with next image - no retry, no error logging
-                    continue;
-                }
-                
-                // Check if it's a rate limit error
-                const isRateLimit = imgError.message && (
-                    imgError.message.includes('rate limit') ||
-                    imgError.message.includes('429') ||
-                    imgError.message.includes('RateLimit')
-                );
-                
-                if (isRateLimit) {
-                    // If rate limited, wait longer before retrying
-                    const waitTime = 2000; // 2 seconds
-                    logToFile(`stderr F    ⚠️ Rate limit en OCR para ${image.originalname}. Esperando ${waitTime}ms...`);
-                    console.log(`   ⚠️ Rate limit en OCR para ${image.originalname}. Esperando ${waitTime}ms...`);
-                    await new Promise(resolve => setTimeout(resolve, waitTime));
-                    
-                    // Retry once
-                    try {
-                        logToFile(`stdout F    🔄 Reintentando extracción de ${image.originalname}...`);
-                        console.log(`   🔄 Reintentando extracción de ${image.originalname}...`);
-                        const imageText = await extractTextFromImage(image, i, images.length);
-                        if (imageText && imageText !== 'No se encontró texto en la imagen') {
-                            imageTexts.push(`\n\n--- TEXTO EXTRAÍDO DE IMAGEN ${i + 1} (${image.originalname}) ---\n${imageText}`);
-                        }
-                    } catch (retryError) {
-                        // Check if retry also has invalid dimension
-                        if (retryError.isInvalidDimension || isInvalidImageDimensionError(retryError)) {
-                            logToFile(`stdout F    ⏭️  Imagen ${image.originalname} ignorada: dimensiones inválidas`);
-                            console.log(`   ⏭️  Imagen ${image.originalname} ignorada: dimensiones inválidas`);
-                        } else {
-                            logToFile(`stderr F    ❌ Error extrayendo texto de ${image.originalname} (después de reintento): ${retryError.message}`);
-                            console.error(`   ❌ Error extrayendo texto de ${image.originalname} (después de reintento):`, retryError.message);
-                        }
-                    }
-                } else {
-                    logToFile(`stderr F    ❌ Error extrayendo texto de ${image.originalname}: ${imgError.message}`);
-                    console.error(`   ❌ Error extrayendo texto de ${image.originalname}:`, imgError.message);
-                }
+                console.error(`   ❌ Error extrayendo texto de ${image.originalname}:`, imgError.message);
                 // Continue with other images even if one fails
             }
         }
         
         if (imageTexts.length > 0) {
             extractedImageText = imageTexts.join('\n');
-            logToFile(`stdout F ✅ Texto extraído de ${imageTexts.length} imagen(es) (total: ${extractedImageText.length} caracteres)`);
             console.log(`✅ Texto extraído de ${imageTexts.length} imagen(es) (total: ${extractedImageText.length} caracteres)`);
         }
     }
     
     // Combine email content with extracted image text
-    // Estimate total tokens and truncate if necessary to avoid rate limits
-    const systemPromptTokens = estimateTokens(systemPrompt);
-    const emailTokens = estimateTokens(truncatedContent);
-    const imageTextTokens = estimateTokens(extractedImageText);
-    const userPromptOverhead = 50; // Overhead for "Extrae la información..." text
-    
-    // Target: Keep total prompt under 8000 tokens (leaving margin for tier S0 limit of 10000 tokens/min)
-    const MAX_PROMPT_TOKENS = 8000;
-    const availableTokensForContent = MAX_PROMPT_TOKENS - systemPromptTokens - userPromptOverhead;
-    
-    let finalImageText = extractedImageText;
-    let finalEmailContent = truncatedContent;
-    
-    // If we're over the limit, truncate image text first (it's less critical than email)
-    const currentTotalTokens = systemPromptTokens + emailTokens + imageTextTokens + userPromptOverhead;
-    
-    if (currentTotalTokens > MAX_PROMPT_TOKENS) {
-        logToFile(`stdout F ⚠️ Prompt estimado excede límite de tokens (${currentTotalTokens.toLocaleString()} > ${MAX_PROMPT_TOKENS.toLocaleString()}). Truncando contenido...`);
-        console.log(`⚠️ Prompt estimado excede límite de tokens (${currentTotalTokens.toLocaleString()} > ${MAX_PROMPT_TOKENS.toLocaleString()}). Truncando contenido...`);
-        
-        // Reserve tokens for email (prioritize email content)
-        const emailReserveTokens = Math.min(emailTokens, availableTokensForContent * 0.6); // Reserve 60% for email
-        const imageTextLimitTokens = availableTokensForContent - emailReserveTokens;
-        
-        // Truncate image text if needed
-        if (imageTextTokens > imageTextLimitTokens) {
-            finalImageText = truncateToTokenLimit(extractedImageText, imageTextLimitTokens);
-            logToFile(`stdout F    📝 Texto de imágenes truncado de ${imageTextTokens.toLocaleString()} a ~${estimateTokens(finalImageText).toLocaleString()} tokens`);
-            console.log(`   📝 Texto de imágenes truncado de ${imageTextTokens.toLocaleString()} a ~${estimateTokens(finalImageText).toLocaleString()} tokens`);
-        }
-        
-        // If still over limit, truncate email too
-        const remainingTokens = availableTokensForContent - estimateTokens(finalImageText);
-        if (emailTokens > remainingTokens) {
-            finalEmailContent = truncateToTokenLimit(truncatedContent, remainingTokens);
-            logToFile(`stdout F    📧 Email truncado de ${emailTokens.toLocaleString()} a ~${estimateTokens(finalEmailContent).toLocaleString()} tokens`);
-            console.log(`   📧 Email truncado de ${emailTokens.toLocaleString()} a ~${estimateTokens(finalEmailContent).toLocaleString()} tokens`);
-        }
-    }
-    
-    const combinedContent = finalImageText 
-        ? `${finalEmailContent}\n\n=== TEXTO EXTRAÍDO DE IMÁGENES ADJUNTAS ===${finalImageText}`
-        : finalEmailContent;
-    
-    // Final token estimation
-    const finalPromptTokens = systemPromptTokens + estimateTokens(combinedContent) + userPromptOverhead;
-    logToFile(`stdout F 📊 Estimación final de tokens del prompt: ~${finalPromptTokens.toLocaleString()} tokens`);
-    console.log(`📊 Estimación final de tokens del prompt: ~${finalPromptTokens.toLocaleString()} tokens`);
+    const combinedContent = extractedImageText 
+        ? `${truncatedContent}\n\n=== TEXTO EXTRAÍDO DE IMÁGENES ADJUNTAS ===${extractedImageText}`
+        : truncatedContent;
     
     // Build user message content (text only, no images)
     const userContent = [
@@ -953,7 +708,6 @@ async function extractReservationData(emailContent, userId = 'unknown', masterDa
     ];
     
     if (extractedImageText) {
-        logToFile(`stdout F 📤 Enviando texto del email + texto extraído de ${images.length} imagen(es) a OpenAI`);
         console.log(`📤 Enviando texto del email + texto extraído de ${images.length} imagen(es) a OpenAI`);
     }
 
@@ -986,29 +740,12 @@ async function extractReservationData(emailContent, userId = 'unknown', masterDa
             });
 
             const content = response.choices[0].message.content.trim();
-            logToFile(`stdout F ✅ OpenAI response received (${content.length} chars)`);
             console.log(`✅ OpenAI response received (${content.length} chars)`);
             
-            // Log token usage for text extraction to both console and si.log
+            // Log token usage for text extraction
             const hasImages = images && images.length > 0;
             if (response.usage) {
                 const { prompt_tokens, completion_tokens, total_tokens } = response.usage;
-                
-                // Log to si.log
-                logToFile(`stdout F ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-                logToFile(`stdout F    📊 TOKEN USAGE REPORT (Text Extraction${hasImages ? ' - includes extracted image text' : ''})`);
-                logToFile(`stdout F       📥 Prompt tokens: ${prompt_tokens.toLocaleString()}`);
-                logToFile(`stdout F       📤 Completion tokens: ${completion_tokens.toLocaleString()}`);
-                logToFile(`stdout F       📊 Total tokens: ${total_tokens.toLocaleString()}`);
-                if (hasImages) {
-                    logToFile(`stdout F       📝 Text extraction (includes text from ${images.length} image(s))`);
-                } else {
-                    logToFile(`stdout F       📝 Text-only extraction`);
-                }
-                logToFile(`stdout F       🤖 Model: ${model}`);
-                logToFile(`stdout F ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-                
-                // Log to console
                 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
                 console.log(`📊 TOKEN USAGE REPORT (Text Extraction${hasImages ? ' - includes extracted image text' : ''})`);
                 console.log(`   📥 Prompt tokens: ${prompt_tokens.toLocaleString()}`);
@@ -1022,7 +759,6 @@ async function extractReservationData(emailContent, userId = 'unknown', masterDa
                 console.log(`   🤖 Model: ${model}`);
                 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
             } else {
-                logToFile(`stderr F ⚠️ Token usage information not available in response`);
                 console.log('⚠️ Token usage information not available in response');
             }
 
@@ -1083,8 +819,6 @@ async function extractReservationData(emailContent, userId = 'unknown', masterDa
                 const waitSeconds = Math.ceil(waitTime / 1000);
                 
                 retryCount++;
-                logToFile(`stdout F ⚠️ Rate limit alcanzado. Reintentando en ${waitSeconds} segundos (intento ${retryCount}/${maxRetries})...`);
-                logToFile(`stdout F    Error: ${error.message}`);
                 console.log(`⚠️ Rate limit alcanzado. Reintentando en ${waitSeconds} segundos (intento ${retryCount}/${maxRetries})...`);
                 console.log(`   Error: ${error.message}`);
                 
@@ -1100,7 +834,6 @@ async function extractReservationData(emailContent, userId = 'unknown', masterDa
     
     // If we get here, all retries failed
     if (lastError) {
-        logToFile(`stderr F ❌ Error en extracción: ${lastError.message}`);
         console.error('❌ Error extracting reservation data:', lastError);
         
         if (lastError.message.includes('timeout')) {
