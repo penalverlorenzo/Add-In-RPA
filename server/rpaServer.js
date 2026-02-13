@@ -411,116 +411,110 @@ app.post('/api/extract', handleExtractRequest, async (req, res) => {
 
 /**
  * Transforma los datos del formulario al formato de extracción original
+ * SOBRESCRIBE completamente los datos del usuario, preservando solo metadatos técnicos
  * @param {Object} formData - Datos del formulario (formato del frontend)
- * @param {Object} originalData - Datos originales de la extracción
+ * @param {Object} originalData - Datos originales de la extracción (solo para metadatos)
  * @returns {Object} Datos transformados al formato de extracción
  */
 function transformFormDataToExtractionFormat(formData, originalData) {
-  // Helper para obtener valor o mantener original
-  const getValue = (formValue, originalValue) => {
-    if (formValue !== null && formValue !== undefined && formValue !== '') {
-      return formValue;
-    }
-    return originalValue;
+  // Helper para normalizar valores vacíos a null
+  const normalizeValue = (value) => {
+    if (value === '' || value === undefined) return null;
+    if (Array.isArray(value) && value.length === 0) return [];
+    return value;
   };
 
-  // Transformar pasajeros
-  const transformedPassengers = formData.passengers?.map((p, index) => {
-    const originalPassenger = originalData.passengers?.[index] || {};
-    
+  // Helper para obtener valor del formulario o null (no preservar originales)
+  const getFormValue = (formValue) => {
+    return normalizeValue(formValue);
+  };
+
+  // Transformar pasajeros - usar directamente los del formulario
+  const transformedPassengers = formData.passengers?.map((p) => {
     return {
-      firstName: getValue(p.nombre, originalPassenger.firstName),
-      lastName: getValue(p.apellido, originalPassenger.lastName),
-      documentType: getValue(p.tipoDoc?.toUpperCase(), originalPassenger.documentType),
-      documentNumber: getValue(p.dni, originalPassenger.documentNumber),
-      nationality: getValue(p.nacionalidad?.toUpperCase(), originalPassenger.nationality),
-      dateOfBirth: getValue(p.fechaNacimiento, originalPassenger.dateOfBirth),
-      sex: getValue(p.sexo?.toUpperCase(), originalPassenger.sex),
-      cuilCuit: getValue(p.cuil, originalPassenger.cuilCuit),
-      direccion: getValue(p.direccion, originalPassenger.direccion),
-      passengerType: getValue(
-        p.tipoPasajero === 'adulto' ? 'ADU' : p.tipoPasajero === 'menor' ? 'CHD' : p.tipoPasajero === 'infante' ? 'INF' : null,
-        originalPassenger.passengerType
-      ),
-      phoneNumber: getValue(p.telefono, originalPassenger.phoneNumber)
+      firstName: p.nombre || null,
+      lastName: p.apellido || null,
+      documentType: p.tipoDoc?.toUpperCase() || null,
+      documentNumber: p.dni || null,
+      nationality: p.nacionalidad?.toUpperCase() || null,
+      dateOfBirth: p.fechaNacimiento || null,
+      sex: p.sexo?.toUpperCase() || null,
+      cuilCuit: p.cuil || null,
+      direccion: p.direccion || null,
+      passengerType: p.tipoPasajero === 'adulto' ? 'ADU' : p.tipoPasajero === 'menor' ? 'CHD' : p.tipoPasajero === 'infante' ? 'INF' : 'ADU',
+      phoneNumber: p.telefono || null
     };
-  }) || originalData.passengers || [];
+  }) || [];
 
-  // Transformar servicios - si viene vacío, mantener los originales
-  const transformedServices = (formData.services && formData.services.length > 0) 
-    ? formData.services.map((s, index) => {
-        const originalService = originalData.services?.[index] || {};
-        return {
-          destino: getValue(s.destino, originalService.destino),
-          in: getValue(s.in, originalService.in),
-          out: getValue(s.out, originalService.out),
-          nts: getValue(s.nts, originalService.nts),
-          basePax: getValue(s.basePax, originalService.basePax),
-          servicio: getValue(s.servicio, originalService.servicio),
-          descripcion: getValue(s.descripcion, originalService.descripcion),
-          estado: getValue(s.estado, originalService.estado)
-        };
-      })
-    : (originalData.services || []);
+  // Transformar servicios - usar directamente los del formulario (si viene vacío, será [])
+  const transformedServices = formData.services?.map((s) => {
+    return {
+      destino: s.destino || null,
+      in: s.in || null,
+      out: s.out || null,
+      nts: s.nts || 0,
+      basePax: s.basePax || 0,
+      servicio: s.servicio || null,
+      descripcion: s.descripcion || null,
+      estado: s.estado || null
+    };
+  }) || [];
 
-  // Transformar vuelos - mantener estructura similar
-  const transformedFlights = (formData.flights && formData.flights.length > 0)
-    ? formData.flights.map((f, index) => {
-        const originalFlight = originalData.flights?.[index] || {};
-        return {
-          flightNumber: getValue(f.flightNumber, originalFlight.flightNumber),
-          airline: getValue(f.airline, originalFlight.airline),
-          origin: getValue(f.origin, originalFlight.origin),
-          destination: getValue(f.destination, originalFlight.destination),
-          departureDate: getValue(f.departureDate, originalFlight.departureDate),
-          departureTime: getValue(f.departureTime, originalFlight.departureTime),
-          arrivalDate: getValue(f.arrivalDate, originalFlight.arrivalDate),
-          arrivalTime: getValue(f.arrivalTime, originalFlight.arrivalTime)
-        };
-      })
-    : (originalData.flights || []);
+  // Transformar vuelos - usar directamente los del formulario (si viene vacío, será [])
+  const transformedFlights = formData.flights?.map((f) => {
+    return {
+      flightNumber: f.flightNumber || null,
+      airline: f.airline || null,
+      origin: f.origin || null,
+      destination: f.destination || null,
+      departureDate: f.departureDate || null,
+      departureTime: f.departureTime || null,
+      arrivalDate: f.arrivalDate || null,
+      arrivalTime: f.arrivalTime || null
+    };
+  }) || [];
 
-  // Construir objeto transformado
+  // Construir objeto transformado - SOBRESCRIBIR completamente con datos del formulario
   const transformed = {
-    // Campos principales
-    client: getValue(formData.cliente, originalData.client),
-    seller: getValue(formData.vendedor, originalData.seller),
-    status: getValue(formData.estadoReserva, originalData.status),
-    reservationType: getValue(formData.tipoReserva, originalData.reservationType),
-    travelDate: getValue(formData.fechaViaje, originalData.travelDate),
-    tourEndDate: getValue(formData.tourEndDate, originalData.tourEndDate),
-    reservationDate: getValue(formData.reservationDate, originalData.reservationDate),
-    dueDate: getValue(formData.dueDate, originalData.dueDate),
-    contact: getValue(formData.contact, originalData.contact),
-    contactEmail: getValue(formData.contactEmail, originalData.contactEmail),
-    contactPhone: getValue(formData.contactPhone, originalData.contactPhone),
-    currency: getValue(formData.currency, originalData.currency),
-    exchangeRate: getValue(formData.exchangeRate, originalData.exchangeRate),
-    commission: getValue(formData.commission, originalData.commission),
-    netAmount: getValue(formData.netAmount, originalData.netAmount),
-    grossAmount: getValue(formData.grossAmount, originalData.grossAmount),
-    tripName: getValue(formData.tripName, originalData.tripName),
-    productCode: getValue(formData.productCode, originalData.productCode),
-    codigo: getValue(formData.codigo, originalData.codigo),
-    estadoDeuda: getValue(formData.estadoDeuda, originalData.estadoDeuda),
-    reservationCode: getValue(formData.reservationCode, originalData.reservationCode),
-    provider: getValue(formData.provider, originalData.provider),
+    // Campos principales - usar valores del formulario directamente
+    client: getFormValue(formData.cliente),
+    seller: getFormValue(formData.vendedor),
+    status: getFormValue(formData.estadoReserva),
+    reservationType: getFormValue(formData.tipoReserva),
+    travelDate: getFormValue(formData.fechaViaje),
+    tourEndDate: getFormValue(formData.tourEndDate),
+    reservationDate: getFormValue(formData.reservationDate),
+    dueDate: getFormValue(formData.dueDate),
+    contact: getFormValue(formData.contact),
+    contactEmail: getFormValue(formData.contactEmail),
+    contactPhone: getFormValue(formData.contactPhone),
+    currency: getFormValue(formData.currency),
+    exchangeRate: formData.exchangeRate !== undefined ? formData.exchangeRate : 0,
+    commission: formData.commission !== undefined ? formData.commission : 0,
+    netAmount: formData.netAmount !== undefined ? formData.netAmount : 0,
+    grossAmount: formData.grossAmount !== undefined ? formData.grossAmount : 0,
+    tripName: getFormValue(formData.tripName),
+    productCode: getFormValue(formData.productCode),
+    codigo: getFormValue(formData.codigo),
+    estadoDeuda: getFormValue(formData.estadoDeuda),
+    reservationCode: getFormValue(formData.reservationCode),
+    provider: getFormValue(formData.provider),
     
     // Contadores
-    adults: getValue(formData.adults, originalData.adults),
-    children: getValue(formData.children, originalData.children),
-    infants: getValue(formData.infants, originalData.infants),
+    adults: formData.adults !== undefined ? formData.adults : 0,
+    children: formData.children !== undefined ? formData.children : 0,
+    infants: formData.infants !== undefined ? formData.infants : 0,
     
-    // Arrays y objetos
+    // Arrays y objetos - usar directamente del formulario (null o [] si viene así)
     passengers: transformedPassengers,
     services: transformedServices,
     flights: transformedFlights,
-    hotel: getValue(formData.hotel, originalData.hotel),
-    checkIn: getValue(formData.checkIn, originalData.checkIn),
-    checkOut: getValue(formData.checkOut, originalData.checkOut),
-    detailType: getValue(formData.detailType, originalData.detailType),
+    hotel: getFormValue(formData.hotel), // Si viene null, será null (se borra)
+    checkIn: getFormValue(formData.checkIn),
+    checkOut: getFormValue(formData.checkOut),
+    detailType: getFormValue(formData.detailType),
     
-    // Metadatos originales (preservar)
+    // Metadatos originales (preservar solo estos)
     conversationId: originalData.conversationId,
     userId: originalData.userId,
     modelUsed: originalData.modelUsed,
