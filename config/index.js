@@ -16,8 +16,8 @@ export default {
     },
     imageExtractor: {
         apiKey: process.env.AZURE_OPENAI_IMAGE_EXTRACTOR_API_KEY,
-        endpoint: process.env.AZURE_OPENAI_IMAGE_EXTRACTOR_ENDPOINT,
-        deployment: process.env.AZURE_OPENAI_IMAGE_EXTRACTOR_DEPLOYMENT || 'gpt-4o-mini',
+        endpoint: process.env.AZURE_OPENAI_IMAGE_EXTRACTOR_API_ENDPOINT,
+        deployment: process.env.AZURE_OPENAI_IMAGE_EXTRACTOR_API_DEPLOYMENT || 'gpt-4o-mini',
         apiVersion: '2024-08-01-preview'
     },
 
