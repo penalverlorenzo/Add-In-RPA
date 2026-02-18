@@ -18,7 +18,7 @@ export default {
         apiKey: process.env.AZURE_OPENAI_IMAGE_EXTRACTOR_API_KEY,
         endpoint: process.env.AZURE_OPENAI_IMAGE_EXTRACTOR_API_ENDPOINT,
         deployment: process.env.AZURE_OPENAI_IMAGE_EXTRACTOR_API_DEPLOYMENT || 'gpt-4o-mini',
-        apiVersion: '2024-08-01-preview'
+        apiVersion: process.env.AZURE_OPENAI_IMAGE_EXTRACTOR_API_VERSION || '2025-09-01-preview'
     },
 
     // Azure Computer Vision Configuration (for OCR)
