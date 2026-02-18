@@ -26,8 +26,8 @@ function getOpenAIClient() {
  * @returns {Promise<string>} Extracted text from the image
  */
 async function extractTextFromImage(image) {
-    if (!config.computerVision.endpoint) {
-        throw new Error('Azure Computer Vision endpoint not configured. Please check your .env file (AZURE_COMPUTER_VISION_ENDPOINT).');
+    if (!config.imageExtractor.endpoint) {
+        throw new Error('Azure Image Extractor endpoint not configured. Please check your .env file (AZURE_OPENAI_IMAGE_EXTRACTOR_ENDPOINT).');
     }
 
     if (!config.openai.apiKey) {
@@ -37,6 +37,7 @@ async function extractTextFromImage(image) {
     try {
         const endpoint = config.imageExtractor.endpoint; // Remove trailing slash
         const apiVersion = config.imageExtractor.apiVersion || '2023-02-01-preview'; // Standard Computer Vision API version
+        console.log('apiVersion', apiVersion, 'endpoint', endpoint, 'apiKey', apiKey, 'imageExtractor: ', config.imageExtractor);
         const apiKey = config.imageExtractor.apiKey; // Use the same API key as OpenAI
 
         // Step 1: Submit image for OCR analysis (Microsoft Foundry OCR endpoint)
