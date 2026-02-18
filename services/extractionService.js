@@ -75,7 +75,7 @@ async function extractTextFromImage(image) {
                 ]
             }],
             temperature: 0.1, // Low temperature for more deterministic extraction
-            max_tokens: 8000
+            max_tokens: 4000
         });
 
         const extractedText = response.choices[0].message.content.trim();
