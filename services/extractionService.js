@@ -26,7 +26,6 @@ function getOpenAIClient() {
  * @returns {Promise<string>} Extracted text from the image
  */
 async function extractTextFromImage(image) {
-    console.log('apiVersion', config.imageExtractor.apiVersion, 'endpoint', config.imageExtractor.endpoint, 'apiKey', config.imageExtractor.apiKey, 'imageExtractor: ', config.imageExtractor);
     if (!config.imageExtractor.endpoint) {
         throw new Error('Azure Image Extractor endpoint not configured. Please check your .env file (AZURE_OPENAI_IMAGE_EXTRACTOR_ENDPOINT).');
     }
@@ -42,7 +41,7 @@ async function extractTextFromImage(image) {
         const apiKey = config.imageExtractor.apiKey; // Use the same API key as OpenAI
 
         // Step 1: Submit image for OCR analysis (Microsoft Foundry OCR endpoint)
-        const analyzeUrl = `${endpoint}/ocr/analyze`;
+        const analyzeUrl = `${endpoint}/vision/v3.2/read/analyze?api-version=${apiVersion}`;
         
         const analyzeResponse = await fetch(analyzeUrl, {
             method: 'POST',
