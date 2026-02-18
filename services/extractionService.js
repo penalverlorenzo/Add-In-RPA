@@ -26,6 +26,7 @@ function getOpenAIClient() {
  * @returns {Promise<string>} Extracted text from the image
  */
 async function extractTextFromImage(image) {
+    console.log('endpoint', config.imageExtractor.endpoint);
     if (!config.imageExtractor.endpoint) {
         throw new Error('Azure Image Extractor endpoint not configured. Please check your .env file (AZURE_OPENAI_IMAGE_EXTRACTOR_ENDPOINT).');
     }
