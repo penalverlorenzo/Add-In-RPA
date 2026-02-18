@@ -8,7 +8,6 @@ import config from '../config/index.js';
 import { searchServices } from './servicesExtractionService.js';
 
 let openaiClient = null;
-let imageExtractorClient = null;
 
 function getOpenAIClient() {
     if (!openaiClient && config.openai.apiKey && config.openai.endpoint) {
@@ -21,67 +20,99 @@ function getOpenAIClient() {
     return openaiClient;
 }
 
-function getImageExtractorClient() {
-    if (!imageExtractorClient && config.imageExtractor.apiKey && config.imageExtractor.endpoint) {
-        imageExtractorClient = new AzureOpenAI({
-            apiKey: config.imageExtractor.apiKey,
-            endpoint: config.imageExtractor.endpoint,
-            apiVersion: config.imageExtractor.apiVersion
-        });
-    }
-    return imageExtractorClient;
-}
-
 /**
- * Extract text from an image using ChatGPT (Azure OpenAI Vision)
+ * Extract text from an image using Azure Computer Vision OCR
  * @param {Object} image - Image file object with buffer and mimetype
  * @returns {Promise<string>} Extracted text from the image
  */
 async function extractTextFromImage(image) {
-    console.log('endpoint', config.imageExtractor.endpoint);
-    if (!config.imageExtractor.endpoint) {
-        throw new Error('Azure Image Extractor endpoint not configured. Please check your .env file (AZURE_OPENAI_IMAGE_EXTRACTOR_ENDPOINT).');
+    if (!config.computerVision.endpoint) {
+        throw new Error('Azure Computer Vision endpoint not configured. Please check your .env file (AZURE_COMPUTER_VISION_ENDPOINT).');
     }
 
-    if (!config.imageExtractor.apiKey) {
-        throw new Error('Azure Image Extractor API key not configured. Please check your .env file (AZURE_OPENAI_IMAGE_EXTRACTOR_API_KEY).');
+    if (!config.openai.apiKey) {
+        throw new Error('Azure OpenAI API key not configured. Please check your .env file (AZURE_OPENAI_API_KEY).');
     }
 
     try {
-        const client = getImageExtractorClient();
-        if (!client) {
-            throw new Error('Image Extractor client not configured. Please check your .env file.');
-        }
-
-        const model = config.imageExtractor.deployment || 'gpt-4o-mini';
         
-        // Convert image buffer to base64
-        const imageBase64 = image.buffer.toString('base64');
-        const imageDataUrl = `data:${image.mimetype || 'image/png'};base64,${imageBase64}`;
+        const endpoint = config.computerVision.endpoint.replace(/\/$/, ''); // Remove trailing slash
+        const apiVersion = '2023-02-01-preview'; // Standard Computer Vision API version
+        const apiKey = config.openai.apiKey; // Use the same API key as OpenAI
 
-        // Send image to ChatGPT for text extraction
-        const response = await client.chat.completions.create({
-            model: model,
-            messages: [{
-                role: 'user',
-                content: [
-                    { type: 'text', text: 'Extrae todo el texto de esta imagen. Devuelve únicamente el texto extraído, sin comentarios adicionales.' },
-                    {
-                        type: 'image_url',
-                        image_url: {
-                            url: imageDataUrl
-                        }
-                    }
-                ]
-            }],
-            temperature: 0.1, // Low temperature for more deterministic extraction
-            max_tokens: 4000
+        // Step 1: Submit image for OCR analysis
+        const analyzeUrl = `${endpoint}/vision/v3.2/read/analyze?api-version=${apiVersion}`;
+        
+        const analyzeResponse = await fetch(analyzeUrl, {
+            method: 'POST',
+            headers: {
+                'Ocp-Apim-Subscription-Key': apiKey,
+                'Content-Type': image.mimetype || 'application/octet-stream'
+            },
+            body: image.buffer
         });
 
-        const extractedText = response.choices[0].message.content.trim();
-        console.log(`   📊 OCR completed: ${extractedText.length} characters extracted`);
-        
-        return extractedText || 'No se encontró texto en la imagen';
+        if (!analyzeResponse.ok) {
+            const errorText = await analyzeResponse.text();
+            throw new Error(`Computer Vision API error: ${analyzeResponse.status} - ${errorText}`);
+        }
+
+        // Get operation location from response headers
+        const operationLocation = analyzeResponse.headers.get('Operation-Location');
+        if (!operationLocation) {
+            throw new Error('No Operation-Location header in response');
+        }
+
+        // Step 2: Poll for results (Azure Computer Vision is async)
+        let resultResponse;
+        let attempts = 0;
+        const maxAttempts = 30; // Max 30 seconds wait
+        const pollInterval = 1000; // 1 second
+
+        while (attempts < maxAttempts) {
+            await new Promise(resolve => setTimeout(resolve, pollInterval));
+            attempts++;
+
+            resultResponse = await fetch(operationLocation, {
+                method: 'GET',
+                headers: {
+                    'Ocp-Apim-Subscription-Key': apiKey
+                }
+            });
+
+            if (!resultResponse.ok) {
+                const errorText = await resultResponse.text();
+                throw new Error(`Computer Vision result API error: ${resultResponse.status} - ${errorText}`);
+            }
+
+            const result = await resultResponse.json();
+            
+            if (result.status === 'succeeded') {
+                // Extract text from all lines
+                const extractedLines = [];
+                if (result.analyzeResult && result.analyzeResult.readResults) {
+                    for (const readResult of result.analyzeResult.readResults) {
+                        if (readResult.lines) {
+                            for (const line of readResult.lines) {
+                                if (line.text) {
+                                    extractedLines.push(line.text);
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                const extractedText = extractedLines.join('\n');
+                console.log(`   📊 OCR completed: ${extractedText.length} characters extracted`);
+                
+                return extractedText || 'No se encontró texto en la imagen';
+            } else if (result.status === 'failed') {
+                throw new Error(`OCR analysis failed: ${result.error?.message || 'Unknown error'}`);
+            }
+            // If status is 'running' or 'notStarted', continue polling
+        }
+
+        throw new Error('OCR analysis timeout: operation did not complete in time');
     } catch (error) {
         console.error(`   ⚠️ Error extrayendo texto de imagen ${image.originalname}:`, error.message);
         throw error;
@@ -664,7 +695,6 @@ async function extractReservationData(emailContent, userId = 'unknown', masterDa
         if (imageTexts.length > 0) {
             extractedImageText = imageTexts.join('\n');
             console.log(`✅ Texto extraído de ${imageTexts.length} imagen(es) (total: ${extractedImageText.length} caracteres)`);
-            console.log('extractedImageText', extractedImageText);
         }
     }
     
@@ -672,7 +702,7 @@ async function extractReservationData(emailContent, userId = 'unknown', masterDa
     const combinedContent = extractedImageText 
         ? `${truncatedContent}\n\n=== TEXTO EXTRAÍDO DE IMÁGENES ADJUNTAS ===${extractedImageText}`
         : truncatedContent;
-    console.log('combinedContent', combinedContent);
+    
     // Build user message content (text only, no images)
     const userContent = [
         { type: 'text', text: `Extrae la información de reserva del siguiente email:\n\n${combinedContent}` }
