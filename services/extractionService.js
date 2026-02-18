@@ -35,12 +35,12 @@ async function extractTextFromImage(image) {
     }
 
     try {
-        const endpoint = config.computerVision.endpoint.replace(/\/$/, ''); // Remove trailing slash
-        const apiVersion = '2023-02-01-preview'; // Standard Computer Vision API version
-        const apiKey = config.openai.apiKey; // Use the same API key as OpenAI
+        const endpoint = config.imageExtractor.endpoint; // Remove trailing slash
+        const apiVersion = config.imageExtractor.apiVersion || '2023-02-01-preview'; // Standard Computer Vision API version
+        const apiKey = config.imageExtractor.apiKey; // Use the same API key as OpenAI
 
-        // Step 1: Submit image for OCR analysis
-        const analyzeUrl = `${endpoint}/vision/v3.2/read/analyze?api-version=${apiVersion}`;
+        // Step 1: Submit image for OCR analysis (Microsoft Foundry OCR endpoint)
+        const analyzeUrl = `${endpoint}/ocr/analyze`;
         
         const analyzeResponse = await fetch(analyzeUrl, {
             method: 'POST',
