@@ -694,6 +694,7 @@ async function extractReservationData(emailContent, userId = 'unknown', masterDa
         if (imageTexts.length > 0) {
             extractedImageText = imageTexts.join('\n');
             console.log(`✅ Texto extraído de ${imageTexts.length} imagen(es) (total: ${extractedImageText.length} caracteres)`);
+            console.log('extractedImageText', extractedImageText);
         }
     }
     
@@ -701,7 +702,7 @@ async function extractReservationData(emailContent, userId = 'unknown', masterDa
     const combinedContent = extractedImageText 
         ? `${truncatedContent}\n\n=== TEXTO EXTRAÍDO DE IMÁGENES ADJUNTAS ===${extractedImageText}`
         : truncatedContent;
-    
+    console.log('combinedContent', combinedContent);
     // Build user message content (text only, no images)
     const userContent = [
         { type: 'text', text: `Extrae la información de reserva del siguiente email:\n\n${combinedContent}` }
