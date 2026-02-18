@@ -91,7 +91,10 @@ jobs:
                 NODE_ENV="${{ secrets.NODE_ENV }}" \
                 AZURE_CLIENT_ID="${{ secrets.AZURE_CLIENT_ID }}" \
                 AZURE_TENANT_ID="${{ secrets.AZURE_TENANT_ID }}" \
+                AZURE_OPENAI_IMAGE_EXTRACTOR_API_KEY="${{ secrets.AZURE_OPENAI_IMAGE_EXTRACTOR_API_KEY }}" \
+                AZURE_OPENAI_IMAGE_EXTRACTOR_API_ENDPOINT="${{ secrets.AZURE_OPENAI_IMAGE_EXTRACTOR_API_ENDPOINT }}" \
                 AZURE_CLIENT_SECRET="${{ secrets.AZURE_CLIENT_SECRET }}" \
+                AZURE_OPENAI_IMAGE_EXTRACTOR_API_DEPLOYMENT="${{ secrets.AZURE_OPENAI_IMAGE_EXTRACTOR_API_DEPLOYMENT }}" \
                 AZURE_OPENAI_DEPLOYMENT="${{ secrets.AZURE_OPENAI_DEPLOYMENT }}" \
                 AZURE_OPENAI_ENDPOINT="${{ secrets.AZURE_OPENAI_ENDPOINT }}" \
                 COSMOS_DB_ENDPOINT="${{ secrets.COSMOS_DB_ENDPOINT }}" \
