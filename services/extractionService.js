@@ -6,6 +6,7 @@
 import { AzureOpenAI } from 'openai';
 import config from '../config/index.js';
 import { searchServices } from './servicesExtractionService.js';
+import { filterSimilarImages } from './imageHashService.js';
 
 let openaiClient = null;
 
@@ -671,13 +672,30 @@ async function extractReservationData(emailContent, userId = 'unknown', masterDa
     // Extract text from images if available
     let extractedImageText = '';
     if (images && images.length > 0) {
-        console.log(`🖼️ Extrayendo texto de ${images.length} imagen(es)...`);
+        console.log(`🖼️ Procesando ${images.length} imagen(es)...`);
+        
+        // Filter similar images before processing
+        const similarityThreshold = parseFloat(process.env.IMAGE_SIMILARITY_THRESHOLD) || 85;
+        let uniqueImages = images;
+        
+        try {
+            uniqueImages = await filterSimilarImages(images, similarityThreshold);
+            if (uniqueImages.length < images.length) {
+                console.log(`📊 Filtrado: ${images.length} imágenes → ${uniqueImages.length} imágenes únicas (ahorro: ${images.length - uniqueImages.length} imágenes)`);
+            }
+        } catch (hashError) {
+            console.warn(`⚠️ Error en filtrado de imágenes similares, procesando todas las imágenes:`, hashError.message);
+            // Continue with all images if hash filtering fails
+            uniqueImages = images;
+        }
+        
+        console.log(`🖼️ Extrayendo texto de ${uniqueImages.length} imagen(es) única(s)...`);
         const imageTexts = [];
         
-        for (let i = 0; i < images.length; i++) {
-            const image = images[i];
+        for (let i = 0; i < uniqueImages.length; i++) {
+            const image = uniqueImages[i];
             try {
-                console.log(`   📄 Extrayendo texto de imagen ${i + 1}/${images.length}: ${image.originalname}`);
+                console.log(`   📄 Extrayendo texto de imagen ${i + 1}/${uniqueImages.length}: ${image.originalname}`);
                 const imageText = await extractTextFromImage(image);
                 
                 if (imageText && imageText !== 'No se encontró texto en la imagen') {
