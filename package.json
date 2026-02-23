@@ -45,7 +45,8 @@
     "mysql2": "^3.11.5",
     "openai": "^4.20.0",
     "playwright": "^1.40.0",
-    "regenerator-runtime": "^0.14.1"
+    "regenerator-runtime": "^0.14.1",
+    "sharp": "^0.34.5"
   },
   "devDependencies": {
     "@babel/core": "^7.24.0",
