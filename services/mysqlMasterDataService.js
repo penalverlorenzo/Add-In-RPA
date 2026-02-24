@@ -821,6 +821,94 @@ async function getUserByEmail(email) {
     }
 }
 
+// ============================================================================
+// TEAMS CHATS (Threads de conversación con el asistente)
+// ============================================================================
+
+async function getTeamsChatByUserId(userId) {
+    const pool = getMySQLConnection();
+    if (!pool) {
+        console.warn('⚠️ MySQL connection pool not available for getTeamsChatByUserId');
+        return null;
+    }
+
+    try {
+        const [rows] = await pool.query(
+            `SELECT * FROM teams_chats WHERE userId = ? LIMIT 1`,
+            [userId]
+        );
+        return rows.length > 0 ? rows[0] : null;
+    } catch (error) {
+        console.error('❌ Error getting teams chat by userId:', error.message);
+        console.error('   Error code:', error.code);
+        console.error('   UserId:', userId);
+        if (error.code === 'ETIMEDOUT' || error.code === 'ECONNREFUSED') {
+            console.error('   ⚠️ Connection timeout or refused - check MySQL configuration');
+            throw new Error('Database connection error');
+        }
+        return null;
+    }
+}
+
+async function createTeamsChat(userId, threadId) {
+    const pool = getMySQLConnection();
+    if (!pool) {
+        console.warn('⚠️ MySQL connection pool not available for createTeamsChat');
+        throw new Error('Database connection not available');
+    }
+
+    try {
+        const [result] = await pool.query(
+            `INSERT INTO teams_chats (id, userId, threadId) VALUES (UUID(), ?, ?)`,
+            [userId, threadId]
+        );
+        console.log(`✅ Teams chat created for userId: ${userId}, threadId: ${threadId}`);
+        return {
+            id: result.insertId,
+            userId,
+            threadId
+        };
+    } catch (error) {
+        console.error('❌ Error creating teams chat:', error.message);
+        console.error('   Error code:', error.code);
+        console.error('   UserId:', userId);
+        if (error.code === 'ER_DUP_ENTRY') {
+            console.error('   ⚠️ Duplicate entry - thread may already exist');
+            throw new Error('Thread already exists for this user');
+        }
+        throw error;
+    }
+}
+
+async function updateTeamsChatThread(userId, threadId) {
+    const pool = getMySQLConnection();
+    if (!pool) {
+        console.warn('⚠️ MySQL connection pool not available for updateTeamsChatThread');
+        throw new Error('Database connection not available');
+    }
+
+    try {
+        const [result] = await pool.query(
+            `UPDATE teams_chats SET threadId = ? WHERE userId = ?`,
+            [threadId, userId]
+        );
+        if (result.affectedRows === 0) {
+            console.warn(`⚠️ No teams chat found to update for userId: ${userId}`);
+            return null;
+        }
+        console.log(`✅ Teams chat updated for userId: ${userId}, new threadId: ${threadId}`);
+        return {
+            userId,
+            threadId
+        };
+    } catch (error) {
+        console.error('❌ Error updating teams chat thread:', error.message);
+        console.error('   Error code:', error.code);
+        console.error('   UserId:', userId);
+        throw error;
+    }
+}
+
 export default {
     getAllSellers,
     getAllClients,
@@ -837,5 +925,8 @@ export default {
     updateExtraction,
     getExtractionByConversationId,
     getUserById,
-    getUserByEmail
+    getUserByEmail,
+    getTeamsChatByUserId,
+    createTeamsChat,
+    updateTeamsChatThread
 };
