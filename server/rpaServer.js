@@ -13,6 +13,7 @@ import multer from 'multer';
 import { extractReservationData, calculateQualityScore } from '../services/extractionService.js';
 import masterDataService from '../services/mysqlMasterDataService.js';
 import { updateAgentFiles } from '../services/agentFileService.js';
+import { extractUserIdentifier, getOrCreateThread, sendMessageToAssistant } from '../services/assistantChatService.js';
 import config from '../config/index.js';
 
 // ES Modules equivalent of __dirname
@@ -952,6 +953,76 @@ app.post('/api/update-agent-files', async (req, res) => {
   }
 });
 
+// Ruta para mensajes del bot de Teams (chat con asistente)
+app.post('/api/messages', async (req, res) => {
+  try {
+    console.log('📩 Mensaje recibido del bot de Teams');
+    
+    // Validar que el body tenga la estructura esperada
+    if (!req.body || !req.body.text) {
+      return res.status(400).json({
+        type: 'message',
+        text: 'No se recibió un mensaje válido. Por favor, envía un mensaje de texto.'
+      });
+    }
+
+    // Extraer mensaje del usuario
+    const userMessage = req.body.text;
+    console.log(`💬 Mensaje del usuario: "${userMessage}"`);
+
+    // Extraer identificador del usuario
+    let userId;
+    try {
+      userId = extractUserIdentifier(req.body);
+      console.log(`👤 Usuario identificado: ${userId}`);
+    } catch (error) {
+      console.error('❌ Error extrayendo identificador de usuario:', error.message);
+      return res.status(400).json({
+        type: 'message',
+        text: 'No se pudo identificar al usuario. Por favor, intenta de nuevo.'
+      });
+    }
+
+    // Obtener o crear thread para el usuario
+    let threadId;
+    try {
+      threadId = await getOrCreateThread(userId);
+      console.log(`🧵 Thread ID: ${threadId}`);
+    } catch (error) {
+      console.error('❌ Error obteniendo/creando thread:', error.message);
+      return res.status(500).json({
+        type: 'message',
+        text: 'Hubo un problema al iniciar la conversación. Por favor, intenta de nuevo más tarde.'
+      });
+    }
+
+    // Enviar mensaje al asistente y obtener respuesta
+    let assistantResponse;
+    try {
+      assistantResponse = await sendMessageToAssistant(userMessage, threadId);
+    } catch (error) {
+      console.error('❌ Error enviando mensaje al asistente:', error.message);
+      return res.status(500).json({
+        type: 'message',
+        text: 'Hubo un problema al procesar tu mensaje. Por favor, intenta de nuevo más tarde.'
+      });
+    }
+
+    // Retornar respuesta en formato compatible con Bot Framework
+    res.json({
+      type: 'message',
+      text: assistantResponse
+    });
+
+  } catch (error) {
+    console.error('❌ Error no manejado en /api/messages:', error);
+    res.status(500).json({
+      type: 'message',
+      text: 'Ocurrió un error inesperado. Por favor, intenta de nuevo más tarde.'
+    });
+  }
+});
+
 // Manejo de errores global
 app.use((error, req, res, next) => {
   console.error('Error no manejado:', error);
@@ -975,6 +1046,7 @@ loadRpaService().then(() => {
     console.log(`   - POST /api/rpa/create-reservation`);
     console.log(`   - POST /api/rpa/edit-reservation`);
     console.log(`   - POST /api/update-agent-files`);
+    console.log(`   - POST /api/messages`);
   });
 }).catch(error => {
   console.error('❌ Error al iniciar servidor:', error);
