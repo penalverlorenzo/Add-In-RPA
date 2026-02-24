@@ -10,6 +10,7 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import multer from 'multer';
+import { CloudAdapter, ConfigurationBotFrameworkAuthentication } from 'botbuilder';
 import { extractReservationData, calculateQualityScore } from '../services/extractionService.js';
 import masterDataService from '../services/mysqlMasterDataService.js';
 import { updateAgentFiles } from '../services/agentFileService.js';
@@ -83,6 +84,28 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Bot Framework Adapter configuration
+let botAdapter = null;
+if (process.env.MICROSOFT_APP_ID && process.env.MICROSOFT_APP_PASSWORD) {
+  const botFrameworkAuthentication = new ConfigurationBotFrameworkAuthentication({
+    MicrosoftAppId: process.env.MICROSOFT_APP_ID,
+    MicrosoftAppPassword: process.env.MICROSOFT_APP_PASSWORD,
+    MicrosoftAppTenantId: process.env.MICROSOFT_APP_TENANT_ID,
+    MicrosoftAppType: process.env.MICROSOFT_APP_TENANT_ID ? 'SingleTenant' : 'MultiTenant'
+  });
+
+  botAdapter = new CloudAdapter(botFrameworkAuthentication);
+
+  // Manejo de errores del adapter
+  botAdapter.onTurnError = async (context, error) => {
+    console.error(`[onTurnError] Error: ${error}`);
+    console.error(error);
+    await context.sendActivity('Ocurrió un error. Por favor, intenta de nuevo.');
+  };
+} else {
+  console.warn('⚠️ Bot Framework credentials not configured. Teams bot functionality will be limited.');
+}
 
 // Ruta de health check
 app.get('/api/rpa/health', (req, res) => {
@@ -955,72 +978,66 @@ app.post('/api/update-agent-files', async (req, res) => {
 
 // Ruta para mensajes del bot de Teams (chat con asistente)
 app.post('/api/messages', async (req, res) => {
-  try {
-    console.log('📩 Mensaje recibido del bot de Teams');
-    
-    // Validar que el body tenga la estructura esperada
-    if (!req.body || !req.body.text) {
-      return res.status(400).json({
-        type: 'message',
-        text: 'No se recibió un mensaje válido. Por favor, envía un mensaje de texto.'
-      });
-    }
-
-    // Extraer mensaje del usuario
-    const userMessage = req.body.text;
-    console.log(`💬 Mensaje del usuario: "${userMessage}"`);
-
-    // Extraer identificador del usuario
-    let userId;
-    try {
-      userId = extractUserIdentifier(req.body);
-      console.log(`👤 Usuario identificado: ${userId}`);
-    } catch (error) {
-      console.error('❌ Error extrayendo identificador de usuario:', error.message);
-      return res.status(400).json({
-        type: 'message',
-        text: 'No se pudo identificar al usuario. Por favor, intenta de nuevo.'
-      });
-    }
-
-    // Obtener o crear thread para el usuario
-    let threadId;
-    try {
-      threadId = await getOrCreateThread(userId);
-      console.log(`🧵 Thread ID: ${threadId}`);
-    } catch (error) {
-      console.error('❌ Error obteniendo/creando thread:', error.message);
-      return res.status(500).json({
-        type: 'message',
-        text: 'Hubo un problema al iniciar la conversación. Por favor, intenta de nuevo más tarde.'
-      });
-    }
-
-    // Enviar mensaje al asistente y obtener respuesta
-    let assistantResponse;
-    try {
-      assistantResponse = await sendMessageToAssistant(userMessage, threadId);
-    } catch (error) {
-      console.error('❌ Error enviando mensaje al asistente:', error.message);
-      return res.status(500).json({
-        type: 'message',
-        text: 'Hubo un problema al procesar tu mensaje. Por favor, intenta de nuevo más tarde.'
-      });
-    }
-
-    // Retornar respuesta en formato compatible con Bot Framework
-    res.json({
-      type: 'message',
-      text: assistantResponse
-    });
-
-  } catch (error) {
-    console.error('❌ Error no manejado en /api/messages:', error);
-    res.status(500).json({
-      type: 'message',
-      text: 'Ocurrió un error inesperado. Por favor, intenta de nuevo más tarde.'
+  if (!botAdapter) {
+    return res.status(503).json({
+      error: 'Bot Framework Adapter not configured. Please set MICROSOFT_APP_ID and MICROSOFT_APP_PASSWORD environment variables.'
     });
   }
+
+  await botAdapter.process(req, res, async (context) => {
+    try {
+      console.log('📩 Mensaje recibido del bot de Teams');
+      
+      // Validar que el activity tenga texto
+      if (!context.activity || !context.activity.text) {
+        await context.sendActivity('No se recibió un mensaje válido. Por favor, envía un mensaje de texto.');
+        return;
+      }
+
+      // Extraer mensaje del usuario
+      const userMessage = context.activity.text;
+      console.log(`💬 Mensaje del usuario: "${userMessage}"`);
+
+      // Extraer identificador del usuario
+      let userId;
+      try {
+        userId = extractUserIdentifier(context.activity);
+        console.log(`👤 Usuario identificado: ${userId}`);
+      } catch (error) {
+        console.error('❌ Error extrayendo identificador de usuario:', error.message);
+        await context.sendActivity('No se pudo identificar al usuario. Por favor, intenta de nuevo.');
+        return;
+      }
+
+      // Obtener o crear thread para el usuario
+      let threadId;
+      try {
+        threadId = await getOrCreateThread(userId);
+        console.log(`🧵 Thread ID: ${threadId}`);
+      } catch (error) {
+        console.error('❌ Error obteniendo/creando thread:', error.message);
+        await context.sendActivity('Hubo un problema al iniciar la conversación. Por favor, intenta de nuevo más tarde.');
+        return;
+      }
+
+      // Enviar mensaje al asistente y obtener respuesta
+      let assistantResponse;
+      try {
+        assistantResponse = await sendMessageToAssistant(userMessage, threadId);
+      } catch (error) {
+        console.error('❌ Error enviando mensaje al asistente:', error.message);
+        await context.sendActivity('Hubo un problema al procesar tu mensaje. Por favor, intenta de nuevo más tarde.');
+        return;
+      }
+
+      // Enviar respuesta usando el adapter
+      await context.sendActivity(assistantResponse);
+
+    } catch (error) {
+      console.error('❌ Error no manejado en /api/messages:', error);
+      await context.sendActivity('Ocurrió un error inesperado. Por favor, intenta de nuevo más tarde.');
+    }
+  });
 });
 
 // Manejo de errores global
