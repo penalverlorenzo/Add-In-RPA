@@ -97,7 +97,10 @@ jobs:
                 AZURE_OPENAI_IMAGE_EXTRACTOR_API_ENDPOINT="${{ secrets.AZURE_OPENAI_IMAGE_EXTRACTOR_API_ENDPOINT }}" \
                 AZURE_CLIENT_SECRET="${{ secrets.AZURE_CLIENT_SECRET }}" \
                 AZURE_OPENAI_IMAGE_EXTRACTOR_API_DEPLOYMENT="${{ secrets.AZURE_OPENAI_IMAGE_EXTRACTOR_API_DEPLOYMENT }}" \
+                MICROSOFT_APP_ID="${{ secrets.MICROSOFT_APP_ID }}" \
+                MICROSOFT_APP_PASSWORD="${{ secrets.MICROSOFT_APP_PASSWORD }}" \
                 AZURE_OPENAI_DEPLOYMENT="${{ secrets.AZURE_OPENAI_DEPLOYMENT }}" \
+                MICROSOFT_APP_TENANT_ID="${{ secrets.MICROSOFT_APP_TENANT_ID }}" \
                 AZURE_OPENAI_ENDPOINT="${{ secrets.AZURE_OPENAI_ENDPOINT }}" \
                 COSMOS_DB_ENDPOINT="${{ secrets.COSMOS_DB_ENDPOINT }}" \
                 COSMOS_DB_DATABASE_ID="${{ secrets.COSMOS_DB_DATABASE_ID }}" \
