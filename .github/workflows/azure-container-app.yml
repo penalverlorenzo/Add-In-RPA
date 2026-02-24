@@ -89,6 +89,8 @@ jobs:
                 ITRAFFIC_USER="${{ secrets.ITRAFFIC_USER }}" \
                 ITRAFFIC_PASSWORD="${{ secrets.ITRAFFIC_PASSWORD }}" \
                 NODE_ENV="${{ secrets.NODE_ENV }}" \
+                AZURE_OPENAI_VECTOR_STORE_ID="${{ secrets.AZURE_OPENAI_VECTOR_STORE_ID }}" \
+                AZURE_OPENAI_ASSISTANT_ID="${{ secrets.AZURE_OPENAI_ASSISTANT_ID }}" \
                 AZURE_CLIENT_ID="${{ secrets.AZURE_CLIENT_ID }}" \
                 AZURE_TENANT_ID="${{ secrets.AZURE_TENANT_ID }}" \
                 AZURE_OPENAI_IMAGE_EXTRACTOR_API_KEY="${{ secrets.AZURE_OPENAI_IMAGE_EXTRACTOR_API_KEY }}" \
