@@ -71,7 +71,7 @@ export async function getOrCreateThread(userId) {
     // Verify thread still exists in Azure OpenAI
     const client = createClient();
     try {
-      await client.threads.retrieve(existingChat.threadId);
+      await client.beta.threads.retrieve(existingChat.threadId);
       return existingChat.threadId;
     } catch (error) {
       console.warn(`⚠️ Thread ${existingChat.threadId} no existe en Azure OpenAI, creando uno nuevo...`);
@@ -84,7 +84,7 @@ export async function getOrCreateThread(userId) {
   const client = createClient();
   
   try {
-    const thread = await client.threads.create();
+    const thread = await client.beta.threads.create();
     console.log(`✅ Thread creado: ${thread.id}`);
 
     // Save to database
@@ -116,7 +116,7 @@ async function waitForRunCompletion(client, threadId, runId, maxWaitTime = 60000
   const pollInterval = 1000; // 1 second
 
   while (Date.now() - startTime < maxWaitTime) {
-    const run = await client.threads.runs.retrieve(threadId, runId);
+    const run = await client.beta.threads.runs.retrieve(threadId, runId);
     
     if (run.status === 'completed') {
       return run;
@@ -147,14 +147,14 @@ export async function sendMessageToAssistant(userMessage, threadId) {
   try {
     // Add user message to thread
     console.log(`📤 Agregando mensaje al thread ${threadId}...`);
-    await client.threads.messages.create(threadId, {
+    await client.beta.threads.create(threadId, {
       role: 'user',
       content: userMessage
     });
 
     // Create a run to process the message
     console.log(`🚀 Creando run del asistente...`);
-    const run = await client.threads.runs.create(threadId, {
+    const run = await client.beta.threads.runs.create(threadId, {
       assistant_id: assistantId
     });
 
@@ -165,7 +165,7 @@ export async function sendMessageToAssistant(userMessage, threadId) {
 
     // Get the latest messages from the thread
     console.log(`📥 Obteniendo mensajes del thread...`);
-    const messages = await client.threads.messages.list(threadId, {
+    const messages = await client.beta.threads.messages.list(threadId, {
       limit: 1
     });
 
