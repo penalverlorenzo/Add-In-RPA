@@ -12,6 +12,7 @@ import { fileURLToPath } from 'url';
 import multer from 'multer';
 import { extractReservationData, calculateQualityScore } from '../services/extractionService.js';
 import masterDataService from '../services/mysqlMasterDataService.js';
+import { updateAgentFiles } from '../services/agentFileService.js';
 import config from '../config/index.js';
 
 // ES Modules equivalent of __dirname
@@ -924,6 +925,33 @@ app.post('/api/rpa/edit-reservation', async (req, res) => {
   }
 });
 
+// Ruta para actualizar archivos del agente
+app.post('/api/update-agent-files', async (req, res) => {
+  try {
+    console.log('📥 Petición recibida para actualizar archivos del agente');
+    
+    const result = await updateAgentFiles(req.body);
+
+    res.json({
+      success: true,
+      message: 'Archivos del agente actualizados exitosamente',
+      data: result
+    });
+
+  } catch (error) {
+    console.error('❌ Error al actualizar archivos del agente:', error);
+    
+    // Determine status code based on error type
+    const statusCode = error.message.includes('requerido') || error.message.includes('debe ser') ? 400 : 500;
+    
+    res.status(statusCode).json({
+      success: false,
+      error: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
+});
+
 // Manejo de errores global
 app.use((error, req, res, next) => {
   console.error('Error no manejado:', error);
@@ -945,6 +973,8 @@ loadRpaService().then(() => {
     console.log(`   - POST /api/extract`);
     console.log(`   - POST /api/extract/update`);
     console.log(`   - POST /api/rpa/create-reservation`);
+    console.log(`   - POST /api/rpa/edit-reservation`);
+    console.log(`   - POST /api/update-agent-files`);
   });
 }).catch(error => {
   console.error('❌ Error al iniciar servidor:', error);

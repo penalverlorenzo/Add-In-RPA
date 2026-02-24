@@ -27,6 +27,16 @@ export default {
         endpoint: process.env.AZURE_COMPUTER_VISION_ENDPOINT
     },
 
+    // Azure AI Foundry Assistant Configuration
+    assistant: {
+        assistantId: process.env.AZURE_OPENAI_ASSISTANT_ID,
+        vectorStoreId: process.env.AZURE_OPENAI_VECTOR_STORE_ID,
+        // Uses the same endpoint and API key as config.openai
+        apiKey: process.env.AZURE_OPENAI_API_KEY,
+        endpoint: process.env.AZURE_OPENAI_ENDPOINT,
+        apiVersion: '2024-08-01-preview'
+    },
+
     // Server Configuration
     server: {
         port: process.env.PORT || 3001,
