@@ -147,7 +147,7 @@ export async function sendMessageToAssistant(userMessage, threadId) {
   try {
     // Add user message to thread
     console.log(`📤 Agregando mensaje al thread ${threadId}...`);
-    await client.beta.threads.create(threadId, {
+    await client.beta.threads.messages.create(threadId, {
       role: 'user',
       content: userMessage
     });
