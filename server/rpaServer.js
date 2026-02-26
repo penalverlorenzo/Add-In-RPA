@@ -978,6 +978,7 @@ app.post('/api/update-agent-files', async (req, res) => {
 
 // Ruta para mensajes del bot de Teams (chat con asistente)
 app.post('/api/messages', async (req, res) => {
+  console.log("Body: ", req.body)
   if (!botAdapter) {
     return res.status(503).json({
       error: 'Bot Framework Adapter not configured. Please set MICROSOFT_APP_ID and MICROSOFT_APP_PASSWORD environment variables.'
