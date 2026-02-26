@@ -85,28 +85,6 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Bot Framework Adapter configuration
-let botAdapter = null;
-if (process.env.MICROSOFT_APP_ID && process.env.MICROSOFT_APP_PASSWORD) {
-  const botFrameworkAuthentication = new ConfigurationBotFrameworkAuthentication({
-    MicrosoftAppId: process.env.MICROSOFT_APP_ID,
-    MicrosoftAppPassword: process.env.MICROSOFT_APP_PASSWORD,
-    MicrosoftAppTenantId: process.env.MICROSOFT_APP_TENANT_ID,
-    MicrosoftAppType: process.env.MICROSOFT_APP_TENANT_ID ? 'SingleTenant' : 'MultiTenant'
-  });
-
-  botAdapter = new CloudAdapter(botFrameworkAuthentication);
-
-  // Manejo de errores del adapter
-  botAdapter.onTurnError = async (context, error) => {
-    console.error(`[onTurnError] Error: ${error}`);
-    console.error(error);
-    await context.sendActivity('Ocurrió un error. Por favor, intenta de nuevo.');
-  };
-} else {
-  console.warn('⚠️ Bot Framework credentials not configured. Teams bot functionality will be limited.');
-}
-
 // Ruta de health check
 app.get('/api/rpa/health', (req, res) => {
   res.json({ 
@@ -976,26 +954,41 @@ app.post('/api/update-agent-files', async (req, res) => {
   }
 });
 
+// Configuración del Bot Framework Adapter para Teams
+let botAdapter = null;
+function initializeBotAdapter() {
+  if (!botAdapter) {
+    const botFrameworkAuthentication = new ConfigurationBotFrameworkAuthentication({
+      MicrosoftAppId: process.env.MICROSOFT_APP_ID,
+      MicrosoftAppPassword: process.env.MICROSOFT_APP_PASSWORD,
+      MicrosoftAppTenantId: process.env.MICROSOFT_APP_TENANT_ID,
+      MicrosoftAppType: 'SingleTenant'
+    });
+
+    botAdapter = new CloudAdapter(botFrameworkAuthentication);
+
+    // Manejo de errores del adapter
+    botAdapter.onTurnError = async (context, error) => {
+      console.error('[onTurnError] Error:', error);
+      console.error(error);
+      await context.sendActivity('Ocurrió un error. Por favor, intenta de nuevo.');
+    };
+  }
+  return botAdapter;
+}
+
 // Ruta para mensajes del bot de Teams (chat con asistente)
 app.post('/api/messages', async (req, res) => {
-  console.log("Body: ", req.body)
-  if (!botAdapter) {
-    return res.status(503).json({
-      error: 'Bot Framework Adapter not configured. Please set MICROSOFT_APP_ID and MICROSOFT_APP_PASSWORD environment variables.'
-    });
-  }
-
-  await botAdapter.process(req, res, async (context) => {
+  const adapter = initializeBotAdapter();
+  
+  await adapter.process(req, res, async (context) => {
     try {
-      console.log('📩 Mensaje recibido del bot de Teams');
-      
-      // Validar que el activity tenga texto
-      if (!context.activity || !context.activity.text) {
-        await context.sendActivity('No se recibió un mensaje válido. Por favor, envía un mensaje de texto.');
+      // Solo procesar mensajes de texto
+      if (context.activity.type !== 'message' || !context.activity.text) {
         return;
       }
 
-      // Extraer mensaje del usuario
+      console.log('📩 Mensaje recibido del bot de Teams');
       const userMessage = context.activity.text;
       console.log(`💬 Mensaje del usuario: "${userMessage}"`);
 
@@ -1024,14 +1017,14 @@ app.post('/api/messages', async (req, res) => {
       // Enviar mensaje al asistente y obtener respuesta
       let assistantResponse;
       try {
-        assistantResponse = await sendMessageToAssistant(userMessage, threadId, userId);
+        assistantResponse = await sendMessageToAssistant(userMessage, threadId);
       } catch (error) {
         console.error('❌ Error enviando mensaje al asistente:', error.message);
         await context.sendActivity('Hubo un problema al procesar tu mensaje. Por favor, intenta de nuevo más tarde.');
         return;
       }
 
-      // Enviar respuesta usando el adapter
+      // Enviar respuesta usando el contexto del adapter
       await context.sendActivity(assistantResponse);
 
     } catch (error) {
