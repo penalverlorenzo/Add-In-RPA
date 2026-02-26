@@ -1,6 +1,8 @@
 /**
  * Assistant Chat Service - Manages conversations with Azure OpenAI Assistant
- * Handles thread creation, message sending, and response retrieval
+ * Uses the new Responses API (responses.create) which is the recommended approach
+ * This API automatically adds messages, executes the model, and returns responses directly
+ * No manual polling required - much faster and simpler than the deprecated Threads API
  */
 
 import { AzureOpenAI } from 'openai';
@@ -55,136 +57,140 @@ export function extractUserIdentifier(activity) {
 }
 
 /**
- * Gets existing thread or creates a new one for the user
+ * Gets existing conversation or creates a new one for the user
+ * Uses the new Conversations API
  * @param {string} userId - User identifier (aadObjectId)
- * @returns {Promise<string>} Thread ID
+ * @returns {Promise<string>} Conversation ID
  */
 export async function getOrCreateThread(userId) {
   validateConfiguration();
+  const client = createClient();
 
-  // Check if user already has a thread in database
+  // Check if user already has a conversation in database
   const existingChat = await masterDataService.getTeamsChatByUserId(userId);
   
   if (existingChat && existingChat.threadId) {
-    console.log(`✅ Thread encontrado para userId: ${userId}, threadId: ${existingChat.threadId}`);
+    console.log(`✅ Conversación encontrada para userId: ${userId}, conversationId: ${existingChat.threadId}`);
     
-    // Verify thread still exists in Azure OpenAI
-    const client = createClient();
+    // Verify conversation still exists in Azure OpenAI using the Conversations API
     try {
-      await client.beta.threads.retrieve(existingChat.threadId);
-      return existingChat.threadId;
-    } catch (error) {
-      console.warn(`⚠️ Thread ${existingChat.threadId} no existe en Azure OpenAI, creando uno nuevo...`);
-      // Thread was deleted in Azure OpenAI, create a new one
+      const response = await fetch(`${config.assistant.endpoint}/conversations/${existingChat.threadId}`, {
+        method: 'GET',
+        headers: {
+          'api-key': config.assistant.apiKey,
+          'Content-Type': 'application/json'
+        }
+      });
+      if (response.ok) {
+        return existingChat.threadId;
+      } else {
+        console.warn(`⚠️ Conversación ${existingChat.threadId} no existe en Azure OpenAI, creando una nueva...`);
+      }
+    } catch (fetchError) {
+      console.warn(`⚠️ Error verificando conversación ${existingChat.threadId}, creando una nueva...`);
     }
   }
 
-  // Create new thread in Azure OpenAI
-  console.log(`🆕 Creando nuevo thread para userId: ${userId}...`);
-  const client = createClient();
+  // Create new conversation in Azure OpenAI using the Conversations API
+  console.log(`🆕 Creando nueva conversación para userId: ${userId}...`);
   
   try {
-    const thread = await client.beta.threads.create();
-    console.log(`✅ Thread creado: ${thread.id}`);
+    // Use fetch for the Conversations API as the SDK may not support it yet
+    const response = await fetch(`${config.assistant.endpoint}/conversations`, {
+      method: 'POST',
+      headers: {
+        'api-key': config.assistant.apiKey,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({})
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to create conversation: ${errorText}`);
+    }
+
+    const conversation = await response.json();
+    const conversationId = conversation.id;
+    console.log(`✅ Conversación creada: ${conversationId}`);
 
     // Save to database
     if (existingChat) {
       // Update existing record
-      await masterDataService.updateTeamsChatThread(userId, thread.id);
+      await masterDataService.updateTeamsChatThread(userId, conversationId);
     } else {
       // Create new record
-      await masterDataService.createTeamsChat(userId, thread.id);
+      await masterDataService.createTeamsChat(userId, conversationId);
     }
 
-    return thread.id;
+    return conversationId;
   } catch (error) {
-    console.error('❌ Error creating thread:', error.message);
-    throw new Error(`Error al crear thread: ${error.message}`);
+    console.error('❌ Error creating conversation:', error.message);
+    throw new Error(`Error al crear conversación: ${error.message}`);
   }
-}
-
-/**
- * Waits for a run to complete by polling
- * @param {AzureOpenAI} client - Azure OpenAI client
- * @param {string} threadId - Thread ID
- * @param {string} runId - Run ID
- * @param {number} maxWaitTime - Maximum time to wait in milliseconds (default: 60000)
- * @returns {Promise<Object>} Completed run object
- */
-async function waitForRunCompletion(client, threadId, runId, maxWaitTime = 60000) {
-  const startTime = Date.now();
-  const pollInterval = 1000; // 1 second
-
-  while (Date.now() - startTime < maxWaitTime) {
-    const run = await client.beta.threads.runs.retrieve(threadId, runId);
-    
-    if (run.status === 'completed') {
-      return run;
-    }
-    
-    if (run.status === 'failed' || run.status === 'cancelled' || run.status === 'expired') {
-      throw new Error(`Run ${run.status}: ${run.last_error?.message || 'Unknown error'}`);
-    }
-
-    // Wait before next poll
-    await new Promise(resolve => setTimeout(resolve, pollInterval));
-  }
-
-  throw new Error('Run timeout: The assistant took too long to respond');
 }
 
 /**
  * Sends a message to the assistant and gets the response
+ * Uses the new Responses API (responses.create) which is the recommended approach
+ * This API automatically adds the message, executes the model, and returns the response directly
  * @param {string} userMessage - User's message
- * @param {string} threadId - Thread ID
+ * @param {string} conversationId - Conversation ID (previously threadId)
  * @returns {Promise<string>} Assistant's response
  */
-export async function sendMessageToAssistant(userMessage, threadId) {
+export async function sendMessageToAssistant(userMessage, conversationId) {
   validateConfiguration();
   const client = createClient();
-  const assistantId = config.assistant.assistantId;
 
   try {
-    // Add user message to thread
-    console.log(`📤 Agregando mensaje al thread ${threadId}...`);
-    await client.beta.threads.messages.create(threadId, {
-      role: 'user',
-      content: userMessage
-    });
-
-    // Create a run to process the message
-    console.log(`🚀 Creando run del asistente...`);
-    const run = await client.beta.threads.runs.create(threadId, {
-      assistant_id: assistantId
-    });
-
-    console.log(`⏳ Esperando respuesta del asistente (runId: ${run.id})...`);
+    console.log(`📤 Enviando mensaje a la conversación ${conversationId}...`);
     
-    // Wait for run to complete
-    await waitForRunCompletion(client, threadId, run.id);
-
-    // Get the latest messages from the thread
-    console.log(`📥 Obteniendo mensajes del thread...`);
-    const messages = await client.beta.threads.messages.list(threadId, {
-      limit: 1
+    // Use responses.create - this is the recommended approach
+    // It automatically adds the message, executes the model, and returns the response
+    // No polling needed - the response comes directly in the API call
+    const response = await client.responses.create({
+      model: config.openai.deployment || 'gpt-4o-mini',
+      conversation: conversationId,
+      input: userMessage, // Simple string input - the API handles the message format
+      assistant_id: config.assistant.assistantId
     });
 
-    // The first message should be the assistant's response
-    const assistantMessage = messages.data[0];
-    
-    if (!assistantMessage || assistantMessage.role !== 'assistant') {
-      throw new Error('No se recibió respuesta del asistente');
+    // Extract the response text - according to ChatGPT, response.output_text should be available directly
+    if (response.output_text) {
+      console.log(`✅ Respuesta recibida del asistente (${response.output_text.length} caracteres)`);
+      return response.output_text;
     }
 
-    // Extract text content from the message
-    const content = assistantMessage.content[0];
-    if (content.type === 'text') {
-      const responseText = content.text.value;
-      console.log(`✅ Respuesta recibida del asistente (${responseText.length} caracteres)`);
-      return responseText;
-    } else {
-      throw new Error('Respuesta del asistente no es de tipo texto');
+    // Fallback: try to extract from output array if output_text is not available
+    if (response.output && Array.isArray(response.output)) {
+      const assistantMessage = response.output.find(item => 
+        item.type === 'message' && 
+        item.role === 'assistant'
+      );
+
+      if (assistantMessage && assistantMessage.content) {
+        const content = Array.isArray(assistantMessage.content) 
+          ? assistantMessage.content 
+          : [assistantMessage.content];
+        
+        const textContent = content.find(c => 
+          c.type === 'output_text' || 
+          c.type === 'text' ||
+          (typeof c === 'string')
+        );
+
+        if (textContent) {
+          const responseText = typeof textContent === 'string' 
+            ? textContent 
+            : (textContent.text || textContent.value);
+          
+          console.log(`✅ Respuesta recibida del asistente (${responseText.length} caracteres)`);
+          return responseText;
+        }
+      }
     }
+
+    throw new Error('No se pudo extraer la respuesta del asistente del formato de respuesta');
   } catch (error) {
     console.error('❌ Error sending message to assistant:', error.message);
     throw error;
