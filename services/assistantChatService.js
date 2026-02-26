@@ -57,103 +57,73 @@ export function extractUserIdentifier(activity) {
 }
 
 /**
- * Gets existing conversation or creates a new one for the user
- * Uses the new Conversations API
+ * Gets the previous response ID for the user (if exists)
+ * Uses previous_response_id to maintain conversation context
  * @param {string} userId - User identifier (aadObjectId)
- * @returns {Promise<string>} Conversation ID
+ * @returns {Promise<string|null>} Previous response ID or null if this is the first message
  */
 export async function getOrCreateThread(userId) {
-  validateConfiguration();
-  const client = createClient();
-
-  // Check if user already has a conversation in database
+  // Check if user already has a previous response ID in database
   const existingChat = await masterDataService.getTeamsChatByUserId(userId);
   
   if (existingChat && existingChat.threadId) {
-    console.log(`✅ Conversación encontrada para userId: ${userId}, conversationId: ${existingChat.threadId}`);
-    
-    // Verify conversation still exists in Azure OpenAI using the Conversations API
-    try {
-      const response = await fetch(`${config.assistant.endpoint}/conversations/${existingChat.threadId}`, {
-        method: 'GET',
-        headers: {
-          'api-key': config.assistant.apiKey,
-          'Content-Type': 'application/json'
-        }
-      });
-      if (response.ok) {
-        return existingChat.threadId;
-      } else {
-        console.warn(`⚠️ Conversación ${existingChat.threadId} no existe en Azure OpenAI, creando una nueva...`);
-      }
-    } catch (fetchError) {
-      console.warn(`⚠️ Error verificando conversación ${existingChat.threadId}, creando una nueva...`);
-    }
+    console.log(`✅ Response ID anterior encontrado para userId: ${userId}, previousResponseId: ${existingChat.threadId}`);
+    return existingChat.threadId; // This is the previous response ID
   }
 
-  // Create new conversation in Azure OpenAI using the Conversations API
-  console.log(`🆕 Creando nueva conversación para userId: ${userId}...`);
-  
-  try {
-    // Use fetch for the Conversations API as the SDK may not support it yet
-    const response = await fetch(`${config.assistant.endpoint}/conversations`, {
-      method: 'POST',
-      headers: {
-        'api-key': config.assistant.apiKey,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({})
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Failed to create conversation: ${errorText}`);
-    }
-
-    const conversation = await response.json();
-    const conversationId = conversation.id;
-    console.log(`✅ Conversación creada: ${conversationId}`);
-
-    // Save to database
-    if (existingChat) {
-      // Update existing record
-      await masterDataService.updateTeamsChatThread(userId, conversationId);
-    } else {
-      // Create new record
-      await masterDataService.createTeamsChat(userId, conversationId);
-    }
-
-    return conversationId;
-  } catch (error) {
-    console.error('❌ Error creating conversation:', error.message);
-    throw new Error(`Error al crear conversación: ${error.message}`);
-  }
+  // No previous response - this will be the first message in the conversation
+  console.log(`🆕 Primera conversación para userId: ${userId} - no hay response anterior`);
+  return null;
 }
 
 /**
  * Sends a message to the assistant and gets the response
- * Uses the new Responses API (responses.create) which is the recommended approach
+ * Uses the new Responses API (responses.create) with previous_response_id to maintain context
  * This API automatically adds the message, executes the model, and returns the response directly
  * @param {string} userMessage - User's message
- * @param {string} conversationId - Conversation ID (previously threadId)
+ * @param {string|null} previousResponseId - Previous response ID (null for first message)
+ * @param {string} userId - User identifier (needed to save the new response ID)
  * @returns {Promise<string>} Assistant's response
  */
-export async function sendMessageToAssistant(userMessage, conversationId) {
+export async function sendMessageToAssistant(userMessage, previousResponseId, userId) {
   validateConfiguration();
   const client = createClient();
 
   try {
-    console.log(`📤 Enviando mensaje a la conversación ${conversationId}...`);
+    if (previousResponseId) {
+      console.log(`📤 Enviando mensaje con contexto (previousResponseId: ${previousResponseId})...`);
+    } else {
+      console.log(`📤 Enviando primer mensaje (sin contexto previo)...`);
+    }
     
+    // Build the request parameters
+    const requestParams = {
+      model: config.openai.deployment || 'gpt-4o-mini',
+      input: userMessage, // Simple string input - the API handles the message format
+      assistant_id: config.assistant.assistantId
+    };
+
+    // Add previous_response_id only if we have one (for conversation context)
+    if (previousResponseId) {
+      requestParams.previous_response_id = previousResponseId;
+    }
+
     // Use responses.create - this is the recommended approach
     // It automatically adds the message, executes the model, and returns the response
     // No polling needed - the response comes directly in the API call
-    const response = await client.responses.create({
-      model: config.openai.deployment || 'gpt-4o-mini',
-      conversation: conversationId,
-      input: userMessage, // Simple string input - the API handles the message format
-      assistant_id: config.assistant.assistantId
-    });
+    const response = await client.responses.create(requestParams);
+
+    // Save the new response ID to database for next time
+    const newResponseId = response.id;
+    if (newResponseId) {
+      const existingChat = await masterDataService.getTeamsChatByUserId(userId);
+      if (existingChat) {
+        await masterDataService.updateTeamsChatThread(userId, newResponseId);
+      } else {
+        await masterDataService.createTeamsChat(userId, newResponseId);
+      }
+      console.log(`💾 Response ID guardado: ${newResponseId}`);
+    }
 
     // Extract the response text - according to ChatGPT, response.output_text should be available directly
     if (response.output_text) {
