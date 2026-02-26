@@ -15,6 +15,7 @@ import { extractReservationData, calculateQualityScore } from '../services/extra
 import masterDataService from '../services/mysqlMasterDataService.js';
 import { updateAgentFiles } from '../services/agentFileService.js';
 import { extractUserIdentifier, getOrCreateThread, sendMessageToAssistant } from '../services/assistantChatService.js';
+import { sendMessageToAgent, getOrCreateAgentThread } from '../services/agentChatService.js';
 import config from '../config/index.js';
 
 // ES Modules equivalent of __dirname
@@ -50,12 +51,12 @@ if (isProduction) {
   
   if (missing.length > 0) {
     const missingNames = missing.map(m => m.name).join(', ');
-    console.error(`❌ Faltan variables de entorno requeridas: ${missingNames}`);
+    console.error(`:x: Faltan variables de entorno requeridas: ${missingNames}`);
     process.exit(1);
   }
   
-  console.log('✅ Configuración validada correctamente');
-  console.log(`📊 MySQL configurado: ${config.mysql.host}:${config.mysql.port}/${config.mysql.database}`);
+  console.log(':white_check_mark: Configuración validada correctamente');
+  console.log(`:bar_chart: MySQL configurado: ${config.mysql.host}:${config.mysql.port}/${config.mysql.database}`);
 }
 
 // Función para importar dinámicamente el RPA (ES modules)
@@ -65,12 +66,12 @@ async function loadRpaService() {
     // Importar desde la carpeta rpa local del proyecto
     const rpaPath = path.join(__dirname, '..', 'rpa', 'rpaService.js');
     
-    console.log('🔄 Intentando cargar módulo RPA desde:', rpaPath);
+    console.log(':arrows_counterclockwise: Intentando cargar módulo RPA desde:', rpaPath);
     const rpaModule = await import('../rpa/rpaService.js');
     runRpa = rpaModule.runRpa;
-    console.log('✅ Módulo RPA cargado exitosamente');
+    console.log(':white_check_mark: Módulo RPA cargado exitosamente');
   } catch (error) {
-    console.error('❌ Error al cargar módulo RPA:', error.message);
+    console.error(':x: Error al cargar módulo RPA:', error.message);
     console.error('   Stack:', error.stack);
   }
 }
@@ -99,7 +100,7 @@ app.get('/api/rpa/health', (req, res) => {
 // Ruta para obtener datos maestros
 app.get('/api/master-data', async (req, res) => {
   try {
-    console.log('📋 Obteniendo datos maestros...');
+    console.log(':clipboard: Obteniendo datos maestros...');
     
     const [sellers, clients, statuses, reservationTypes, genders, documentTypes, countries] = await Promise.all([
       masterDataService.getAllSellers(),
@@ -143,7 +144,7 @@ app.get('/api/master-data', async (req, res) => {
       }))
     };
     
-    console.log(`✅ Datos maestros obtenidos: ${sellers.length} vendedores, ${clients.length} clientes, ${countries.length} países`);
+    console.log(`:white_check_mark: Datos maestros obtenidos: ${sellers.length} vendedores, ${clients.length} clientes, ${countries.length} países`);
     
     res.json({
       success: true,
@@ -151,7 +152,7 @@ app.get('/api/master-data', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Error obteniendo datos maestros:', error);
+    console.error(':x: Error obteniendo datos maestros:', error);
     
     res.status(500).json({
       success: false,
@@ -169,7 +170,7 @@ const handleExtractRequest = async (req, res, next) => {
     // Usar multer para procesar FormData
     upload.fields([{ name: 'images', maxCount: 20 }])(req, res, (err) => {
       if (err) {
-        console.error('❌ Error procesando FormData:', err.message);
+        console.error(':x: Error procesando FormData:', err.message);
         return res.status(400).json({
           success: false,
           error: `Error procesando FormData: ${err.message}`
@@ -186,7 +187,7 @@ const handleExtractRequest = async (req, res, next) => {
 // Ruta para extraer datos del email con IA
 app.post('/api/extract', handleExtractRequest, async (req, res) => {
   try {
-    console.log('🤖 Petición recibida para extracción con IA');
+    console.log(':robot_face: Petición recibida para extracción con IA');
     const startTime = Date.now();
     
     // Detectar formato de la petición
@@ -196,7 +197,7 @@ app.post('/api/extract', handleExtractRequest, async (req, res) => {
     
     if (isMultipart) {
       // Formato FormData
-      console.log('📦 Formato detectado: multipart/form-data');
+      console.log(':package: Formato detectado: multipart/form-data');
       emailContent = req.body.emailContent;
       userId = req.body.userId;
       conversationId = req.body.conversationId;
@@ -205,16 +206,16 @@ app.post('/api/extract', handleExtractRequest, async (req, res) => {
       // Extraer imágenes del campo "images" (puede ser múltiples archivos con el mismo nombre)
       if (req.files && req.files.images) {
         images = Array.isArray(req.files.images) ? req.files.images : [req.files.images];
-        console.log(`📷 Imágenes recibidas: ${images.length}`);
+        console.log(`:camera: Imágenes recibidas: ${images.length}`);
         images.forEach((img, index) => {
           console.log(`   Imagen ${index + 1}: ${img.originalname} (${img.mimetype}, ${img.size} bytes)`);
         });
       } else {
-        console.log('ℹ️ No se recibieron imágenes en el FormData');
+        console.log(':information_source: No se recibieron imágenes en el FormData');
       }
     } else {
       // Formato JSON
-      console.log('📦 Formato detectado: application/json');
+      console.log(':package: Formato detectado: application/json');
       emailContent = req.body.emailContent;
       userId = req.body.userId;
       conversationId = req.body.conversationId;
@@ -233,7 +234,7 @@ app.post('/api/extract', handleExtractRequest, async (req, res) => {
         user = await masterDataService.getUserByEmail(userId);
       }
     } catch (err) {
-      console.error('❌ Database error verifying user:', err.message);
+      console.error(':x: Database error verifying user:', err.message);
       console.error('   Error details:', err);
       throw new Error(`Database error verifying user: ${err.message}`);
     }
@@ -250,7 +251,7 @@ app.post('/api/extract', handleExtractRequest, async (req, res) => {
     throw error;
   }
 
-  console.log(`✅ User authorized: ${user.email} ${req?.body?.conversationId || 'no conversation id'}`);
+  console.log(`:white_check_mark: User authorized: ${user.email} ${req?.body?.conversationId || 'no conversation id'}`);
     // Validar que se recibió contenido del email
     if (!emailContent || emailContent.trim().length < 50) {
       return res.status(400).json({
@@ -259,7 +260,7 @@ app.post('/api/extract', handleExtractRequest, async (req, res) => {
       });
     }
     
-    console.log(`📧 Extrayendo datos del email (${emailContent.length} caracteres)...`);
+    console.log(`:e-mail: Extrayendo datos del email (${emailContent.length} caracteres)...`);
     const extraction = await masterDataService.getExtractionByConversationId(conversationId);
     
     // Buscar si existe una reserva creada para este conversationId
@@ -267,10 +268,10 @@ app.post('/api/extract', handleExtractRequest, async (req, res) => {
     const doesReservationExist = !!(reservation && reservation.code);
     
     if (extraction && !isReExtract) {
-      console.log('✅ Extracción encontrada para la conversación:', extraction.id);
+      console.log(':white_check_mark: Extracción encontrada para la conversación:', extraction.id);
       
       if (doesReservationExist) {
-        console.log(`📋 Reserva encontrada con código: ${reservation.code}`);
+        console.log(`:clipboard: Reserva encontrada con código: ${reservation.code}`);
         extraction.reservationCode = reservation.code;
       }
       
@@ -303,7 +304,7 @@ app.post('/api/extract', handleExtractRequest, async (req, res) => {
       countries: countries.map(c => c.name)
     };
     const processingTimeMs = Date.now() - startTime;
-    console.log('📋 Datos maestros obtenidos para contexto de IA');
+    console.log(':clipboard: Datos maestros obtenidos para contexto de IA');
     // Extraer datos con IA, pasando los datos maestros como contexto y las imágenes si están disponibles
     const extractedData = await extractReservationData(emailContent, userId || 'outlook-user', masterData, conversationId, images);
     const qualityScore = calculateQualityScore(extractedData);
@@ -323,14 +324,14 @@ app.post('/api/extract', handleExtractRequest, async (req, res) => {
       processingTimeMs
     });
     
-    console.log('✅ Extracción completada exitosamente');
+    console.log(':white_check_mark: Extracción completada exitosamente');
     console.log(`   Pasajeros extraídos: ${extractedData.passengers?.length || 0}`);
     
     // Si existe una reserva, agregar el código a los datos extraídos
     let finalDoesReservationExist = doesReservationExist;
     
     if (doesReservationExist) {
-      console.log(`📋 Reserva encontrada en BD con código: ${reservation.code}`);
+      console.log(`:clipboard: Reserva encontrada en BD con código: ${reservation.code}`);
       
       // Verificar que el código sigue siendo válido en iTraffic
       // Solo hacer verificación si estamos en modo producción o si se solicita explícitamente
@@ -339,7 +340,7 @@ app.post('/api/extract', handleExtractRequest, async (req, res) => {
       
       if (shouldVerify) {
         try {
-          console.log(`🔍 Verificando validez del código de reserva: ${reservation.code}`);
+          console.log(`:mag: Verificando validez del código de reserva: ${reservation.code}`);
           // Crear una instancia temporal del browser para verificar el código
           const { createBrowser } = await import('../rpa/browser.js');
           const { loginITraffic } = await import('../rpa/login.js');
@@ -361,30 +362,30 @@ app.post('/api/extract', handleExtractRequest, async (req, res) => {
             const codeExists = await verifyReservationCodeExists(page, reservation.code);
             
             if (!codeExists) {
-              console.log(`❌ Código de reserva inválido: ${reservation.code} no existe en iTraffic`);
+              console.log(`:x: Código de reserva inválido: ${reservation.code} no existe en iTraffic`);
               // Eliminar el registro inválido de la BD
               await masterDataService.deleteReservationByConversationId(conversationId);
-              console.log(`🗑️ Registro inválido eliminado de reservations_history`);
+              console.log(`:wastebasket: Registro inválido eliminado de reservations_history`);
               // No agregar reservationCode a extractedData y actualizar doesReservationExist
               extractedData.reservationCode = null;
               finalDoesReservationExist = false;
             } else {
-              console.log(`✅ Código de reserva verificado: ${reservation.code} es válido`);
+              console.log(`:white_check_mark: Código de reserva verificado: ${reservation.code} es válido`);
               extractedData.reservationCode = reservation.code;
             }
             
             await browser.close();
           } catch (verifyError) {
             await browser.close();
-            console.error('❌ Error al verificar código de reserva:', verifyError.message);
+            console.error(':x: Error al verificar código de reserva:', verifyError.message);
             // Si falla la verificación, incluir el código de todas formas (puede ser un problema temporal)
-            console.log('⚠️ Incluyendo código a pesar del error de verificación');
+            console.log(':warning: Incluyendo código a pesar del error de verificación');
             extractedData.reservationCode = reservation.code;
           }
         } catch (browserError) {
-          console.error('❌ Error al crear browser para verificación:', browserError.message);
+          console.error(':x: Error al crear browser para verificación:', browserError.message);
           // Si no se puede crear el browser, incluir el código de todas formas
-          console.log('⚠️ Incluyendo código sin verificación');
+          console.log(':warning: Incluyendo código sin verificación');
           extractedData.reservationCode = reservation.code;
         }
       } else {
@@ -402,7 +403,7 @@ app.post('/api/extract', handleExtractRequest, async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Error en extracción:', error);
+    console.error(':x: Error en extracción:', error);
     
     res.status(500).json({
       success: false,
@@ -533,7 +534,7 @@ function transformFormDataToExtractionFormat(formData, originalData) {
 // Ruta para actualizar extracción
 app.post('/api/extract/update', async (req, res) => {
   try {
-    console.log('📥 Petición recibida para actualizar extracción');
+    console.log(':inbox_tray: Petición recibida para actualizar extracción');
     console.log('Datos recibidos:', JSON.stringify(req.body, null, 2));
     
     // Los datos pueden venir directamente o dentro de req.body.data
@@ -541,7 +542,7 @@ app.post('/api/extract/update', async (req, res) => {
     
     // Si los datos vienen dentro de un objeto con estructura { success, data, message }
     if (req.body.data && typeof req.body.data === 'object' && (req.body.data.passengers || req.body.data.cliente)) {
-      console.log('📦 Datos encontrados dentro de req.body.data, extrayendo...');
+      console.log(':package: Datos encontrados dentro de req.body.data, extrayendo...');
       formData = req.body.data;
     }
     
@@ -553,7 +554,7 @@ app.post('/api/extract/update', async (req, res) => {
       });
     }
     
-    console.log(`🔄 Actualizando extracción para conversationId: ${formData.conversationId}`);
+    console.log(`:arrows_counterclockwise: Actualizando extracción para conversationId: ${formData.conversationId}`);
     
     // Obtener la extracción original
     const originalExtraction = await masterDataService.getExtractionByConversationId(formData.conversationId);
@@ -565,14 +566,14 @@ app.post('/api/extract/update', async (req, res) => {
       });
     }
     
-    console.log('📋 Extracción original encontrada, transformando datos...');
+    console.log(':clipboard: Extracción original encontrada, transformando datos...');
     
     // Transformar los datos del formulario al formato de extracción
     const transformedData = transformFormDataToExtractionFormat(formData, originalExtraction);
     
     // Limpiar hotel si viene como "[object Object]"
     if (transformedData.hotel && typeof transformedData.hotel === 'string' && transformedData.hotel === '[object Object]') {
-      console.log('⚠️ Hotel recibido como "[object Object]", eliminando campo inválido');
+      console.log(':warning: Hotel recibido como "[object Object]", eliminando campo inválido');
       transformedData.hotel = null;
     }
     
@@ -582,7 +583,7 @@ app.post('/api/extract/update', async (req, res) => {
       transformedData
     );
     
-    console.log('✅ Extracción actualizada exitosamente');
+    console.log(':white_check_mark: Extracción actualizada exitosamente');
     
     res.json({
       success: true,
@@ -594,7 +595,7 @@ app.post('/api/extract/update', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Error al actualizar extracción:', error);
+    console.error(':x: Error al actualizar extracción:', error);
     
     const statusCode = error.message && error.message.includes('No extraction found') ? 404 : 500;
     
@@ -609,7 +610,7 @@ app.post('/api/extract/update', async (req, res) => {
 // Ruta para crear reserva
 app.post('/api/rpa/create-reservation', async (req, res) => {
   try {
-    console.log('📥 Petición recibida para crear reserva');
+    console.log(':inbox_tray: Petición recibida para crear reserva');
     console.log('Datos recibidos:', JSON.stringify(req.body, null, 2));
     
     // Verificar que el módulo RPA esté cargado
@@ -625,19 +626,19 @@ app.post('/api/rpa/create-reservation', async (req, res) => {
     
     // Si los datos vienen dentro de un objeto con estructura { success, data, message }
     if (req.body.data && typeof req.body.data === 'object' && req.body.data.passengers) {
-      console.log('📦 Datos encontrados dentro de req.body.data, extrayendo...');
+      console.log(':package: Datos encontrados dentro de req.body.data, extrayendo...');
       reservationData = req.body.data;
     }
     
     // Limpiar hotel si viene como "[object Object]"
     if (reservationData.hotel && typeof reservationData.hotel === 'string' && reservationData.hotel === '[object Object]') {
-      console.log('⚠️ Hotel recibido como "[object Object]", eliminando campo inválido');
+      console.log(':warning: Hotel recibido como "[object Object]", eliminando campo inválido');
       delete reservationData.hotel;
     }
     
     // Validar que se recibieron datos
     if (!reservationData || !reservationData.passengers || reservationData.passengers.length === 0) {
-      console.error('❌ Validación fallida - reservationData:', {
+      console.error(':x: Validación fallida - reservationData:', {
         hasReservationData: !!reservationData,
         hasPassengers: !!(reservationData && reservationData.passengers),
         passengersLength: reservationData?.passengers?.length || 0,
@@ -650,30 +651,30 @@ app.post('/api/rpa/create-reservation', async (req, res) => {
       });
     }
     
-    console.log('🚀 Ejecutando RPA con los datos recibidos...');
+    console.log(':rocket: Ejecutando RPA con los datos recibidos...');
     
     // Agregar userEmail y conversationId si están disponibles en los datos extraídos
     if (reservationData.userEmail) {
-      console.log(`📧 User email: ${reservationData.userEmail}`);
+      console.log(`:e-mail: User email: ${reservationData.userEmail}`);
     }
     if (reservationData.conversationId) {
-      console.log(`💬 Conversation ID: ${reservationData.conversationId}`);
+      console.log(`:speech_balloon: Conversation ID: ${reservationData.conversationId}`);
     }
     
     // Ejecutar el RPA
     const resultado = await runRpa(reservationData);
     
-    console.log('✅ RPA ejecutado exitosamente');
+    console.log(':white_check_mark: RPA ejecutado exitosamente');
     
     // Si no se obtuvo código, agregar advertencia
     if (!resultado.reservationCode) {
-      console.log('⚠️ Advertencia: No se pudo obtener el código de reserva');
+      console.log(':warning: Advertencia: No se pudo obtener el código de reserva');
     }
     
     // Actualizar la extracción con los datos usados para crear la reserva
     if (reservationData.conversationId) {
       try {
-        console.log(`🔄 Actualizando extracción para conversationId: ${reservationData.conversationId}`);
+        console.log(`:arrows_counterclockwise: Actualizando extracción para conversationId: ${reservationData.conversationId}`);
         
         // Obtener la extracción original
         const originalExtraction = await masterDataService.getExtractionByConversationId(reservationData.conversationId);
@@ -686,7 +687,7 @@ app.post('/api/rpa/create-reservation', async (req, res) => {
           
           // Verificar si viene en formato de formulario (tiene campos como 'cliente', 'vendedor', etc.)
           if (reservationData.cliente || reservationData.vendedor || reservationData.estadoReserva) {
-            console.log('📋 Transformando datos del formulario al formato de extracción...');
+            console.log(':clipboard: Transformando datos del formulario al formato de extracción...');
             dataToUpdate = transformFormDataToExtractionFormat(reservationData, originalExtraction);
           }
           
@@ -700,12 +701,12 @@ app.post('/api/rpa/create-reservation', async (req, res) => {
             reservationData.conversationId,
             dataToUpdate
           );
-          console.log('✅ Extracción actualizada exitosamente');
+          console.log(':white_check_mark: Extracción actualizada exitosamente');
         } else {
-          console.log('⚠️ No se encontró extracción para actualizar');
+          console.log(':warning: No se encontró extracción para actualizar');
         }
       } catch (updateError) {
-        console.error('⚠️ Error al actualizar extracción (no crítico):', updateError.message);
+        console.error(':warning: Error al actualizar extracción (no crítico):', updateError.message);
         // No lanzar error, solo loguear, ya que la reserva ya se creó exitosamente
       }
     }
@@ -718,7 +719,7 @@ app.post('/api/rpa/create-reservation', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Error al ejecutar RPA:', error);
+    console.error(':x: Error al ejecutar RPA:', error);
     
     // Si es un error de reserva duplicada, retornar 400 (Bad Request) en lugar de 500
     const isDuplicateError = error.message && error.message.includes('Ya existe una Reserva');
@@ -734,7 +735,7 @@ app.post('/api/rpa/create-reservation', async (req, res) => {
 
 app.post('/api/rpa/edit-reservation', async (req, res) => {
   try {
-    console.log('📥 Petición recibida para editar reserva');
+    console.log(':inbox_tray: Petición recibida para editar reserva');
     console.log('Datos recibidos:', JSON.stringify(req.body, null, 2));
     
     // Verificar que el módulo RPA esté cargado
@@ -750,13 +751,13 @@ app.post('/api/rpa/edit-reservation', async (req, res) => {
     
     // Si los datos vienen dentro de un objeto con estructura { success, data, message }
     if (req.body.data && typeof req.body.data === 'object' && req.body.data.passengers) {
-      console.log('📦 Datos encontrados dentro de req.body.data, extrayendo...');
+      console.log(':package: Datos encontrados dentro de req.body.data, extrayendo...');
       reservationData = req.body.data;
     }
     
     // Limpiar hotel si viene como "[object Object]"
     if (reservationData.hotel && typeof reservationData.hotel === 'string' && reservationData.hotel === '[object Object]') {
-      console.log('⚠️ Hotel recibido como "[object Object]", eliminando campo inválido');
+      console.log(':warning: Hotel recibido como "[object Object]", eliminando campo inválido');
       delete reservationData.hotel;
     }
     
@@ -774,14 +775,14 @@ app.post('/api/rpa/edit-reservation', async (req, res) => {
     
     if (!reservationCode) {
       if (reservationData.conversationId) {
-        console.log(`🔍 Buscando código de reserva por conversationId: ${reservationData.conversationId}`);
+        console.log(`:mag: Buscando código de reserva por conversationId: ${reservationData.conversationId}`);
         const reservation = await masterDataService.getReservationByConversationId(reservationData.conversationId);
         if (reservation && reservation.code) {
-          console.log(`✅ Código de reserva encontrado en BD: ${reservation.code}`);
+          console.log(`:white_check_mark: Código de reserva encontrado en BD: ${reservation.code}`);
           reservationCode = reservation.code;
           reservationData.codigo = reservation.code;
         } else {
-          console.log('⚠️ No se encontró código de reserva para este conversationId');
+          console.log(':warning: No se encontró código de reserva para este conversationId');
           return res.status(404).json({
             success: false,
             error: 'No se encontró código de reserva para editar. Asegúrate de haber creado la reserva primero.'
@@ -797,7 +798,7 @@ app.post('/api/rpa/edit-reservation', async (req, res) => {
     
     // Verificar que el código realmente existe en iTraffic antes de intentar editar
     if (reservationCode) {
-      console.log(`🔍 Verificando que el código de reserva existe en iTraffic: ${reservationCode}`);
+      console.log(`:mag: Verificando que el código de reserva existe en iTraffic: ${reservationCode}`);
       try {
         // Crear una instancia temporal del browser para verificar el código
         const { createBrowser } = await import('../rpa/browser.js');
@@ -820,11 +821,11 @@ app.post('/api/rpa/edit-reservation', async (req, res) => {
           const codeExists = await verifyReservationCodeExists(page, reservationCode);
           
           if (!codeExists) {
-            console.log(`❌ Código de reserva no existe en iTraffic: ${reservationCode}`);
+            console.log(`:x: Código de reserva no existe en iTraffic: ${reservationCode}`);
             // Eliminar el registro inválido de la BD
             if (reservationData.conversationId) {
               await masterDataService.deleteReservationByConversationId(reservationData.conversationId);
-              console.log(`🗑️ Registro inválido eliminado de reservations_history`);
+              console.log(`:wastebasket: Registro inválido eliminado de reservations_history`);
             }
             
             await browser.close();
@@ -835,45 +836,45 @@ app.post('/api/rpa/edit-reservation', async (req, res) => {
             });
           }
           
-          console.log(`✅ Código de reserva verificado: ${reservationCode} existe en iTraffic`);
+          console.log(`:white_check_mark: Código de reserva verificado: ${reservationCode} existe en iTraffic`);
           await browser.close();
         } catch (verifyError) {
           await browser.close();
-          console.error('❌ Error al verificar código de reserva:', verifyError.message);
+          console.error(':x: Error al verificar código de reserva:', verifyError.message);
           // Si falla la verificación, continuar de todas formas (puede ser un problema temporal)
-          console.log('⚠️ Continuando con la edición a pesar del error de verificación');
+          console.log(':warning: Continuando con la edición a pesar del error de verificación');
         }
       } catch (browserError) {
-        console.error('❌ Error al crear browser para verificación:', browserError.message);
+        console.error(':x: Error al crear browser para verificación:', browserError.message);
         // Si no se puede crear el browser, continuar de todas formas
-        console.log('⚠️ Continuando con la edición sin verificación previa');
+        console.log(':warning: Continuando con la edición sin verificación previa');
       }
     }
 
     // Obtener datos originales si no vienen en reservationData.originData
     // Los datos originales vienen de la extracción guardada
     if (!reservationData.originData && reservationData.conversationId) {
-      console.log('🔍 Obteniendo datos originales de la extracción...');
+      console.log(':mag: Obteniendo datos originales de la extracción...');
       const extraction = await masterDataService.getExtractionByConversationId(reservationData.conversationId);
       if (extraction) {
         reservationData.originData = extraction;
-        console.log('✅ Datos originales obtenidos de la extracción');
+        console.log(':white_check_mark: Datos originales obtenidos de la extracción');
       } else {
-        console.log('⚠️ No se encontraron datos originales, se procesarán todos los campos como nuevos');
+        console.log(':warning: No se encontraron datos originales, se procesarán todos los campos como nuevos');
       }
     }
     
-    console.log('🚀 Ejecutando RPA para editar reserva con los datos recibidos...');
+    console.log(':rocket: Ejecutando RPA para editar reserva con los datos recibidos...');
     
     // Ejecutar el RPA en modo edición
     const resultado = await runRpa(reservationData, true);
     
-    console.log('✅ RPA ejecutado exitosamente');
+    console.log(':white_check_mark: RPA ejecutado exitosamente');
     
     // Actualizar la extracción con los datos usados para editar la reserva
     if (reservationData.conversationId) {
       try {
-        console.log(`🔄 Actualizando extracción para conversationId: ${reservationData.conversationId}`);
+        console.log(`:arrows_counterclockwise: Actualizando extracción para conversationId: ${reservationData.conversationId}`);
         
         // Obtener la extracción original
         const originalExtraction = await masterDataService.getExtractionByConversationId(reservationData.conversationId);
@@ -886,7 +887,7 @@ app.post('/api/rpa/edit-reservation', async (req, res) => {
           
           // Verificar si viene en formato de formulario (tiene campos como 'cliente', 'vendedor', etc.)
           if (reservationData.cliente || reservationData.vendedor || reservationData.estadoReserva) {
-            console.log('📋 Transformando datos del formulario al formato de extracción...');
+            console.log(':clipboard: Transformando datos del formulario al formato de extracción...');
             dataToUpdate = transformFormDataToExtractionFormat(reservationData, originalExtraction);
           }
           
@@ -900,12 +901,12 @@ app.post('/api/rpa/edit-reservation', async (req, res) => {
             reservationData.conversationId,
             dataToUpdate
           );
-          console.log('✅ Extracción actualizada exitosamente');
+          console.log(':white_check_mark: Extracción actualizada exitosamente');
         } else {
-          console.log('⚠️ No se encontró extracción para actualizar');
+          console.log(':warning: No se encontró extracción para actualizar');
         }
       } catch (updateError) {
-        console.error('⚠️ Error al actualizar extracción (no crítico):', updateError.message);
+        console.error(':warning: Error al actualizar extracción (no crítico):', updateError.message);
         // No lanzar error, solo loguear, ya que la reserva ya se editó exitosamente
       }
     }
@@ -917,7 +918,7 @@ app.post('/api/rpa/edit-reservation', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Error al ejecutar RPA:', error);
+    console.error(':x: Error al ejecutar RPA:', error);
     
     res.status(500).json({
       success: false,
@@ -930,7 +931,7 @@ app.post('/api/rpa/edit-reservation', async (req, res) => {
 // Ruta para actualizar archivos del agente
 app.post('/api/update-agent-files', async (req, res) => {
   try {
-    console.log('📥 Petición recibida para actualizar archivos del agente');
+    console.log(':inbox_tray: Petición recibida para actualizar archivos del agente');
     
     const result = await updateAgentFiles(req.body);
 
@@ -941,7 +942,7 @@ app.post('/api/update-agent-files', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Error al actualizar archivos del agente:', error);
+    console.error(':x: Error al actualizar archivos del agente:', error);
     
     // Determine status code based on error type
     const statusCode = error.message.includes('requerido') || error.message.includes('debe ser') ? 400 : 500;
@@ -988,17 +989,17 @@ app.post('/api/messages', async (req, res) => {
         return;
       }
 
-      console.log('📩 Mensaje recibido del bot de Teams');
+      console.log(':envelope_with_arrow: Mensaje recibido del bot de Teams');
       const userMessage = context.activity.text;
-      console.log(`💬 Mensaje del usuario: "${userMessage}"`);
+      console.log(`:speech_balloon: Mensaje del usuario: "${userMessage}"`);
 
       // Extraer identificador del usuario
       let userId;
       try {
         userId = extractUserIdentifier(context.activity);
-        console.log(`👤 Usuario identificado: ${userId}`);
+        console.log(`:bust_in_silhouette: Usuario identificado: ${userId}`);
       } catch (error) {
-        console.error('❌ Error extrayendo identificador de usuario:', error.message);
+        console.error(':x: Error extrayendo identificador de usuario:', error.message);
         await context.sendActivity('No se pudo identificar al usuario. Por favor, intenta de nuevo.');
         return;
       }
@@ -1007,9 +1008,9 @@ app.post('/api/messages', async (req, res) => {
       let threadId;
       try {
         threadId = await getOrCreateThread(userId);
-        console.log(`🧵 Thread ID: ${threadId}`);
+        console.log(`:thread: Thread ID: ${threadId}`);
       } catch (error) {
-        console.error('❌ Error obteniendo/creando thread:', error.message);
+        console.error(':x: Error obteniendo/creando thread:', error.message);
         await context.sendActivity('Hubo un problema al iniciar la conversación. Por favor, intenta de nuevo más tarde.');
         return;
       }
@@ -1019,7 +1020,7 @@ app.post('/api/messages', async (req, res) => {
       try {
         assistantResponse = await sendMessageToAssistant(userMessage, threadId);
       } catch (error) {
-        console.error('❌ Error enviando mensaje al asistente:', error.message);
+        console.error(':x: Error enviando mensaje al asistente:', error.message);
         await context.sendActivity('Hubo un problema al procesar tu mensaje. Por favor, intenta de nuevo más tarde.');
         return;
       }
@@ -1028,7 +1029,65 @@ app.post('/api/messages', async (req, res) => {
       await context.sendActivity(assistantResponse);
 
     } catch (error) {
-      console.error('❌ Error no manejado en /api/messages:', error);
+      console.error(':x: Error no manejado en /api/messages:', error);
+      await context.sendActivity('Ocurrió un error inesperado. Por favor, intenta de nuevo más tarde.');
+    }
+  });
+});
+
+// Ruta para test del agente con manejo de threads y adapter
+app.post('/api/messages/agent', async (req, res) => {
+  const adapter = initializeBotAdapter();
+  
+  await adapter.process(req, res, async (context) => {
+    try {
+      // Solo procesar mensajes de texto
+      if (context.activity.type !== 'message' || !context.activity.text) {
+        return;
+      }
+
+      console.log(':envelope_with_arrow: Mensaje recibido para test del agente');
+      const userMessage = context.activity.text;
+      console.log(`:speech_balloon: Mensaje del usuario: "${userMessage}"`);
+
+      // Extraer identificador del usuario
+      let userId;
+      try {
+        userId = extractUserIdentifier(context.activity);
+        console.log(`:bust_in_silhouette: Usuario identificado: ${userId}`);
+      } catch (error) {
+        console.error(':x: Error extrayendo identificador de usuario:', error.message);
+        await context.sendActivity('No se pudo identificar al usuario. Por favor, intenta de nuevo.');
+        return;
+      }
+
+      // Obtener o crear thread para el usuario usando AgentsClient
+      let threadId;
+      try {
+        threadId = await getOrCreateAgentThread(userId);
+        console.log(`:thread: Thread ID: ${threadId}`);
+      } catch (error) {
+        console.error(':x: Error obteniendo/creando thread:', error.message);
+        await context.sendActivity('Hubo un problema al iniciar la conversación. Por favor, intenta de nuevo más tarde.');
+        return;
+      }
+
+      // Enviar mensaje al agente y obtener respuesta
+      let agentResponse;
+      try {
+        const agentId = config.agent.agentId;
+        agentResponse = await sendMessageToAgent(userMessage, agentId, threadId);
+      } catch (error) {
+        console.error(':x: Error enviando mensaje al agente:', error.message);
+        await context.sendActivity('Hubo un problema al procesar tu mensaje. Por favor, intenta de nuevo más tarde.');
+        return;
+      }
+
+      // Enviar respuesta usando el contexto del adapter
+      await context.sendActivity(agentResponse);
+
+    } catch (error) {
+      console.error(':x: Error no manejado en /test-agent:', error);
       await context.sendActivity('Ocurrió un error inesperado. Por favor, intenta de nuevo más tarde.');
     }
   });
@@ -1046,10 +1105,10 @@ app.use((error, req, res, next) => {
 // Cargar el módulo RPA e iniciar servidor
 loadRpaService().then(() => {
   app.listen(config.server.port, () => {
-    console.log(`🚀 Servidor RPA escuchando en puerto ${config.server.port}`);
-    console.log(`🌍 Entorno: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`🔒 CORS habilitado para: ${config.server.corsOrigin}`);
-    console.log(`📡 Endpoints disponibles:`);
+    console.log(`:rocket: Servidor RPA escuchando en puerto ${config.server.port}`);
+    console.log(`:earth_africa: Entorno: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`:lock: CORS habilitado para: ${config.server.corsOrigin}`);
+    console.log(`:satellite_antenna: Endpoints disponibles:`);
     console.log(`   - GET  /api/rpa/health`);
     console.log(`   - GET  /api/master-data`);
     console.log(`   - POST /api/extract`);
@@ -1058,9 +1117,10 @@ loadRpaService().then(() => {
     console.log(`   - POST /api/rpa/edit-reservation`);
     console.log(`   - POST /api/update-agent-files`);
     console.log(`   - POST /api/messages`);
+    console.log(`   - POST /api/messages/agent`);
   });
 }).catch(error => {
-  console.error('❌ Error al iniciar servidor:', error);
+  console.error(':x: Error al iniciar servidor:', error);
   process.exit(1);
 });
 

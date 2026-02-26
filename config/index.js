@@ -36,6 +36,11 @@ export default {
         endpoint: process.env.AZURE_OPENAI_ENDPOINT,
         apiVersion: '2024-08-01-preview'
     },
+    agent: {
+        agentId: process.env.AZURE_OPENAI_AGENT_ID,
+        // Uses the same endpoint and API key as config.openai
+        projectId: process.env.AZURE_OPENAI_PROJECT_ID,
+    },
 
     // Server Configuration
     server: {
