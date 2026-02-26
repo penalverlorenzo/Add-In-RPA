@@ -1,27 +1,22 @@
 /**
  * Assistant Chat Service - Manages conversations with Azure OpenAI Assistant
- * Uses Azure AI Agents API (AgentsClient) which is the recommended approach
- * This API uses threads, messages, and runs to handle conversations
+ * Handles thread creation, message sending, and response retrieval
  */
 
-import { AgentsClient } from '@azure/ai-agents';
-import { DefaultAzureCredential } from '@azure/identity';
+import { AzureOpenAI } from 'openai';
 import config from '../config/index.js';
 import masterDataService from './mysqlMasterDataService.js';
 
 /**
- * Creates Azure AI Agents client and gets the agent
- * @returns {Promise<{client: AgentsClient, agent: any}>} Client and agent
-*/
-async function createClient() {
-  const projectEndpoint = config.openai.endpoint;
-  if (!projectEndpoint) {
-    throw new Error('AZURE_OPENAI_ENDPOINT no configurado');
-  }
-  
-  const client = new AgentsClient(projectEndpoint, new DefaultAzureCredential());
-  const agent = await client.getAgent(config.assistant.assistantId);
-  return { client, agent };
+ * Creates Azure OpenAI client
+ * @returns {AzureOpenAI} Configured client
+ */
+function createClient() {
+  return new AzureOpenAI({
+    apiKey: config.assistant.apiKey,
+    endpoint: config.assistant.endpoint,
+    apiVersion: config.assistant.apiVersion
+  });
 }
 
 /**
@@ -33,8 +28,8 @@ function validateConfiguration() {
     throw new Error('Assistant ID no configurado. Verifica la variable de entorno AZURE_OPENAI_ASSISTANT_ID');
   }
 
-  if (!config.openai.endpoint) {
-    throw new Error('AZURE_OPENAI_ENDPOINT no configurado');
+  if (!config.assistant.apiKey || !config.assistant.endpoint) {
+    throw new Error('Azure OpenAI API Key o Endpoint no configurados');
   }
 }
 
@@ -61,13 +56,11 @@ export function extractUserIdentifier(activity) {
 
 /**
  * Gets existing thread or creates a new one for the user
- * Uses Azure AI Agents threads API
  * @param {string} userId - User identifier (aadObjectId)
  * @returns {Promise<string>} Thread ID
  */
 export async function getOrCreateThread(userId) {
   validateConfiguration();
-  const { client } = await createClient();
 
   // Check if user already has a thread in database
   const existingChat = await masterDataService.getTeamsChatByUserId(userId);
@@ -75,36 +68,35 @@ export async function getOrCreateThread(userId) {
   if (existingChat && existingChat.threadId) {
     console.log(`✅ Thread encontrado para userId: ${userId}, threadId: ${existingChat.threadId}`);
     
-    // Verify thread still exists (try to list messages to check)
+    // Verify thread still exists in Azure OpenAI
+    const client = createClient();
     try {
-      const messagesIterator = client.messages.list(existingChat.threadId);
-      // Just check if we can access it (try to get first item, but don't require it)
-      await messagesIterator.next();
+      await client.beta.threads.retrieve(existingChat.threadId);
       return existingChat.threadId;
     } catch (error) {
-      console.warn(`⚠️ Thread ${existingChat.threadId} no existe o no es accesible, creando uno nuevo...`);
-      console.warn(`   Error: ${error.message}`);
+      console.warn(`⚠️ Thread ${existingChat.threadId} no existe en Azure OpenAI, creando uno nuevo...`);
+      // Thread was deleted in Azure OpenAI, create a new one
     }
   }
 
-  // Create new thread
+  // Create new thread in Azure OpenAI
   console.log(`🆕 Creando nuevo thread para userId: ${userId}...`);
+  const client = createClient();
   
   try {
-    const thread = await client.threads.create();
-    const threadId = thread.id;
-    console.log(`✅ Thread creado: ${threadId}`);
+    const thread = await client.beta.threads.create();
+    console.log(`✅ Thread creado: ${thread.id}`);
 
     // Save to database
     if (existingChat) {
       // Update existing record
-      await masterDataService.updateTeamsChatThread(userId, threadId);
+      await masterDataService.updateTeamsChatThread(userId, thread.id);
     } else {
       // Create new record
-      await masterDataService.createTeamsChat(userId, threadId);
+      await masterDataService.createTeamsChat(userId, thread.id);
     }
 
-    return threadId;
+    return thread.id;
   } catch (error) {
     console.error('❌ Error creating thread:', error.message);
     throw new Error(`Error al crear thread: ${error.message}`);
@@ -112,78 +104,87 @@ export async function getOrCreateThread(userId) {
 }
 
 /**
+ * Waits for a run to complete by polling
+ * @param {AzureOpenAI} client - Azure OpenAI client
+ * @param {string} threadId - Thread ID
+ * @param {string} runId - Run ID
+ * @param {number} maxWaitTime - Maximum time to wait in milliseconds (default: 60000)
+ * @returns {Promise<Object>} Completed run object
+ */
+async function waitForRunCompletion(client, threadId, runId, maxWaitTime = 60000) {
+  const startTime = Date.now();
+  const pollInterval = 1000; // 1 second
+
+  while (Date.now() - startTime < maxWaitTime) {
+    const run = await client.beta.threads.runs.retrieve(threadId, runId);
+    
+    if (run.status === 'completed') {
+      return run;
+    }
+    
+    if (run.status === 'failed' || run.status === 'cancelled' || run.status === 'expired') {
+      throw new Error(`Run ${run.status}: ${run.last_error?.message || 'Unknown error'}`);
+    }
+
+    // Wait before next poll
+    await new Promise(resolve => setTimeout(resolve, pollInterval));
+  }
+
+  throw new Error('Run timeout: The assistant took too long to respond');
+}
+
+/**
  * Sends a message to the assistant and gets the response
- * Uses Azure AI Agents API: creates message, runs the agent, and retrieves response
  * @param {string} userMessage - User's message
  * @param {string} threadId - Thread ID
- * @param {string} userId - User identifier (for logging)
  * @returns {Promise<string>} Assistant's response
  */
-export async function sendMessageToAssistant(userMessage, threadId, userId) {
+export async function sendMessageToAssistant(userMessage, threadId) {
   validateConfiguration();
-  const { client, agent } = await createClient();
+  const client = createClient();
+  const assistantId = config.assistant.assistantId;
 
   try {
-    console.log(`📤 Enviando mensaje al thread ${threadId}...`);
-    
-    // Create a user message
-    const message = await client.messages.create(threadId, 'user', userMessage);
-    console.log(`✅ Mensaje creado, message ID: ${message.id}`);
-
-    // Create and poll a run
-    console.log(`🚀 Creando run del asistente...`);
-    const run = await client.runs.createAndPoll(threadId, agent.id, {
-      pollingOptions: {
-        intervalInMs: 2000,
-      },
-      onResponse: (response) => {
-        const parsedBody =
-          typeof response.parsedBody === 'object' && response.parsedBody !== null
-            ? response.parsedBody
-            : null;
-        const status = parsedBody && 'status' in parsedBody ? parsedBody.status : 'unknown';
-        console.log(`   📊 Run status: ${status}`);
-      },
+    // Add user message to thread
+    console.log(`📤 Agregando mensaje al thread ${threadId}...`);
+    await client.beta.threads.messages.create(threadId, {
+      role: 'user',
+      content: userMessage
     });
-    
-    console.log(`✅ Run finalizado con status: ${run.status}`);
 
-    if (run.status !== 'completed') {
-      throw new Error(`Run no completado. Status: ${run.status}`);
-    }
+    // Create a run to process the message
+    console.log(`🚀 Creando run del asistente...`);
+    const run = await client.beta.threads.runs.create(threadId, {
+      assistant_id: assistantId
+    });
+
+    console.log(`⏳ Esperando respuesta del asistente (runId: ${run.id})...`);
+    
+    // Wait for run to complete
+    await waitForRunCompletion(client, threadId, run.id);
 
     // Get the latest messages from the thread
     console.log(`📥 Obteniendo mensajes del thread...`);
-    const messagesIterator = client.messages.list(threadId);
-    
-    // Collect all messages
-    const messages = [];
-    for await (const m of messagesIterator) {
-      messages.push(m);
-    }
+    const messages = await client.beta.threads.messages.list(threadId, {
+      limit: 1
+    });
 
-    // Find the latest assistant message (should be the most recent)
-    const assistantMessages = messages.filter(m => m.role === 'assistant');
+    // The first message should be the assistant's response
+    const assistantMessage = messages.data[0];
     
-    if (assistantMessages.length === 0) {
-      throw new Error('No se encontró respuesta del asistente');
+    if (!assistantMessage || assistantMessage.role !== 'assistant') {
+      throw new Error('No se recibió respuesta del asistente');
     }
-
-    // Get the most recent assistant message (last in the array)
-    const assistantMessage = assistantMessages[assistantMessages.length - 1];
 
     // Extract text content from the message
-    if (assistantMessage.content && Array.isArray(assistantMessage.content)) {
-      for (const content of assistantMessage.content) {
-        if (content.type === 'text' && 'text' in content && content.text?.value) {
-          const responseText = content.text.value;
-          console.log(`✅ Respuesta recibida del asistente (${responseText.length} caracteres)`);
-          return responseText;
-        }
-      }
+    const content = assistantMessage.content[0];
+    if (content.type === 'text') {
+      const responseText = content.text.value;
+      console.log(`✅ Respuesta recibida del asistente (${responseText.length} caracteres)`);
+      return responseText;
+    } else {
+      throw new Error('Respuesta del asistente no es de tipo texto');
     }
-
-    throw new Error('No se pudo extraer la respuesta del asistente del formato de respuesta');
   } catch (error) {
     console.error('❌ Error sending message to assistant:', error.message);
     throw error;

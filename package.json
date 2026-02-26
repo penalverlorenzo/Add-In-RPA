@@ -35,9 +35,7 @@
     "build:prod": "powershell -ExecutionPolicy Bypass -File build-production.ps1"
   },
   "dependencies": {
-    "@azure/ai-agents": "^1.1.0",
     "@azure/cosmos": "^4.9.0",
-    "@azure/identity": "^4.13.0",
     "@azure/search-documents": "^12.2.0",
     "botbuilder": "^4.20.0",
     "core-js": "^3.36.0",
