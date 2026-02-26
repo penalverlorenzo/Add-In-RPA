@@ -112,7 +112,7 @@ export async function sendMessageToAssistant(userMessage, previousResponseId, us
     // It automatically adds the message, executes the model, and returns the response
     // No polling needed - the response comes directly in the API call
     const response = await client.responses.create(requestParams);
-
+    console.log('response', await response.json());
     // Save the new response ID to database for next time
     const newResponseId = response.id;
     if (newResponseId) {
