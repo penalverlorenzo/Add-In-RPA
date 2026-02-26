@@ -1009,17 +1009,13 @@ app.post('/api/messages', async (req, res) => {
         return;
       }
 
-      // Obtener previous response ID para el usuario (si existe)
-      let previousResponseId;
+      // Obtener o crear thread para el usuario
+      let threadId;
       try {
-        previousResponseId = await getOrCreateThread(userId);
-        if (previousResponseId) {
-          console.log(`🧵 Previous Response ID: ${previousResponseId}`);
-        } else {
-          console.log(`🧵 Primera conversación - sin response anterior`);
-        }
+        threadId = await getOrCreateThread(userId);
+        console.log(`🧵 Thread ID: ${threadId}`);
       } catch (error) {
-        console.error('❌ Error obteniendo previous response ID:', error.message);
+        console.error('❌ Error obteniendo/creando thread:', error.message);
         await context.sendActivity('Hubo un problema al iniciar la conversación. Por favor, intenta de nuevo más tarde.');
         return;
       }
@@ -1027,7 +1023,7 @@ app.post('/api/messages', async (req, res) => {
       // Enviar mensaje al asistente y obtener respuesta
       let assistantResponse;
       try {
-        assistantResponse = await sendMessageToAssistant(userMessage, previousResponseId, userId);
+        assistantResponse = await sendMessageToAssistant(userMessage, threadId, userId);
       } catch (error) {
         console.error('❌ Error enviando mensaje al asistente:', error.message);
         await context.sendActivity('Hubo un problema al procesar tu mensaje. Por favor, intenta de nuevo más tarde.');

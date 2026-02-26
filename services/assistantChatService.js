@@ -1,24 +1,27 @@
 /**
  * Assistant Chat Service - Manages conversations with Azure OpenAI Assistant
- * Uses the new Responses API (responses.create) which is the recommended approach
- * This API automatically adds messages, executes the model, and returns responses directly
- * No manual polling required - much faster and simpler than the deprecated Threads API
+ * Uses Azure AI Agents API (AgentsClient) which is the recommended approach
+ * This API uses threads, messages, and runs to handle conversations
  */
 
-import { AzureOpenAI } from 'openai';
+import { AgentsClient } from '@azure/ai-agents';
+import { DefaultAzureCredential } from '@azure/identity';
 import config from '../config/index.js';
 import masterDataService from './mysqlMasterDataService.js';
 
 /**
- * Creates Azure OpenAI client
- * @returns {AzureOpenAI} Configured client
- */
-function createClient() {
-  return new AzureOpenAI({
-    apiKey: config.assistant.apiKey,
-    endpoint: config.assistant.endpoint,
-    apiVersion: config.assistant.apiVersion
-  });
+ * Creates Azure AI Agents client and gets the agent
+ * @returns {Promise<{client: AgentsClient, agent: any}>} Client and agent
+*/
+async function createClient() {
+  const projectEndpoint = config.openai.endpoint;
+  if (!projectEndpoint) {
+    throw new Error('AZURE_OPENAI_ENDPOINT no configurado');
+  }
+  
+  const client = new AgentsClient(projectEndpoint, new DefaultAzureCredential());
+  const agent = await client.getAgent(config.assistant.assistantId);
+  return { client, agent };
 }
 
 /**
@@ -30,8 +33,8 @@ function validateConfiguration() {
     throw new Error('Assistant ID no configurado. Verifica la variable de entorno AZURE_OPENAI_ASSISTANT_ID');
   }
 
-  if (!config.assistant.apiKey || !config.assistant.endpoint) {
-    throw new Error('Azure OpenAI API Key o Endpoint no configurados');
+  if (!config.openai.endpoint) {
+    throw new Error('AZURE_OPENAI_ENDPOINT no configurado');
   }
 }
 
@@ -57,103 +60,123 @@ export function extractUserIdentifier(activity) {
 }
 
 /**
- * Gets the previous response ID for the user (if exists)
- * Uses previous_response_id to maintain conversation context
+ * Gets existing thread or creates a new one for the user
+ * Uses Azure AI Agents threads API
  * @param {string} userId - User identifier (aadObjectId)
- * @returns {Promise<string|null>} Previous response ID or null if this is the first message
+ * @returns {Promise<string>} Thread ID
  */
 export async function getOrCreateThread(userId) {
-  // Check if user already has a previous response ID in database
+  validateConfiguration();
+  const { client } = await createClient();
+
+  // Check if user already has a thread in database
   const existingChat = await masterDataService.getTeamsChatByUserId(userId);
   
   if (existingChat && existingChat.threadId) {
-    console.log(`✅ Response ID anterior encontrado para userId: ${userId}, previousResponseId: ${existingChat.threadId}`);
-    return existingChat.threadId; // This is the previous response ID
+    console.log(`✅ Thread encontrado para userId: ${userId}, threadId: ${existingChat.threadId}`);
+    
+    // Verify thread still exists (try to list messages to check)
+    try {
+      const messagesIterator = client.messages.list(existingChat.threadId);
+      // Just check if we can access it (try to get first item, but don't require it)
+      await messagesIterator.next();
+      return existingChat.threadId;
+    } catch (error) {
+      console.warn(`⚠️ Thread ${existingChat.threadId} no existe o no es accesible, creando uno nuevo...`);
+      console.warn(`   Error: ${error.message}`);
+    }
   }
 
-  // No previous response - this will be the first message in the conversation
-  console.log(`🆕 Primera conversación para userId: ${userId} - no hay response anterior`);
-  return null;
+  // Create new thread
+  console.log(`🆕 Creando nuevo thread para userId: ${userId}...`);
+  
+  try {
+    const thread = await client.threads.create();
+    const threadId = thread.id;
+    console.log(`✅ Thread creado: ${threadId}`);
+
+    // Save to database
+    if (existingChat) {
+      // Update existing record
+      await masterDataService.updateTeamsChatThread(userId, threadId);
+    } else {
+      // Create new record
+      await masterDataService.createTeamsChat(userId, threadId);
+    }
+
+    return threadId;
+  } catch (error) {
+    console.error('❌ Error creating thread:', error.message);
+    throw new Error(`Error al crear thread: ${error.message}`);
+  }
 }
 
 /**
  * Sends a message to the assistant and gets the response
- * Uses the new Responses API (responses.create) with previous_response_id to maintain context
- * This API automatically adds the message, executes the model, and returns the response directly
+ * Uses Azure AI Agents API: creates message, runs the agent, and retrieves response
  * @param {string} userMessage - User's message
- * @param {string|null} previousResponseId - Previous response ID (null for first message)
- * @param {string} userId - User identifier (needed to save the new response ID)
+ * @param {string} threadId - Thread ID
+ * @param {string} userId - User identifier (for logging)
  * @returns {Promise<string>} Assistant's response
  */
-export async function sendMessageToAssistant(userMessage, previousResponseId, userId) {
+export async function sendMessageToAssistant(userMessage, threadId, userId) {
   validateConfiguration();
-  const client = createClient();
+  const { client, agent } = await createClient();
 
   try {
-    if (previousResponseId) {
-      console.log(`📤 Enviando mensaje con contexto (previousResponseId: ${previousResponseId})...`);
-    } else {
-      console.log(`📤 Enviando primer mensaje (sin contexto previo)...`);
-    }
+    console.log(`📤 Enviando mensaje al thread ${threadId}...`);
     
-    // Build the request parameters
-    const requestParams = {
-      model: config.openai.deployment || 'gpt-4o-mini',
-      input: userMessage, // Simple string input - the API handles the message format
-      assistant_id: config.assistant.assistantId
-    };
+    // Create a user message
+    const message = await client.messages.create(threadId, 'user', userMessage);
+    console.log(`✅ Mensaje creado, message ID: ${message.id}`);
 
-    // Add previous_response_id only if we have one (for conversation context)
-    if (previousResponseId) {
-      requestParams.previous_response_id = previousResponseId;
+    // Create and poll a run
+    console.log(`🚀 Creando run del asistente...`);
+    const run = await client.runs.createAndPoll(threadId, agent.id, {
+      pollingOptions: {
+        intervalInMs: 2000,
+      },
+      onResponse: (response) => {
+        const parsedBody =
+          typeof response.parsedBody === 'object' && response.parsedBody !== null
+            ? response.parsedBody
+            : null;
+        const status = parsedBody && 'status' in parsedBody ? parsedBody.status : 'unknown';
+        console.log(`   📊 Run status: ${status}`);
+      },
+    });
+    
+    console.log(`✅ Run finalizado con status: ${run.status}`);
+
+    if (run.status !== 'completed') {
+      throw new Error(`Run no completado. Status: ${run.status}`);
     }
 
-    // Use responses.create - this is the recommended approach
-    // It automatically adds the message, executes the model, and returns the response
-    // No polling needed - the response comes directly in the API call
-    const response = await client.responses.create(requestParams);
-    console.log('response', await response.json());
-    // Save the new response ID to database for next time
-    const newResponseId = response.id;
-    if (newResponseId) {
-      const existingChat = await masterDataService.getTeamsChatByUserId(userId);
-      if (existingChat) {
-        await masterDataService.updateTeamsChatThread(userId, newResponseId);
-      } else {
-        await masterDataService.createTeamsChat(userId, newResponseId);
-      }
-      console.log(`💾 Response ID guardado: ${newResponseId}`);
+    // Get the latest messages from the thread
+    console.log(`📥 Obteniendo mensajes del thread...`);
+    const messagesIterator = client.messages.list(threadId);
+    
+    // Collect all messages
+    const messages = [];
+    for await (const m of messagesIterator) {
+      messages.push(m);
     }
 
-    // Extract the response text - according to ChatGPT, response.output_text should be available directly
-    if (response.output_text) {
-      console.log(`✅ Respuesta recibida del asistente (${response.output_text.length} caracteres)`);
-      return response.output_text;
+    // Find the latest assistant message (should be the most recent)
+    const assistantMessages = messages.filter(m => m.role === 'assistant');
+    
+    if (assistantMessages.length === 0) {
+      throw new Error('No se encontró respuesta del asistente');
     }
 
-    // Fallback: try to extract from output array if output_text is not available
-    if (response.output && Array.isArray(response.output)) {
-      const assistantMessage = response.output.find(item => 
-        item.type === 'message' && 
-        item.role === 'assistant'
-      );
+    // Get the most recent assistant message (last in the array)
+    const assistantMessage = assistantMessages[assistantMessages.length - 1];
 
-      if (assistantMessage && assistantMessage.content) {
-        const content = Array.isArray(assistantMessage.content) 
-          ? assistantMessage.content 
-          : [assistantMessage.content];
-        
-        const textContent = content.find(c => 
-          c.type === 'output_text' || 
-          c.type === 'text' ||
-          (typeof c === 'string')
-        );
-
-        if (textContent) {
-          const responseText = typeof textContent === 'string' 
-            ? textContent 
-            : (textContent.text || textContent.value);
-          
+    // Extract text content from the message
+    if (assistantMessage.content && Array.isArray(assistantMessage.content)) {
+      for (const content of assistantMessage.content) {
+        if (content.type === 'text' && 'text' in content && content.text?.value) {
+          const responseText = content.text.value;
           console.log(`✅ Respuesta recibida del asistente (${responseText.length} caracteres)`);
           return responseText;
         }
