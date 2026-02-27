@@ -38,6 +38,7 @@ export default {
     },
     agent: {
         agentId: process.env.AZURE_OPENAI_AGENT_ID,
+        vectorStoreId: process.env.AZURE_OPENAI_AGENT_VECTOR_STORE_ID,
         // Uses the same endpoint and API key as config.openai
         projectId: process.env.AZURE_OPENAI_PROJECT_URL,
     },

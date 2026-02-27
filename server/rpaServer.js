@@ -16,6 +16,7 @@ import masterDataService from '../services/mysqlMasterDataService.js';
 import { updateAgentFiles } from '../services/agentFileService.js';
 import { extractUserIdentifier, getOrCreateThread, sendMessageToAssistant } from '../services/assistantChatService.js';
 import { sendMessageToAgent, getOrCreateAgentThread } from '../services/agentChatService.js';
+import { updateAgentFilesAgents } from '../services/agentFileServiceAgents.js';
 import config from '../config/index.js';
 
 // ES Modules equivalent of __dirname
@@ -928,12 +929,39 @@ app.post('/api/rpa/edit-reservation', async (req, res) => {
   }
 });
 
-// Ruta para actualizar archivos del agente
-app.post('/api/update-agent-files', async (req, res) => {
+// Ruta para actualizar archivos del asistente (Azure OpenAI Assistant)
+app.post('/api/assistant/update-assistant-files', async (req, res) => {
+  try {
+    console.log(':inbox_tray: Petición recibida para actualizar archivos del asistente');
+    
+    const result = await updateAgentFiles(req.body);
+
+    res.json({
+      success: true,
+      message: 'Archivos del asistente actualizados exitosamente',
+      data: result
+    });
+
+  } catch (error) {
+    console.error(':x: Error al actualizar archivos del asistente:', error);
+    
+    // Determine status code based on error type
+    const statusCode = error.message.includes('requerido') || error.message.includes('debe ser') ? 400 : 500;
+    
+    res.status(statusCode).json({
+      success: false,
+      error: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
+});
+
+// Ruta para actualizar archivos del agente (Azure AI Agents)
+app.post('/api/agent/update-agent-files', async (req, res) => {
   try {
     console.log(':inbox_tray: Petición recibida para actualizar archivos del agente');
     
-    const result = await updateAgentFiles(req.body);
+    const result = await updateAgentFilesAgents(req.body);
 
     res.json({
       success: true,
@@ -1115,7 +1143,8 @@ loadRpaService().then(() => {
     console.log(`   - POST /api/extract/update`);
     console.log(`   - POST /api/rpa/create-reservation`);
     console.log(`   - POST /api/rpa/edit-reservation`);
-    console.log(`   - POST /api/update-agent-files`);
+    console.log(`   - POST /api/assistant/update-assistant-files`);
+    console.log(`   - POST /api/agent/update-agent-files`);
     console.log(`   - POST /api/messages`);
     console.log(`   - POST /api/messages/agent`);
   });
