@@ -88,6 +88,7 @@ async function deleteExistingFiles(client, vectorStoreId) {
         // Delete file directly from Azure AI Agents storage
         // This will automatically remove it from the vector store and free up storage space
         await client.files.delete(fileId);
+        await client.vectorStoreFiles.delete(vectorStoreId, fileId);
         console.log(`   ✅ Archivo eliminado de Azure AI Agents: ${fileId}`);
       } catch (error) {
         console.error(`   ❌ Error al eliminar archivo ${file.id || file.file_id}:`, error.message);
