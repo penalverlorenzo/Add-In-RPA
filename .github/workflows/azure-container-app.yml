@@ -82,6 +82,8 @@ jobs:
                 PORT="3000" \
                 REDIRECT_URI="${{ secrets.REDIRECT_URI }}" \
                 AZURE_SEARCH_ENDPOINT="${{ secrets.AZURE_SEARCH_ENDPOINT }}" \
+                AZURE_OPENAI_PROJECT_URL="${{ secrets.AZURE_OPENAI_PROJECT_URL }}" \
+                AZURE_OPENAI_AGENT_ID="${{ secrets.AZURE_OPENAI_AGENT_ID }}" \
                 AZURE_SEARCH_INDEX="${{ secrets.AZURE_SEARCH_INDEX }}" \
                 HEADLESS="${{ secrets.HEADLESS }}" \
                 ITRAFFIC_HOME_URL="${{ secrets.ITRAFFIC_HOME_URL }}" \
