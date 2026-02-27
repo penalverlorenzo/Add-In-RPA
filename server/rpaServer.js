@@ -1021,6 +1021,9 @@ app.post('/api/messages', async (req, res) => {
       const userMessage = context.activity.text;
       console.log(`:speech_balloon: Mensaje del usuario: "${userMessage}"`);
 
+      // Enviar indicador de "escribiendo..." para que el usuario sepa que el mensaje se recibió
+      await context.sendActivity({ type: 'typing' });
+
       // Extraer identificador del usuario
       let userId;
       try {
@@ -1077,6 +1080,9 @@ app.post('/api/messages/agent', async (req, res) => {
       console.log(':envelope_with_arrow: Mensaje recibido para test del agente');
       const userMessage = context.activity.text;
       console.log(`:speech_balloon: Mensaje del usuario: "${userMessage}"`);
+
+      // Enviar indicador de "escribiendo..." para que el usuario sepa que el mensaje se recibió
+      await context.sendActivity({ type: 'typing' });
 
       // Extraer identificador del usuario
       let userId;
