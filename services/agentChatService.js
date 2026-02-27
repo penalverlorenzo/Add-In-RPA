@@ -126,7 +126,7 @@ if (Array.isArray(assistantMessage.content)) {
 }
 
 console.log("AI Response:", textResponse);
-assistantResponse = textResponse;
+  assistantResponse = textResponse.replace(/【.*?†source】/g, "").trim();;
 }
   return assistantResponse;
 }
