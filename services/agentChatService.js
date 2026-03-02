@@ -107,30 +107,64 @@ export async function sendMessageToAgent(userMessage, agentId, threadId) {
     if (run.status === "requires_action") {
       // Handle tool calls
       const requiredAction = run.requiredAction;
+      console.log(`🔍 Required action type: ${requiredAction?.type}`);
+      console.log(`🔍 Required action structure:`, JSON.stringify(requiredAction, null, 2));
+      
       if (requiredAction && requiredAction.type === "submit_tool_outputs") {
         const toolCalls = requiredAction.submitToolOutputs?.toolCalls || [];
+        console.log(`📋 Number of tool calls: ${toolCalls.length}`);
         const toolOutputs = [];
         
         for (const toolCall of toolCalls) {
           if (toolCall.type === "function" && toolCall.function?.name === "executeSQLQuery") {
             console.log(`🔧 Executing SQL tool call: ${toolCall.id}`);
+            console.log(`📋 Full toolCall structure:`, JSON.stringify(toolCall, null, 2));
             console.log(`📋 Function name: ${toolCall.function?.name}`);
+            console.log(`📋 Function object:`, JSON.stringify(toolCall.function, null, 2));
             console.log(`📝 Raw parameters: ${toolCall.function?.parameters}`);
             console.log(`📝 Parameters type: ${typeof toolCall.function?.parameters}`);
+            console.log(`📝 Parameters value:`, toolCall.function?.parameters);
             
             try {
               // Parse function parameters - handle both string and object
               let params;
+              
+              // Check if parameters exist at all
+              if (toolCall.function?.parameters === undefined || toolCall.function?.parameters === null) {
+                console.error(`❌ Parameters are undefined or null`);
+                console.error(`📋 Available keys in toolCall.function:`, Object.keys(toolCall.function || {}));
+                console.error(`📋 Full toolCall.function object:`, JSON.stringify(toolCall.function, null, 2));
+                
+                // Return a helpful error message to the agent
+                toolOutputs.push({
+                  toolCallId: toolCall.id,
+                  output: JSON.stringify({
+                    success: false,
+                    error: 'Missing required parameters. You must provide both "tableName" (one of: "hotels", "services", "packages") and "columns" (array of column names) as parameters when calling executeSQLQuery.',
+                    example: {
+                      tableName: 'hotels',
+                      columns: ['HotelID', 'NombreHotel', 'Categoria', 'Precio', 'Moneda'],
+                      whereClause: 'Activo = ? AND Categoria = ?',
+                      whereParams: ['ACTIVADO', '5']
+                    },
+                    data: []
+                  })
+                });
+                continue; // Skip to next tool call
+              }
+              
               if (typeof toolCall.function.parameters === 'string') {
                 try {
                   params = JSON.parse(toolCall.function.parameters || "{}");
                 } catch (parseError) {
                   console.error(`❌ Error parsing parameters JSON: ${parseError.message}`);
+                  console.error(`   Raw string: ${toolCall.function.parameters}`);
                   throw new Error(`Invalid JSON in parameters: ${parseError.message}`);
                 }
               } else if (typeof toolCall.function.parameters === 'object' && toolCall.function.parameters !== null) {
                 params = toolCall.function.parameters;
               } else {
+                console.error(`❌ Unexpected parameters type: ${typeof toolCall.function.parameters}`);
                 params = {};
               }
               
