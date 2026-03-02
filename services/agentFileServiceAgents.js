@@ -9,6 +9,7 @@ import config from '../config/index.js';
 import fs from 'fs';
 import path from 'path';
 import { tmpdir } from 'os';
+import { saveAllDataToDB } from './agentDataService.js';
 
 /**
  * Creates AgentsClient
@@ -210,6 +211,23 @@ export async function updateAgentFilesAgents(body) {
 
   console.log('✅ Todos los archivos han sido subidos exitosamente');
 
+  // 4. Save data to MySQL database
+  let dbResults = null;
+  try {
+    console.log('💾 Guardando datos en base de datos MySQL...');
+    dbResults = await saveAllDataToDB(Hoteles, Servicios, Paquetes);
+    console.log('✅ Datos guardados en base de datos MySQL');
+  } catch (error) {
+    console.error('❌ Error guardando datos en base de datos:', error.message);
+    // Don't fail the entire operation if DB save fails
+    dbResults = {
+      error: error.message,
+      hotels: { inserted: 0, updated: 0, errors: Hoteles.length, total: Hoteles.length },
+      services: { inserted: 0, updated: 0, errors: Servicios.length, total: Servicios.length },
+      packages: { inserted: 0, updated: 0, errors: Paquetes.length, total: Paquetes.length }
+    };
+  }
+
   return {
     deletedFiles: deletedFilesCount,
     uploadedFiles: uploadedFiles,
@@ -217,6 +235,7 @@ export async function updateAgentFilesAgents(body) {
       hoteles: Hoteles.length,
       servicios: Servicios.length,
       paquetes: Paquetes.length
-    }
+    },
+    database: dbResults
   };
 }
