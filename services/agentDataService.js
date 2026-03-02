@@ -91,6 +91,36 @@ function emptyToNull(value) {
 }
 
 /**
+ * Converts a numeric value to a valid number, handling comma as decimal separator
+ * @param {any} value - Numeric value (string with comma or dot, number, or null)
+ * @returns {number|null} Valid number or null
+ */
+function convertToNumber(value) {
+  if (value === null || value === undefined || value === '') return null;
+  
+  // If already a number, return it
+  if (typeof value === 'number') {
+    return isNaN(value) ? null : value;
+  }
+  
+  // If string, convert comma to dot for decimal separator
+  if (typeof value === 'string') {
+    // Remove any whitespace
+    const cleaned = value.trim();
+    if (cleaned === '') return null;
+    
+    // Replace comma with dot for decimal separator
+    const normalized = cleaned.replace(',', '.');
+    
+    // Try to parse as float
+    const parsed = parseFloat(normalized);
+    return isNaN(parsed) ? null : parsed;
+  }
+  
+  return null;
+}
+
+/**
  * Saves hotels to MySQL database
  * @param {Array} hoteles - Array of hotel objects
  * @returns {Promise<Object>} Statistics: { inserted, updated, errors, total }
@@ -132,7 +162,7 @@ export async function saveHotelsToDB(hoteles) {
         Base: emptyToNull(hotel.Base || hotel.base),
         CantidadMinima: hotel.CantidadMinima || hotel.cantidadMinima || 0,
         Moneda: emptyToNull(hotel.Moneda || hotel.moneda),
-        Precio: hotel.Precio || hotel.precio || null,
+        Precio: convertToNumber(hotel.Precio || hotel.precio),
         VigenciaDesde: convertToMySQLDateTime(hotel.VigenciaDesde || hotel.vigenciaDesde),
         VigenciaHasta: convertToMySQLDateTime(hotel.VigenciaHasta || hotel.vigenciaHasta),
         Activo: emptyToNull(hotel.Activo || hotel.activo),
@@ -236,7 +266,7 @@ export async function saveServicesToDB(servicios) {
         Descripcion: emptyToNull(servicio.Descripcion || servicio.descripcion),
         CantidadMinima: servicio.CantidadMinima || servicio.cantidadMinima || 0,
         Moneda: emptyToNull(servicio.Moneda || servicio.moneda),
-        Precio: servicio.Precio || servicio.precio || null,
+        Precio: convertToNumber(servicio.Precio || servicio.precio),
         VigenciaDesde: convertToMySQLDateTime(servicio.VigenciaDesde || servicio.vigenciaDesde),
         VigenciaHasta: convertToMySQLDateTime(servicio.VigenciaHasta || servicio.vigenciaHasta),
         Activo: emptyToNull(servicio.Activo || servicio.activo),
@@ -345,7 +375,7 @@ export async function savePackagesToDB(paquetes) {
         Base: emptyToNull(paquete.Base || paquete.base),
         CantidadMinima: paquete.CantidadMinima || paquete.cantidadMinima || 0,
         Moneda: emptyToNull(paquete.Moneda || paquete.moneda),
-        Precio: paquete.Precio || paquete.precio || null,
+        Precio: convertToNumber(paquete.Precio || paquete.precio),
         VigenciaDesde: convertToMySQLDateTime(paquete.VigenciaDesde || paquete.vigenciaDesde),
         VigenciaHasta: convertToMySQLDateTime(paquete.VigenciaHasta || paquete.vigenciaHasta),
         Descripcion: emptyToNull(paquete.Descripcion || paquete.descripcion),
