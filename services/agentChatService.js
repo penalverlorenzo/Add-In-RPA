@@ -118,22 +118,18 @@ export async function sendMessageToAgent(userMessage, agentId, threadId) {
         for (const toolCall of toolCalls) {
           if (toolCall.type === "function" && toolCall.function?.name === "executeSQLQuery") {
             console.log(`🔧 Executing SQL tool call: ${toolCall.id}`);
-            console.log(`📋 Full toolCall structure:`, JSON.stringify(toolCall, null, 2));
             console.log(`📋 Function name: ${toolCall.function?.name}`);
-            console.log(`📋 Function object:`, JSON.stringify(toolCall.function, null, 2));
-            console.log(`📝 Raw parameters: ${toolCall.function?.parameters}`);
-            console.log(`📝 Parameters type: ${typeof toolCall.function?.parameters}`);
-            console.log(`📝 Parameters value:`, toolCall.function?.parameters);
             
             try {
-              // Parse function parameters - handle both string and object
-              let params;
+              // Azure AI Agents uses "arguments" not "parameters"
+              const rawArguments = toolCall.function?.arguments || toolCall.function?.parameters;
+              console.log(`📝 Raw arguments: ${rawArguments}`);
+              console.log(`📝 Arguments type: ${typeof rawArguments}`);
               
-              // Check if parameters exist at all
-              if (toolCall.function?.parameters === undefined || toolCall.function?.parameters === null) {
-                console.error(`❌ Parameters are undefined or null`);
+              // Check if arguments exist at all
+              if (rawArguments === undefined || rawArguments === null) {
+                console.error(`❌ Arguments are undefined or null`);
                 console.error(`📋 Available keys in toolCall.function:`, Object.keys(toolCall.function || {}));
-                console.error(`📋 Full toolCall.function object:`, JSON.stringify(toolCall.function, null, 2));
                 
                 // Return a helpful error message to the agent
                 toolOutputs.push({
@@ -153,18 +149,20 @@ export async function sendMessageToAgent(userMessage, agentId, threadId) {
                 continue; // Skip to next tool call
               }
               
-              if (typeof toolCall.function.parameters === 'string') {
+              // Parse function arguments - handle both string and object
+              let params;
+              if (typeof rawArguments === 'string') {
                 try {
-                  params = JSON.parse(toolCall.function.parameters || "{}");
+                  params = JSON.parse(rawArguments || "{}");
                 } catch (parseError) {
-                  console.error(`❌ Error parsing parameters JSON: ${parseError.message}`);
-                  console.error(`   Raw string: ${toolCall.function.parameters}`);
-                  throw new Error(`Invalid JSON in parameters: ${parseError.message}`);
+                  console.error(`❌ Error parsing arguments JSON: ${parseError.message}`);
+                  console.error(`   Raw string: ${rawArguments}`);
+                  throw new Error(`Invalid JSON in arguments: ${parseError.message}`);
                 }
-              } else if (typeof toolCall.function.parameters === 'object' && toolCall.function.parameters !== null) {
-                params = toolCall.function.parameters;
+              } else if (typeof rawArguments === 'object' && rawArguments !== null) {
+                params = rawArguments;
               } else {
-                console.error(`❌ Unexpected parameters type: ${typeof toolCall.function.parameters}`);
+                console.error(`❌ Unexpected arguments type: ${typeof rawArguments}`);
                 params = {};
               }
               
