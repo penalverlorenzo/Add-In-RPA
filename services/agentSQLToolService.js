@@ -48,8 +48,9 @@ async function getMySQLPool() {
  * @returns {boolean} True if table is allowed
  */
 function isValidTableName(tableName) {
-  const allowedTables = Object.values(config.mysql.tables);
-  return allowedTables.includes(tableName);
+  // Only allow the three main tables: hotels, services, packages
+  const allowedTables = ['hotels', 'services', 'packages'];
+  return allowedTables.includes(tableName.toLowerCase());
 }
 
 /**
@@ -85,16 +86,37 @@ function isValidOrderBy(orderBy) {
  * @returns {Promise<Object>} Query results
  */
 export async function executeSQLQuery(params) {
+  console.log(`🔍 executeSQLQuery called with params:`, JSON.stringify(params, null, 2));
+  
+  // Validate params object
+  if (!params || typeof params !== 'object') {
+    throw new Error('Parameters must be an object');
+  }
+  
   const { tableName, columns, joins = [], whereClause, whereParams = [], orderBy, limit } = params;
 
   // Validate table name
   if (!tableName || typeof tableName !== 'string') {
-    throw new Error('Table name is required and must be a string');
+    console.error(`❌ Invalid tableName:`, { 
+      tableName, 
+      type: typeof tableName, 
+      isNull: tableName === null, 
+      isUndefined: tableName === undefined 
+    });
+    throw new Error('Table name is required and must be a string. Please specify one of: hotels, services, or packages.');
   }
 
-  if (!isValidTableName(tableName)) {
-    throw new Error(`Invalid table name: ${tableName}. Allowed tables: ${Object.values(config.mysql.tables).join(', ')}`);
+  // Normalize table name to lowercase for comparison
+  const normalizedTableName = tableName.toLowerCase();
+  const allowedTables = ['hotels', 'services', 'packages'];
+  
+  if (!isValidTableName(normalizedTableName)) {
+    console.error(`❌ Invalid table name: ${tableName}. Allowed: ${allowedTables.join(', ')}`);
+    throw new Error(`Invalid table name: "${tableName}". Allowed tables are: hotels, services, packages.`);
   }
+  
+  // Use normalized name for query
+  const validTableName = normalizedTableName;
 
   // Validate columns
   if (!columns || !Array.isArray(columns) || columns.length === 0) {
@@ -121,8 +143,9 @@ export async function executeSQLQuery(params) {
       if (!join.table || typeof join.table !== 'string') {
         throw new Error('JOIN must have a valid table name');
       }
-      if (!isValidTableName(join.table)) {
-        throw new Error(`Invalid JOIN table name: ${join.table}`);
+      const normalizedJoinTable = join.table.toLowerCase();
+      if (!isValidTableName(normalizedJoinTable)) {
+        throw new Error(`Invalid JOIN table name: ${join.table}. Allowed tables are: hotels, services, packages.`);
       }
       if (!join.on || typeof join.on !== 'string') {
         throw new Error('JOIN must have a valid ON clause');
@@ -174,7 +197,7 @@ export async function executeSQLQuery(params) {
 
     // Build FROM clause
     let query = `SELECT ${selectClause} FROM ??`;
-    let queryParams = [...selectValues, tableName];
+    let queryParams = [...selectValues, validTableName];
 
     // Build JOIN clauses
     if (joins && joins.length > 0) {
@@ -183,6 +206,10 @@ export async function executeSQLQuery(params) {
         if (!['INNER', 'LEFT', 'RIGHT', 'FULL'].includes(joinType)) {
           throw new Error(`Invalid JOIN type: ${join.type}. Must be INNER, LEFT, RIGHT, or FULL`);
         }
+        
+        // Normalize join table name
+        const normalizedJoinTable = join.table.toLowerCase();
+        
         // Parse ON clause to use placeholders for column names
         // ON clause format: "table1.column1 = table2.column2" or "column1 = column2"
         // We'll try to replace column references with placeholders
@@ -204,7 +231,7 @@ export async function executeSQLQuery(params) {
         }
         
         query += ` ${joinType} JOIN ?? ON ${onClause}`;
-        queryParams.push(join.table);
+        queryParams.push(normalizedJoinTable);
         if (onPlaceholders.length > 0) {
           queryParams = queryParams.concat(onPlaceholders);
         }
@@ -228,8 +255,11 @@ export async function executeSQLQuery(params) {
       queryParams.push(maxLimit);
     }
 
-    console.log(`🔍 Executing SQL query: ${query}`);
-    console.log(`📊 Query parameters count: ${queryParams.length}`);
+    console.log(`🔍 Executing SQL query:`);
+    console.log(`   Query: ${query}`);
+    console.log(`   Parameters count: ${queryParams.length}`);
+    console.log(`   Table: ${validTableName}`);
+    console.log(`   Columns: ${columns.join(', ')}`);
 
     const [rows] = await pool.query(query, queryParams);
 
