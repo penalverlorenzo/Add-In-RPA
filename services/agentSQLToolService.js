@@ -317,18 +317,18 @@ export async function ensureSQLToolExists(client, agentId) {
     // Create the SQL tool definition
     const sqlTool = ToolUtility.createFunctionTool({
       name: toolName,
-      description: 'Executes SQL queries on the MySQL database. Supports SELECT queries with JOINs, WHERE clauses, ORDER BY, and LIMIT. Returns query results as JSON.',
+      description: 'Executes SQL SELECT queries on the MySQL database. REQUIRED parameters: tableName (must be "hotels", "services", or "packages") and columns (array of column names). Supports JOINs, WHERE clauses, ORDER BY, and LIMIT. Returns query results as JSON. Always filter by Activo = "ACTIVADO" when querying.',
       parameters: {
         type: 'object',
         properties: {
           tableName: {
             type: 'string',
-            description: 'Name of the main table for the FROM clause. Must be one of the allowed tables.'
+            description: 'REQUIRED: Name of the main table for the FROM clause. Must be exactly one of: "hotels", "services", or "packages" (lowercase).'
           },
           columns: {
             type: 'array',
             items: { type: 'string' },
-            description: 'List of column names to select (e.g., ["id", "name", "email"])'
+            description: 'REQUIRED: Array of column names to select. Example: ["HotelID", "NombreHotel", "Precio", "Moneda"] for hotels table, or ["ServicioID", "NombreServicio", "Precio"] for services table.'
           },
           joins: {
             type: 'array',
