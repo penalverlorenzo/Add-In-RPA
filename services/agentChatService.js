@@ -114,12 +114,50 @@ export async function sendMessageToAgent(userMessage, agentId, threadId) {
         for (const toolCall of toolCalls) {
           if (toolCall.type === "function" && toolCall.function?.name === "executeSQLQuery") {
             console.log(`🔧 Executing SQL tool call: ${toolCall.id}`);
+            console.log(`📋 Function name: ${toolCall.function?.name}`);
+            console.log(`📝 Raw parameters: ${toolCall.function?.parameters}`);
+            console.log(`📝 Parameters type: ${typeof toolCall.function?.parameters}`);
             
             try {
-              // Parse function parameters
-              const params = JSON.parse(toolCall.function.parameters || "{}");
+              // Parse function parameters - handle both string and object
+              let params;
+              if (typeof toolCall.function.parameters === 'string') {
+                try {
+                  params = JSON.parse(toolCall.function.parameters || "{}");
+                } catch (parseError) {
+                  console.error(`❌ Error parsing parameters JSON: ${parseError.message}`);
+                  throw new Error(`Invalid JSON in parameters: ${parseError.message}`);
+                }
+              } else if (typeof toolCall.function.parameters === 'object' && toolCall.function.parameters !== null) {
+                params = toolCall.function.parameters;
+              } else {
+                params = {};
+              }
+              
+              console.log(`📊 Parsed parameters:`, JSON.stringify(params, null, 2));
+              
+              // Validate required parameters before executing
+              if (!params.tableName) {
+                console.error(`❌ Missing required parameter: tableName`);
+                console.error(`📋 Available parameters:`, Object.keys(params));
+                throw new Error('Missing required parameter: tableName. Please specify which table to query (hotels, services, or packages).');
+              }
+              
+              if (!params.columns || !Array.isArray(params.columns) || params.columns.length === 0) {
+                console.error(`❌ Missing or invalid parameter: columns`);
+                throw new Error('Missing required parameter: columns. Please specify an array of column names to select.');
+              }
               
               // Execute SQL query
+              console.log(`🚀 Executing SQL query with params:`, {
+                tableName: params.tableName,
+                columns: params.columns,
+                hasJoins: !!params.joins && params.joins.length > 0,
+                hasWhere: !!params.whereClause,
+                hasOrderBy: !!params.orderBy,
+                limit: params.limit
+              });
+              
               const result = await executeSQLQuery(params);
               
               // Format result as JSON string
@@ -133,22 +171,26 @@ export async function sendMessageToAgent(userMessage, agentId, threadId) {
               console.log(`✅ SQL query executed successfully, returned ${result.rowCount || 0} rows`);
             } catch (error) {
               console.error(`❌ Error executing SQL tool: ${error.message}`);
+              console.error(`   Stack: ${error.stack}`);
               toolOutputs.push({
                 toolCallId: toolCall.id,
                 output: JSON.stringify({
                   success: false,
                   error: error.message,
-                  data: []
+                  data: [],
+                  suggestion: error.message.includes('tableName') 
+                    ? 'Please specify the table name (hotels, services, or packages) and columns to select.' 
+                    : 'Please check the parameters and try again.'
                 })
               });
             }
           } else {
-            console.warn(`⚠️ Unknown tool call type: ${toolCall.type}`);
+            console.warn(`⚠️ Unknown tool call - Type: ${toolCall.type}, Function: ${toolCall.function?.name || 'N/A'}`);
             toolOutputs.push({
               toolCallId: toolCall.id,
               output: JSON.stringify({
                 success: false,
-                error: `Unknown tool call type: ${toolCall.type}`
+                error: `Unknown tool call type: ${toolCall.type}${toolCall.function?.name ? ` (function: ${toolCall.function.name})` : ''}`
               })
             });
           }
