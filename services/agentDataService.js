@@ -121,6 +121,177 @@ function convertToNumber(value) {
 }
 
 /**
+ * Normalizes column name from JSON to database format
+ * Handles camelCase, PascalCase, and keeps original if already in DB format
+ * @param {string} jsonKey - Key from JSON object
+ * @returns {string} Normalized column name
+ */
+function normalizeColumnName(jsonKey) {
+  if (!jsonKey || typeof jsonKey !== 'string') return jsonKey;
+  
+  // If already in PascalCase format (like HotelID, NombreHotel), return as is
+  if (/^[A-Z][a-zA-Z0-9]*$/.test(jsonKey)) {
+    return jsonKey;
+  }
+  
+  // Convert camelCase to PascalCase
+  // e.g., "nombreHotel" -> "NombreHotel", "cantidadMinima" -> "CantidadMinima"
+  return jsonKey.charAt(0).toUpperCase() + jsonKey.slice(1);
+}
+
+/**
+ * Validates column name to prevent SQL injection
+ * @param {string} columnName - Column name to validate
+ * @returns {boolean} True if valid
+ */
+function isValidColumnName(columnName) {
+  // Allow alphanumeric characters and underscore
+  // Column names should start with a letter
+  return /^[a-zA-Z][a-zA-Z0-9_]*$/.test(columnName);
+}
+
+/**
+ * Gets existing columns from a MySQL table
+ * @param {string} tableName - Name of the table
+ * @returns {Promise<string[]>} Array of column names
+ */
+async function getTableColumns(tableName) {
+  const pool = getMySQLPool();
+  if (!pool) {
+    console.error('❌ MySQL connection pool not available');
+    return [];
+  }
+
+  try {
+    const query = `
+      SELECT COLUMN_NAME 
+      FROM INFORMATION_SCHEMA.COLUMNS 
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
+      ORDER BY ORDINAL_POSITION
+    `;
+    
+    const [rows] = await pool.query(query, [config.mysql.database, tableName]);
+    return rows.map(row => row.COLUMN_NAME);
+  } catch (error) {
+    console.error(`❌ Error getting columns for table ${tableName}:`, error.message);
+    return [];
+  }
+}
+
+/**
+ * Creates missing columns in a table
+ * @param {string} tableName - Name of the table
+ * @param {Array<string>} jsonKeys - Keys from JSON object (normalized)
+ * @param {Array<string>} existingColumns - Existing column names
+ * @param {Array<string>} systemColumns - System columns to exclude (e.g., ['id', 'HotelID'])
+ * @returns {Promise<number>} Number of columns created
+ */
+async function createMissingColumns(tableName, jsonKeys, existingColumns, systemColumns = []) {
+  const pool = getMySQLPool();
+  if (!pool) {
+    console.error('❌ MySQL connection pool not available');
+    return 0;
+  }
+
+  // Normalize JSON keys and filter out system columns
+  const normalizedKeys = jsonKeys
+    .map(key => normalizeColumnName(key))
+    .filter(key => {
+      // Exclude system columns
+      if (systemColumns.includes(key)) return false;
+      // Exclude if already exists
+      if (existingColumns.includes(key)) return false;
+      // Validate column name
+      if (!isValidColumnName(key)) {
+        console.warn(`⚠️ Invalid column name skipped: ${key}`);
+        return false;
+      }
+      return true;
+    });
+
+  if (normalizedKeys.length === 0) {
+    return 0;
+  }
+
+  // Remove duplicates
+  const uniqueMissingColumns = [...new Set(normalizedKeys)];
+  
+  console.log(`🔧 Creando ${uniqueMissingColumns.length} columnas faltantes en tabla ${tableName}:`, uniqueMissingColumns);
+
+  let created = 0;
+  for (const columnName of uniqueMissingColumns) {
+    try {
+      const query = `ALTER TABLE ?? ADD COLUMN ?? VARCHAR(255) NULL`;
+      await pool.query(query, [tableName, columnName]);
+      console.log(`   ✅ Columna creada: ${columnName}`);
+      created++;
+    } catch (error) {
+      // Handle duplicate column error (concurrency case)
+      if (error.code === 'ER_DUP_FIELDNAME' || error.errno === 1060) {
+        console.log(`   ℹ️ Columna ${columnName} ya existe (probablemente creada por otro proceso)`);
+      } else {
+        console.error(`   ❌ Error creando columna ${columnName}:`, error.message);
+      }
+    }
+  }
+
+  return created;
+}
+
+/**
+ * Maps JSON object values to database columns dynamically
+ * Handles camelCase/PascalCase variations and special field conversions
+ * @param {Object} jsonRecord - JSON record object
+ * @param {Array<string>} dbColumns - Database column names
+ * @returns {Object} Mapped values object
+ */
+function mapJsonToDbColumns(jsonRecord, dbColumns) {
+  const mapped = {};
+  
+  // Create a lookup map for faster access (normalize all JSON keys)
+  const jsonLookup = {};
+  for (const key of Object.keys(jsonRecord)) {
+    const normalizedKey = normalizeColumnName(key);
+    // Store both original and normalized key for lookup
+    jsonLookup[key] = jsonRecord[key];
+    jsonLookup[normalizedKey] = jsonRecord[key];
+    // Also store lowercase and camelCase variations
+    jsonLookup[key.toLowerCase()] = jsonRecord[key];
+    jsonLookup[key.charAt(0).toLowerCase() + key.slice(1)] = jsonRecord[key];
+  }
+  
+  for (const column of dbColumns) {
+    // Skip system columns that are auto-generated
+    if (column === 'id') continue;
+    
+    // Try different variations of the column name in the JSON
+    let value = jsonRecord[column] || 
+                jsonLookup[column] ||
+                jsonRecord[column.charAt(0).toLowerCase() + column.slice(1)] ||
+                jsonRecord[column.toUpperCase()] ||
+                jsonRecord[column.toLowerCase()] ||
+                jsonLookup[normalizeColumnName(column)];
+    
+    // Handle special field conversions
+    if (column === 'Precio' || column === 'precio') {
+      value = convertToNumber(value);
+    } else if (column === 'VigenciaDesde' || column === 'vigenciaDesde' || column === 'VigenciaHasta' || column === 'vigenciaHasta') {
+      value = convertToMySQLDateTime(value);
+    } else if (column.includes('Cantidad') || column.includes('Dias') || column.includes('Noches') || column.includes('Pasos')) {
+      // Numeric fields
+      value = value || 0;
+    } else {
+      // String fields - convert empty to null
+      value = emptyToNull(value);
+    }
+    
+    mapped[column] = value;
+  }
+  
+  return mapped;
+}
+
+/**
  * Saves hotels to MySQL database
  * @param {Array} hoteles - Array of hotel objects
  * @returns {Promise<Object>} Statistics: { inserted, updated, errors, total }
@@ -135,6 +306,39 @@ export async function saveHotelsToDB(hoteles) {
     console.error('❌ MySQL connection pool not available');
     return { inserted: 0, updated: 0, errors: hoteles.length, total: hoteles.length };
   }
+
+  // Get keys from first record (all records have the same structure)
+  const firstRecord = hoteles[0];
+  const jsonKeys = Object.keys(firstRecord);
+  
+  // Get existing columns from hotels table
+  let existingColumns = await getTableColumns('hotels');
+  
+  // Create missing columns
+  const systemColumns = ['id', 'HotelID'];
+  const columnsCreated = await createMissingColumns('hotels', jsonKeys, existingColumns, systemColumns);
+  
+  if (columnsCreated > 0) {
+    console.log(`✅ ${columnsCreated} columnas nuevas creadas en tabla hotels`);
+    // Refresh columns list to include newly created ones
+    existingColumns = await getTableColumns('hotels');
+  }
+
+  // Filter columns: exclude 'id' (auto-generated), include all others
+  const dbColumns = existingColumns.filter(col => col !== 'id');
+  
+  // Build query once (reusable for all records)
+  const updateColumns = dbColumns.filter(col => col !== 'HotelID');
+  const columnsPlaceholders = dbColumns.map(() => '??').join(', ');
+  const valuesPlaceholders = dbColumns.map(() => '?').join(', ');
+  const updateClause = updateColumns.map(col => `?? = VALUES(??)`).join(', ');
+  
+  const query = `
+    INSERT INTO ?? (${columnsPlaceholders})
+    VALUES (${valuesPlaceholders})
+    ON DUPLICATE KEY UPDATE
+      ${updateClause}
+  `;
 
   let inserted = 0;
   let updated = 0;
@@ -151,61 +355,21 @@ export async function saveHotelsToDB(hoteles) {
         continue;
       }
 
-      // Map JSON fields to database columns
-      const hotelData = {
-        HotelID: hotel.HotelID,
-        NombreHotel: emptyToNull(hotel.NombreHotel || hotel.nombreHotel),
-        Categoria: emptyToNull(hotel.Categoria || hotel.categoria),
-        Ciudad: emptyToNull(hotel.Ciudad || hotel.ciudad),
-        Mercado: emptyToNull(hotel.Mercado || hotel.mercado),
-        Canal: emptyToNull(hotel.Canal || hotel.canal),
-        Base: emptyToNull(hotel.Base || hotel.base),
-        CantidadMinima: hotel.CantidadMinima || hotel.cantidadMinima || 0,
-        Moneda: emptyToNull(hotel.Moneda || hotel.moneda),
-        Precio: convertToNumber(hotel.Precio || hotel.precio),
-        VigenciaDesde: convertToMySQLDateTime(hotel.VigenciaDesde || hotel.vigenciaDesde),
-        VigenciaHasta: convertToMySQLDateTime(hotel.VigenciaHasta || hotel.vigenciaHasta),
-        Activo: emptyToNull(hotel.Activo || hotel.activo),
-        MapsURL: emptyToNull(hotel.MapsURL || hotel.mapsURL || hotel.MapsUrl || hotel.mapsUrl)
-      };
+      // Map JSON to database columns dynamically
+      const mappedData = mapJsonToDbColumns(hotel, dbColumns);
+      
+      // Ensure HotelID is set (required)
+      mappedData.HotelID = hotel.HotelID;
 
-      const query = `
-        INSERT INTO hotels (
-          HotelID, NombreHotel, Categoria, Ciudad, Mercado, Canal, Base,
-          CantidadMinima, Moneda, Precio, VigenciaDesde, VigenciaHasta, Activo, MapsURL
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE
-          NombreHotel = VALUES(NombreHotel),
-          Categoria = VALUES(Categoria),
-          Ciudad = VALUES(Ciudad),
-          Mercado = VALUES(Mercado),
-          Canal = VALUES(Canal),
-          Base = VALUES(Base),
-          CantidadMinima = VALUES(CantidadMinima),
-          Moneda = VALUES(Moneda),
-          Precio = VALUES(Precio),
-          VigenciaDesde = VALUES(VigenciaDesde),
-          VigenciaHasta = VALUES(VigenciaHasta),
-          Activo = VALUES(Activo),
-          MapsURL = VALUES(MapsURL)
-      `;
+      // Build query parameters
+      const queryParams = [
+        'hotels', // table name
+        ...dbColumns, // column names for INSERT
+        ...dbColumns.map(col => mappedData[col] !== undefined ? mappedData[col] : null), // values
+        ...updateColumns.flatMap(col => [col, col]) // column names for UPDATE (twice for VALUES())
+      ];
 
-      const [result] = await pool.query(query, [
-        hotelData.HotelID,
-        hotelData.NombreHotel,
-        hotelData.Categoria,
-        hotelData.Ciudad,
-        hotelData.Mercado,
-        hotelData.Canal,
-        hotelData.Base,
-        hotelData.CantidadMinima,
-        hotelData.Moneda,
-        hotelData.Precio,
-        hotelData.VigenciaDesde,
-        hotelData.VigenciaHasta,
-        hotelData.Activo,
-        hotelData.MapsURL
-      ]);
+      const [result] = await pool.query(query, queryParams);
 
       // Check if it was an insert (affectedRows = 1) or update (affectedRows = 2)
       if (result.affectedRows === 1) {
@@ -239,6 +403,39 @@ export async function saveServicesToDB(servicios) {
     return { inserted: 0, updated: 0, errors: servicios.length, total: servicios.length };
   }
 
+  // Get keys from first record (all records have the same structure)
+  const firstRecord = servicios[0];
+  const jsonKeys = Object.keys(firstRecord);
+  
+  // Get existing columns from services table
+  let existingColumns = await getTableColumns('services');
+  
+  // Create missing columns
+  const systemColumns = ['id', 'ServicioID'];
+  const columnsCreated = await createMissingColumns('services', jsonKeys, existingColumns, systemColumns);
+  
+  if (columnsCreated > 0) {
+    console.log(`✅ ${columnsCreated} columnas nuevas creadas en tabla services`);
+    // Refresh columns list to include newly created ones
+    existingColumns = await getTableColumns('services');
+  }
+
+  // Filter columns: exclude 'id' (auto-generated), include all others
+  const dbColumns = existingColumns.filter(col => col !== 'id');
+  
+  // Build query once (reusable for all records)
+  const updateColumns = dbColumns.filter(col => col !== 'ServicioID');
+  const columnsPlaceholders = dbColumns.map(() => '??').join(', ');
+  const valuesPlaceholders = dbColumns.map(() => '?').join(', ');
+  const updateClause = updateColumns.map(col => `?? = VALUES(??)`).join(', ');
+  
+  const query = `
+    INSERT INTO ?? (${columnsPlaceholders})
+    VALUES (${valuesPlaceholders})
+    ON DUPLICATE KEY UPDATE
+      ${updateClause}
+  `;
+
   let inserted = 0;
   let updated = 0;
   let errors = 0;
@@ -254,68 +451,21 @@ export async function saveServicesToDB(servicios) {
         continue;
       }
 
-      // Map JSON fields to database columns
-      const servicioData = {
-        ServicioID: servicio.ServicioID,
-        NombreServicio: emptyToNull(servicio.NombreServicio || servicio.nombreServicio),
-        TipoServicio: emptyToNull(servicio.TipoServicio || servicio.tipoServicio),
-        Base: emptyToNull(servicio.Base || servicio.base),
-        Categoria: emptyToNull(servicio.Categoria || servicio.categoria),
-        Canal: emptyToNull(servicio.Canal || servicio.canal),
-        Mercado: emptyToNull(servicio.Mercado || servicio.mercado),
-        Descripcion: emptyToNull(servicio.Descripcion || servicio.descripcion),
-        CantidadMinima: servicio.CantidadMinima || servicio.cantidadMinima || 0,
-        Moneda: emptyToNull(servicio.Moneda || servicio.moneda),
-        Precio: convertToNumber(servicio.Precio || servicio.precio),
-        VigenciaDesde: convertToMySQLDateTime(servicio.VigenciaDesde || servicio.vigenciaDesde),
-        VigenciaHasta: convertToMySQLDateTime(servicio.VigenciaHasta || servicio.vigenciaHasta),
-        Activo: emptyToNull(servicio.Activo || servicio.activo),
-        CantidadPasos: servicio.CantidadPasos || servicio.cantidadPasos || 0,
-        Zonas: emptyToNull(servicio.Zonas || servicio.zonas)
-      };
+      // Map JSON to database columns dynamically
+      const mappedData = mapJsonToDbColumns(servicio, dbColumns);
+      
+      // Ensure ServicioID is set (required)
+      mappedData.ServicioID = servicio.ServicioID;
 
-      const query = `
-        INSERT INTO services (
-          ServicioID, NombreServicio, TipoServicio, Base, Categoria, Canal, Mercado,
-          Descripcion, CantidadMinima, Moneda, Precio, VigenciaDesde, VigenciaHasta,
-          Activo, CantidadPasos, Zonas
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE
-          NombreServicio = VALUES(NombreServicio),
-          TipoServicio = VALUES(TipoServicio),
-          Base = VALUES(Base),
-          Categoria = VALUES(Categoria),
-          Canal = VALUES(Canal),
-          Mercado = VALUES(Mercado),
-          Descripcion = VALUES(Descripcion),
-          CantidadMinima = VALUES(CantidadMinima),
-          Moneda = VALUES(Moneda),
-          Precio = VALUES(Precio),
-          VigenciaDesde = VALUES(VigenciaDesde),
-          VigenciaHasta = VALUES(VigenciaHasta),
-          Activo = VALUES(Activo),
-          CantidadPasos = VALUES(CantidadPasos),
-          Zonas = VALUES(Zonas)
-      `;
+      // Build query parameters
+      const queryParams = [
+        'services', // table name
+        ...dbColumns, // column names for INSERT
+        ...dbColumns.map(col => mappedData[col] !== undefined ? mappedData[col] : null), // values
+        ...updateColumns.flatMap(col => [col, col]) // column names for UPDATE (twice for VALUES())
+      ];
 
-      const [result] = await pool.query(query, [
-        servicioData.ServicioID,
-        servicioData.NombreServicio,
-        servicioData.TipoServicio,
-        servicioData.Base,
-        servicioData.Categoria,
-        servicioData.Canal,
-        servicioData.Mercado,
-        servicioData.Descripcion,
-        servicioData.CantidadMinima,
-        servicioData.Moneda,
-        servicioData.Precio,
-        servicioData.VigenciaDesde,
-        servicioData.VigenciaHasta,
-        servicioData.Activo,
-        servicioData.CantidadPasos,
-        servicioData.Zonas
-      ]);
+      const [result] = await pool.query(query, queryParams);
 
       // Check if it was an insert (affectedRows = 1) or update (affectedRows = 2)
       if (result.affectedRows === 1) {
@@ -349,6 +499,39 @@ export async function savePackagesToDB(paquetes) {
     return { inserted: 0, updated: 0, errors: paquetes.length, total: paquetes.length };
   }
 
+  // Get keys from first record (all records have the same structure)
+  const firstRecord = paquetes[0];
+  const jsonKeys = Object.keys(firstRecord);
+  
+  // Get existing columns from packages table
+  let existingColumns = await getTableColumns('packages');
+  
+  // Create missing columns
+  const systemColumns = ['id', 'PaqueteID'];
+  const columnsCreated = await createMissingColumns('packages', jsonKeys, existingColumns, systemColumns);
+  
+  if (columnsCreated > 0) {
+    console.log(`✅ ${columnsCreated} columnas nuevas creadas en tabla packages`);
+    // Refresh columns list to include newly created ones
+    existingColumns = await getTableColumns('packages');
+  }
+
+  // Filter columns: exclude 'id' (auto-generated), include all others
+  const dbColumns = existingColumns.filter(col => col !== 'id');
+  
+  // Build query once (reusable for all records)
+  const updateColumns = dbColumns.filter(col => col !== 'PaqueteID');
+  const columnsPlaceholders = dbColumns.map(() => '??').join(', ');
+  const valuesPlaceholders = dbColumns.map(() => '?').join(', ');
+  const updateClause = updateColumns.map(col => `?? = VALUES(??)`).join(', ');
+  
+  const query = `
+    INSERT INTO ?? (${columnsPlaceholders})
+    VALUES (${valuesPlaceholders})
+    ON DUPLICATE KEY UPDATE
+      ${updateClause}
+  `;
+
   let inserted = 0;
   let updated = 0;
   let errors = 0;
@@ -364,65 +547,21 @@ export async function savePackagesToDB(paquetes) {
         continue;
       }
 
-      // Map JSON fields to database columns
-      const paqueteData = {
-        PaqueteID: paquete.PaqueteID,
-        NombrePaquete: emptyToNull(paquete.NombrePaquete || paquete.nombrePaquete),
-        Mercado: emptyToNull(paquete.Mercado || paquete.mercado),
-        Dias: paquete.Dias || paquete.dias || 0,
-        Noches: paquete.Noches || paquete.noches || 0,
-        Canal: emptyToNull(paquete.Canal || paquete.canal),
-        Base: emptyToNull(paquete.Base || paquete.base),
-        CantidadMinima: paquete.CantidadMinima || paquete.cantidadMinima || 0,
-        Moneda: emptyToNull(paquete.Moneda || paquete.moneda),
-        Precio: convertToNumber(paquete.Precio || paquete.precio),
-        VigenciaDesde: convertToMySQLDateTime(paquete.VigenciaDesde || paquete.vigenciaDesde),
-        VigenciaHasta: convertToMySQLDateTime(paquete.VigenciaHasta || paquete.vigenciaHasta),
-        Descripcion: emptyToNull(paquete.Descripcion || paquete.descripcion),
-        IncluyeResumen: emptyToNull(paquete.IncluyeResumen || paquete.incluyeResumen),
-        Activo: emptyToNull(paquete.Activo || paquete.activo)
-      };
+      // Map JSON to database columns dynamically
+      const mappedData = mapJsonToDbColumns(paquete, dbColumns);
+      
+      // Ensure PaqueteID is set (required)
+      mappedData.PaqueteID = paquete.PaqueteID;
 
-      const query = `
-        INSERT INTO packages (
-          PaqueteID, NombrePaquete, Mercado, Dias, Noches, Canal, Base,
-          CantidadMinima, Moneda, Precio, VigenciaDesde, VigenciaHasta,
-          Descripcion, IncluyeResumen, Activo
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE
-          NombrePaquete = VALUES(NombrePaquete),
-          Mercado = VALUES(Mercado),
-          Dias = VALUES(Dias),
-          Noches = VALUES(Noches),
-          Canal = VALUES(Canal),
-          Base = VALUES(Base),
-          CantidadMinima = VALUES(CantidadMinima),
-          Moneda = VALUES(Moneda),
-          Precio = VALUES(Precio),
-          VigenciaDesde = VALUES(VigenciaDesde),
-          VigenciaHasta = VALUES(VigenciaHasta),
-          Descripcion = VALUES(Descripcion),
-          IncluyeResumen = VALUES(IncluyeResumen),
-          Activo = VALUES(Activo)
-      `;
+      // Build query parameters
+      const queryParams = [
+        'packages', // table name
+        ...dbColumns, // column names for INSERT
+        ...dbColumns.map(col => mappedData[col] !== undefined ? mappedData[col] : null), // values
+        ...updateColumns.flatMap(col => [col, col]) // column names for UPDATE (twice for VALUES())
+      ];
 
-      const [result] = await pool.query(query, [
-        paqueteData.PaqueteID,
-        paqueteData.NombrePaquete,
-        paqueteData.Mercado,
-        paqueteData.Dias,
-        paqueteData.Noches,
-        paqueteData.Canal,
-        paqueteData.Base,
-        paqueteData.CantidadMinima,
-        paqueteData.Moneda,
-        paqueteData.Precio,
-        paqueteData.VigenciaDesde,
-        paqueteData.VigenciaHasta,
-        paqueteData.Descripcion,
-        paqueteData.IncluyeResumen,
-        paqueteData.Activo
-      ]);
+      const [result] = await pool.query(query, queryParams);
 
       // Check if it was an insert (affectedRows = 1) or update (affectedRows = 2)
       if (result.affectedRows === 1) {
