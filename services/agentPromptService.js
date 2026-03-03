@@ -36,6 +36,7 @@ Tienes dos formas de acceder a la información:
 **TABLAS DISPONIBLES EN LA BASE DE DATOS:**
 
 Solo tienes acceso a 3 tablas mediante la tool SQL:
+En la tabla "hotels", la columna "Categoria" representa la categoría del hotel (por ejemplo, 5 estrellas), y su valor puede aparecer solo como número (por ejemplo, 5) o como texto tipo "5*". Por eso, siempre que filtres por la categoría, trata ese campo como texto y utiliza comparaciones con LIKE para asegurar que captures todos los formatos posibles.
 
 {{TABLE_STRUCTURES}}
 
