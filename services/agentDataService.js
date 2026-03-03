@@ -239,6 +239,64 @@ async function createMissingColumns(tableName, jsonKeys, existingColumns, system
 }
 
 /**
+ * Removes columns from a table that are no longer present in the JSON
+ * @param {string} tableName - Name of the table
+ * @param {Array<string>} jsonKeys - Keys from JSON object (normalized)
+ * @param {Array<string>} existingColumns - Existing column names
+ * @param {Array<string>} systemColumns - System columns to preserve (e.g., ['id', 'HotelID'])
+ * @returns {Promise<number>} Number of columns removed
+ */
+async function removeMissingColumns(tableName, jsonKeys, existingColumns, systemColumns = []) {
+  const pool = getMySQLPool();
+  if (!pool) {
+    console.error('❌ MySQL connection pool not available');
+    return 0;
+  }
+
+  // Normalize JSON keys
+  const normalizedJsonKeys = jsonKeys.map(key => normalizeColumnName(key));
+  
+  // Find columns that exist in DB but not in JSON
+  const columnsToRemove = existingColumns.filter(column => {
+    // Preserve system columns (id, HotelID, ServicioID, PaqueteID)
+    if (systemColumns.includes(column)) return false;
+    // Preserve columns that exist in JSON
+    if (normalizedJsonKeys.includes(column)) return false;
+    // Validate column name (safety check)
+    if (!isValidColumnName(column)) {
+      console.warn(`⚠️ Invalid column name skipped for removal: ${column}`);
+      return false;
+    }
+    return true;
+  });
+
+  if (columnsToRemove.length === 0) {
+    return 0;
+  }
+
+  console.log(`🗑️ Eliminando ${columnsToRemove.length} columnas que ya no están en el JSON de tabla ${tableName}:`, columnsToRemove);
+
+  let removed = 0;
+  for (const columnName of columnsToRemove) {
+    try {
+      const query = `ALTER TABLE ?? DROP COLUMN ??`;
+      await pool.query(query, [tableName, columnName]);
+      console.log(`   ✅ Columna eliminada: ${columnName}`);
+      removed++;
+    } catch (error) {
+      // Handle column not found error (concurrency case)
+      if (error.code === 'ER_CANT_DROP_FIELD_OR_KEY' || error.errno === 1091) {
+        console.log(`   ℹ️ Columna ${columnName} ya no existe (probablemente eliminada por otro proceso)`);
+      } else {
+        console.error(`   ❌ Error eliminando columna ${columnName}:`, error.message);
+      }
+    }
+  }
+
+  return removed;
+}
+
+/**
  * Maps JSON object values to database columns dynamically
  * Handles camelCase/PascalCase variations and special field conversions
  * @param {Object} jsonRecord - JSON record object
@@ -321,6 +379,15 @@ export async function saveHotelsToDB(hoteles) {
   if (columnsCreated > 0) {
     console.log(`✅ ${columnsCreated} columnas nuevas creadas en tabla hotels`);
     // Refresh columns list to include newly created ones
+    existingColumns = await getTableColumns('hotels');
+  }
+  
+  // Remove columns that are no longer in JSON
+  const columnsRemoved = await removeMissingColumns('hotels', jsonKeys, existingColumns, systemColumns);
+  
+  if (columnsRemoved > 0) {
+    console.log(`✅ ${columnsRemoved} columnas eliminadas de tabla hotels`);
+    // Refresh columns list after removal
     existingColumns = await getTableColumns('hotels');
   }
 
@@ -419,6 +486,15 @@ export async function saveServicesToDB(servicios) {
     // Refresh columns list to include newly created ones
     existingColumns = await getTableColumns('services');
   }
+  
+  // Remove columns that are no longer in JSON
+  const columnsRemoved = await removeMissingColumns('services', jsonKeys, existingColumns, systemColumns);
+  
+  if (columnsRemoved > 0) {
+    console.log(`✅ ${columnsRemoved} columnas eliminadas de tabla services`);
+    // Refresh columns list after removal
+    existingColumns = await getTableColumns('services');
+  }
 
   // Filter columns: exclude 'id' (auto-generated), include all others
   const dbColumns = existingColumns.filter(col => col !== 'id');
@@ -513,6 +589,15 @@ export async function savePackagesToDB(paquetes) {
   if (columnsCreated > 0) {
     console.log(`✅ ${columnsCreated} columnas nuevas creadas en tabla packages`);
     // Refresh columns list to include newly created ones
+    existingColumns = await getTableColumns('packages');
+  }
+  
+  // Remove columns that are no longer in JSON
+  const columnsRemoved = await removeMissingColumns('packages', jsonKeys, existingColumns, systemColumns);
+  
+  if (columnsRemoved > 0) {
+    console.log(`✅ ${columnsRemoved} columnas eliminadas de tabla packages`);
+    // Refresh columns list after removal
     existingColumns = await getTableColumns('packages');
   }
 
