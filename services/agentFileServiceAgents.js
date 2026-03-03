@@ -229,18 +229,16 @@ export async function updateAgentFilesAgents(body) {
     };
   }
 
-  // 5. Update agent prompt with new table structures (if basePrompt is provided)
+  // 5. Update agent prompt with new table structures (always, after DB save)
   let promptUpdated = false;
-  if (body.basePrompt) {
-    try {
-      console.log('📝 Actualizando prompt del agente con nuevas estructuras de tablas...');
-      await updateAgentPromptWithTableStructures(body.basePrompt, body.promptPlaceholder || '{{TABLE_STRUCTURES}}');
-      promptUpdated = true;
-      console.log('✅ Prompt del agente actualizado exitosamente');
-    } catch (error) {
-      console.error('❌ Error actualizando prompt del agente:', error.message);
-      // Don't fail the entire operation if prompt update fails
-    }
+  try {
+    console.log('📝 Actualizando prompt del agente con nuevas estructuras de tablas...');
+    await updateAgentPromptWithTableStructures();
+    promptUpdated = true;
+    console.log('✅ Prompt del agente actualizado exitosamente');
+  } catch (error) {
+    console.error('❌ Error actualizando prompt del agente:', error.message);
+    // Don't fail the entire operation if prompt update fails
   }
 
   return {

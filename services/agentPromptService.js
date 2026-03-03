@@ -9,6 +9,158 @@ import mysql from 'mysql2/promise';
 import fs from 'fs';
 import config from '../config/index.js';
 
+/**
+ * Base prompt for the agent (without table structures)
+ * The placeholder {{TABLE_STRUCTURES}} will be replaced with actual table structures
+ */
+export const BASE_AGENT_PROMPT = `Eres un asistente especializado en responder consultas utilizando exclusivamente la información contenida en los archivos disponibles en tu base de conocimiento (Hoteles, Servicios y Paquetes) o consultando directamente la base de datos MySQL mediante la tool SQL disponible.
+
+Los archivos se proporcionan en formato JSON, cada archivo lleva consigo información específica: hoteles.json lleva toda la información sobre hoteles, paquetes.json lleva combinaciones o packs de varios servicios y hoteles, y servicios.json lleva todo lo demás (bodegas, traslados, cenas, almuerzos, etc.). Estos archivos pueden cambiar su estructura con el tiempo.
+
+**DECISIÓN ENTRE TOOL SQL Y ARCHIVOS:**
+
+Tienes dos formas de acceder a la información:
+
+1. **Tool SQL (executeSQLQuery)**: Úsala cuando:
+   - La consulta requiere filtros complejos, comparaciones, ordenamientos o agregaciones
+   - Necesitas hacer JOINs entre tablas
+   - La consulta es más eficiente ejecutándola directamente en la base de datos
+   - El usuario solicita análisis estadísticos, máximos, mínimos, conteos, etc.
+   - La respuesta puede obtenerse de forma lógica mediante una consulta SQL estructurada
+
+2. **Archivos JSON en la base de conocimiento**: Úsalos cuando:
+   - La consulta es simple y puede resolverse revisando los archivos directamente
+   - Necesitas información descriptiva o de contexto que no requiere filtrado complejo
+   - La búsqueda es más semántica que estructurada
+
+**TABLAS DISPONIBLES EN LA BASE DE DATOS:**
+
+Solo tienes acceso a 3 tablas mediante la tool SQL:
+
+{{TABLE_STRUCTURES}}
+
+**IMPORTANTE sobre la tool SQL:**
+- Siempre filtra por Activo = 'ACTIVADO' cuando exista ese campo
+- Usa WHERE clauses con parámetros para filtros de fecha, precio, etc.
+- Puedes hacer JOINs entre las tablas cuando sea necesario
+- Respeta los límites de resultados (máximo 1000 filas)
+- Los nombres de tablas son exactamente: "hotels", "services", "packages" (en minúsculas)
+
+**1. Comportamiento general**
+
+Puedes responder saludos o mensajes conversacionales simples de forma natural.
+
+Cuando la consulta requiera información sobre hoteles, servicios o paquetes:
+- SOLO puedes utilizar información contenida en los archivos proporcionados O consultando la base de datos mediante la tool SQL.
+- NO debes buscar información en internet.
+- NO debes usar conocimiento externo.
+- NO debes inventar datos bajo ninguna circunstancia.
+
+Si la información solicitada no existe, no está cargada o no aparece en los archivos o base de datos:
+- Indícalo de forma clara y natural.
+- No generes información estimada.
+- No completes valores faltantes.
+- No supongas datos.
+
+**2. Interpretación dinámica de la estructura (MUY IMPORTANTE)**
+
+Antes de responder cualquier consulta sobre datos:
+- Analiza la estructura real del JSON recibido o de las tablas de la base de datos.
+- Identifica dinámicamente los nombres exactos de las claves/columnas.
+- No asumas que los campos siempre son los mismos.
+- Si existen nuevas columnas, debes poder utilizarlas.
+
+Si el usuario menciona un campo:
+- Verifica primero si existe en el JSON o en la estructura de la tabla.
+- Si no existe, indícalo claramente sin inventarlo.
+- Debes usar exactamente los nombres de campo tal como aparecen en el JSON o en la base de datos.
+
+**3. Selección del archivo/tabla correcto**
+
+Hoteles → usar archivo de Hoteles o tabla "hotels"
+Servicios → usar archivo de Servicios o tabla "services"
+Paquetes → usar archivo de Paquetes o tabla "packages"
+
+Si la consulta involucra más de un tipo, puedes combinar información de múltiples archivos o hacer JOINs entre tablas.
+
+**4. Reglas de filtrado:**
+
+**Campo "Activo"**
+- Si existe un campo llamado "Activo":
+  - Solo considerar registros cuyo valor sea exactamente "ACTIVADO".
+  - Ignorar completamente registros con cualquier otro valor.
+  - Cuando uses la tool SQL, SIEMPRE incluye en el WHERE clause: "Activo = ?" con el parámetro "ACTIVADO".
+- Si el campo no existe, no aplicar este filtro.
+
+**Moneda**
+- Si existe un campo de moneda:
+  - Mostrar siempre el precio con su moneda original.
+  - No modificar valores almacenados.
+- Si el usuario solicita conversión:
+  - Utilizar el tipo de cambio aproximado: 1 USD = 1500 ARS
+  - Aclarar que es una conversión aproximada.
+- Si no existe campo de moneda, no asumir uno.
+
+**5. Fechas y vigencia**
+
+Si existen campos de vigencia (VigenciaDesde / VigenciaHasta):
+- Interpretar fechas en formato: DD/MM/YYYY o DD/MM/YYYY HH:MM
+- En la base de datos, las fechas están en formato datetime (YYYY-MM-DD HH:MM:SS)
+- Si el usuario consulta por una fecha específica:
+  - Solo mostrar registros dentro del rango.
+  - Usa WHERE clauses con comparaciones de fecha cuando uses la tool SQL.
+- Si no especifica fecha, no aplicar filtro temporal.
+- Si no existen campos de vigencia, no aplicar filtro de fechas.
+
+**6. Consultas sobre cualquier columna (incluyendo nuevas)**
+
+El usuario puede preguntar por cualquier columna existente en el JSON o en las tablas, incluso si fue agregada recientemente.
+
+Debes:
+- Detectar si la columna existe.
+- Interpretar correctamente su tipo (numérico, texto o fecha).
+- Permitir:
+  - Comparaciones (mayor, menor)
+  - Ordenamientos
+  - Filtros
+  - Búsquedas por coincidencia
+  - Identificación de máximos y mínimos
+
+Ejemplo: Si existe un campo como CantidadPasos, Pasos, TotalPasos y el usuario pregunta:
+- ¿Cuál tiene más pasos?
+- Ordená por pasos
+- ¿Cuál tiene menos pasos?
+
+Debes:
+- Considerar solo registros ACTIVADOS (si existe ese campo).
+- Comparar solo valores numéricos válidos.
+- Ignorar valores vacíos.
+- Indicar empates si los hay.
+- Si todos los valores están vacíos, indicarlo claramente.
+- Si la columna solicitada no existe, simplemente informa que ese campo no está presente en los datos actuales.
+
+**7. Manejo de valores vacíos**
+
+Si un campo existe pero el valor está vacío:
+- No inventes contenido.
+- Puedes indicar que no tiene valor cargado.
+- Para comparaciones numéricas, ignorar valores vacíos.
+- En consultas SQL, puedes usar WHERE clauses para filtrar valores NULL o vacíos si es necesario.
+
+**8. Reglas de comportamiento**
+
+- Sé claro y directo.
+- No agregues explicaciones innecesarias.
+- No hagas suposiciones.
+- Si la consulta es ambigua, solicita aclaración.
+- No muestres registros desactivados (si existe el campo Activo).
+- Respeta exactamente los valores almacenados.
+- No alteres precios.
+- No modifiques formatos originales de fecha.
+- No normalices nombres de campos.
+- Cuando uses la tool SQL, construye consultas eficientes y seguras.
+- Prioriza el uso de la tool SQL para consultas que requieran análisis o filtrado complejo.`;
+
 let connectionPool = null;
 
 /**
@@ -77,8 +229,7 @@ async function getTableStructure(tableName) {
         IS_NULLABLE,
         COLUMN_DEFAULT,
         COLUMN_KEY,
-        EXTRA,
-        COLUMN_TYPE
+        EXTRA
       FROM INFORMATION_SCHEMA.COLUMNS 
       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
       ORDER BY ORDINAL_POSITION
@@ -113,7 +264,7 @@ export async function getAllTableStructures() {
 }
 
 /**
- * Formats a column definition for prompt (bullet list format)
+ * Formats a column definition for prompt (bullet list format matching user's prompt style)
  * @param {Object} column - Column information from INFORMATION_SCHEMA
  * @returns {string} Formatted column definition
  */
@@ -128,7 +279,7 @@ function formatColumnForPrompt(column) {
     if (column.NUMERIC_PRECISION && column.NUMERIC_SCALE !== null) {
       definition += `${column.DATA_TYPE}(${column.NUMERIC_PRECISION},${column.NUMERIC_SCALE})`;
     } else {
-      definition += column.DATA_TYPE;
+      definition += `${column.DATA_TYPE}(10,2)`;
     }
   } else if (column.DATA_TYPE === 'int' || column.DATA_TYPE === 'bigint' || column.DATA_TYPE === 'tinyint' || column.DATA_TYPE === 'smallint' || column.DATA_TYPE === 'mediumint') {
     definition += column.DATA_TYPE;
@@ -215,6 +366,16 @@ export function formatTableStructuresForPrompt(structures) {
 }
 
 /**
+ * Builds the complete agent prompt by inserting table structures into the base prompt
+ * @param {Object} structures - Object with hotels, services, packages structures
+ * @returns {string} Complete prompt with table structures inserted
+ */
+export function buildAgentPromptWithStructures(structures) {
+  const tableStructures = formatTableStructuresForPrompt(structures);
+  return BASE_AGENT_PROMPT.replace('{{TABLE_STRUCTURES}}', tableStructures);
+}
+
+/**
  * Creates AgentsClient
  * @returns {Promise<AgentsClient>} Configured client
  */
@@ -226,13 +387,10 @@ async function createClient() {
 
 /**
  * Updates the agent's system prompt with new table structures
- * Replaces the table structure section in the prompt with the current database structures
- * @param {string} basePrompt - Base prompt text (with or without table structures)
- * @param {string} tableStructures - Formatted table structures
- * @param {string} placeholder - Placeholder text to replace (e.g., "{{TABLE_STRUCTURES}}")
+ * @param {Object} structures - Object with hotels, services, packages structures
  * @returns {Promise<boolean>} True if update was successful
  */
-export async function updateAgentPrompt(basePrompt, tableStructures, placeholder = '{{TABLE_STRUCTURES}}') {
+export async function updateAgentPromptWithStructures(structures) {
   try {
     if (!config.agent.agentId) {
       throw new Error('Agent ID no configurado');
@@ -240,59 +398,12 @@ export async function updateAgentPrompt(basePrompt, tableStructures, placeholder
 
     const client = await createClient();
     
-    // Get current agent
-    const agent = await client.getAgent(config.agent.agentId);
-    
-    let updatedPrompt;
-    
-    // If placeholder exists, replace it
-    if (basePrompt.includes(placeholder)) {
-      updatedPrompt = basePrompt.replace(placeholder, tableStructures);
-    } else {
-      // Otherwise, try to find and replace the table structures section
-      // Look for the pattern: **TABLAS DISPONIBLES EN LA BASE DE DATOS:** ... **IMPORTANTE sobre la tool SQL:**
-      const startMarker = '**TABLAS DISPONIBLES EN LA BASE DE DATOS:**';
-      const endMarker = '**IMPORTANTE sobre la tool SQL:**';
-      
-      const startIndex = basePrompt.indexOf(startMarker);
-      const endIndex = basePrompt.indexOf(endMarker);
-      
-      if (startIndex !== -1 && endIndex !== -1) {
-        // Replace the section between markers
-        // Keep everything before the start marker
-        const beforeSection = basePrompt.substring(0, startIndex + startMarker.length);
-        // Keep everything from the end marker onwards
-        const afterSection = basePrompt.substring(endIndex);
-        
-        // Insert new table structures section
-        updatedPrompt = `${beforeSection}\n\nSolo tienes acceso a 3 tablas mediante la tool SQL:\n\n${tableStructures}${afterSection}`;
-      } else {
-        // If markers not found, try to find just the start marker and replace from there
-        if (startIndex !== -1) {
-          // Find the next section marker (look for next **)
-          const nextSectionMatch = basePrompt.substring(startIndex + startMarker.length).match(/\n\*\*/);
-          if (nextSectionMatch) {
-            const nextSectionIndex = startIndex + startMarker.length + nextSectionMatch.index;
-            const beforeSection = basePrompt.substring(0, startIndex + startMarker.length);
-            const afterSection = basePrompt.substring(nextSectionIndex);
-            updatedPrompt = `${beforeSection}\n\nSolo tienes acceso a 3 tablas mediante la tool SQL:\n\n${tableStructures}${afterSection}`;
-          } else {
-            // If no next section found, append after start marker
-            const beforeSection = basePrompt.substring(0, startIndex + startMarker.length);
-            const afterSection = basePrompt.substring(startIndex + startMarker.length);
-            updatedPrompt = `${beforeSection}\n\nSolo tienes acceso a 3 tablas mediante la tool SQL:\n\n${tableStructures}${afterSection}`;
-          }
-        } else {
-          // If markers not found, just append at the end
-          console.warn('⚠️ No se encontraron los marcadores de sección, agregando estructuras al final');
-          updatedPrompt = `${basePrompt}\n\n${tableStructures}`;
-        }
-      }
-    }
+    // Build complete prompt with table structures
+    const completePrompt = buildAgentPromptWithStructures(structures);
     
     // Update agent with new instructions
     await client.updateAgent(config.agent.agentId, {
-      instructions: updatedPrompt
+      instructions: completePrompt
     });
 
     console.log('✅ Prompt del agente actualizado exitosamente con nuevas estructuras de tablas');
@@ -304,54 +415,17 @@ export async function updateAgentPrompt(basePrompt, tableStructures, placeholder
 }
 
 /**
- * Loads base prompt from file if basePrompt is a file path, otherwise uses it as text
- * @param {string} basePrompt - Base prompt text or file path
- * @returns {string} Base prompt text
- */
-function loadBasePrompt(basePrompt) {
-  if (!basePrompt) {
-    return '';
-  }
-  
-  // Check if it's a file path (contains path separators or ends with .txt/.md)
-  const looksLikeFilePath = basePrompt.includes('/') || basePrompt.includes('\\') || 
-                             basePrompt.endsWith('.txt') || basePrompt.endsWith('.md');
-  
-  if (looksLikeFilePath && fs.existsSync(basePrompt)) {
-    console.log(`📄 Cargando prompt base desde archivo: ${basePrompt}`);
-    return fs.readFileSync(basePrompt, 'utf-8');
-  }
-  
-  // Otherwise treat it as text
-  return basePrompt;
-}
-
-/**
- * Main function to update agent prompt with current table structures
- * @param {string} basePrompt - Base prompt text (or file path) with placeholder for table structures
- * @param {string} placeholder - Placeholder text to replace (default: "{{TABLE_STRUCTURES}}")
+ * Main function to update agent prompt with current table structures from database
+ * This function automatically gets the table structures and updates the agent prompt
  * @returns {Promise<boolean>} True if update was successful
  */
-export async function updateAgentPromptWithTableStructures(basePrompt, placeholder = '{{TABLE_STRUCTURES}}') {
+export async function updateAgentPromptWithTableStructures() {
   try {
-    // Load base prompt (from file or use as text)
-    const promptText = loadBasePrompt(basePrompt);
-    
-    if (!promptText) {
-      throw new Error('Base prompt no proporcionado');
-    }
-    
     // Get current table structures from database
     const structures = await getAllTableStructures();
     
-    // Format as SQL CREATE TABLE statements
-    const tableStructuresSQL = formatTableStructuresForPrompt(structures);
-    
-    console.log('📝 Estructuras de tablas obtenidas:');
-    console.log(tableStructuresSQL);
-    
-    // Update agent prompt
-    await updateAgentPrompt(promptText, tableStructuresSQL, placeholder);
+    // Update agent prompt with structures
+    await updateAgentPromptWithStructures(structures);
     
     return true;
   } catch (error) {
