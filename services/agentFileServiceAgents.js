@@ -10,6 +10,7 @@ import fs from 'fs';
 import path from 'path';
 import { tmpdir } from 'os';
 import { saveAllDataToDB } from './agentDataService.js';
+import { updateAgentPromptWithTableStructures } from './agentPromptService.js';
 
 /**
  * Creates AgentsClient
@@ -228,6 +229,20 @@ export async function updateAgentFilesAgents(body) {
     };
   }
 
+  // 5. Update agent prompt with new table structures (if basePrompt is provided)
+  let promptUpdated = false;
+  if (body.basePrompt) {
+    try {
+      console.log('📝 Actualizando prompt del agente con nuevas estructuras de tablas...');
+      await updateAgentPromptWithTableStructures(body.basePrompt, body.promptPlaceholder || '{{TABLE_STRUCTURES}}');
+      promptUpdated = true;
+      console.log('✅ Prompt del agente actualizado exitosamente');
+    } catch (error) {
+      console.error('❌ Error actualizando prompt del agente:', error.message);
+      // Don't fail the entire operation if prompt update fails
+    }
+  }
+
   return {
     deletedFiles: deletedFilesCount,
     uploadedFiles: uploadedFiles,
@@ -236,6 +251,7 @@ export async function updateAgentFilesAgents(body) {
       servicios: Servicios.length,
       paquetes: Paquetes.length
     },
-    database: dbResults
+    database: dbResults,
+    promptUpdated: promptUpdated
   };
 }
