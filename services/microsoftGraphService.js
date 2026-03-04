@@ -1,6 +1,9 @@
 /**
  * Microsoft Graph Service
  * Handles OAuth2 authentication, subscriptions, and file operations with Microsoft Graph API
+ * 
+ * Uses ONEDRIVE_RESOURCE environment variable as the complete Graph API URL for the file
+ * Example: https://graph.microsoft.com/v1.0/drives/b!.../root:/path/file.xlsx
  */
 
 /**
@@ -13,7 +16,7 @@ export async function getAccessToken() {
   const clientSecret = process.env.AZURE_CLIENT_SECRET;
 
   if (!tenantId || !clientId || !clientSecret) {
-    throw new Error('Missing required environment variables: TENANT_ID, CLIENT_ID, CLIENT_SECRET');
+    throw new Error('Missing required environment variables: AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET');
   }
 
   const tokenUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`;
@@ -47,25 +50,118 @@ export async function getAccessToken() {
 }
 
 /**
+ * Gets file metadata from OneDrive using ONEDRIVE_RESOURCE
+ * @returns {Promise<Object>} File metadata
+ */
+export async function getFileMetadata() {
+  const onedriveResource = process.env.ONEDRIVE_RESOURCE;
+  
+  if (!onedriveResource) {
+    throw new Error('ONEDRIVE_RESOURCE environment variable is not set');
+  }
+
+  const accessToken = await getAccessToken();
+
+  try {
+    const response = await fetch(onedriveResource, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`
+      }
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to get file metadata: ${response.status} ${errorText}`);
+    }
+
+    const metadata = await response.json();
+    return metadata;
+  } catch (error) {
+    console.error('❌ Error getting file metadata:', error.message);
+    throw error;
+  }
+}
+
+/**
+ * Downloads a file from OneDrive using ONEDRIVE_RESOURCE
+ * @returns {Promise<Buffer>} File content as Buffer
+ */
+export async function downloadFileFromOneDrive() {
+  const onedriveResource = process.env.ONEDRIVE_RESOURCE;
+  
+  if (!onedriveResource) {
+    throw new Error('ONEDRIVE_RESOURCE environment variable is not set');
+  }
+
+  const accessToken = await getAccessToken();
+
+  // Append /content to the resource URL to download the file
+  const downloadUrl = `${onedriveResource}/content`;
+
+  try {
+    const response = await fetch(downloadUrl, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`
+      }
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to download file: ${response.status} ${errorText}`);
+    }
+
+    // Get file as array buffer and convert to Buffer
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    console.log(`✅ File downloaded (${buffer.length} bytes)`);
+    return buffer;
+  } catch (error) {
+    console.error('❌ Error downloading file:', error.message);
+    throw error;
+  }
+}
+
+/**
+ * Gets the subscription resource path from file metadata
+ * Extracts driveId and itemId to construct: drives/{driveId}/items/{itemId}
+ * @param {Object} metadata - File metadata from getFileMetadata()
+ * @returns {string} Resource path for subscription
+ */
+function getSubscriptionResourcePath(metadata) {
+  if (!metadata.id) {
+    throw new Error('File metadata does not contain an id');
+  }
+
+  if (!metadata.parentReference || !metadata.parentReference.driveId) {
+    throw new Error('File metadata does not contain parentReference.driveId');
+  }
+
+  const driveId = metadata.parentReference.driveId;
+  const itemId = metadata.id;
+
+  return `drives/${driveId}/items/${itemId}`;
+}
+
+/**
  * Creates a subscription in Microsoft Graph for OneDrive file changes
- * @param {string} resource - Resource to subscribe to. Can be:
- *   - File path: "users/{user-id}/drive/root:/carpeta/archivo.xlsx" (will be converted to item-id)
- *   - Item ID path: "users/{user-id}/drive/items/{item-id}" (used directly)
+ * Uses ONEDRIVE_RESOURCE to get file metadata and constructs subscription resource
  * @param {string} webhookUrl - URL where notifications will be sent
  * @param {string} clientState - Optional client state for validation
  * @returns {Promise<Object>} Subscription object
  */
-export async function createSubscription(resource, webhookUrl, clientState = null) {
+export async function createSubscription(webhookUrl, clientState = null) {
   const accessToken = await getAccessToken();
 
-  // Convert file path to item-id based resource if needed
-  // Graph subscriptions don't support drive/root:/path format, only items/{id}
-  let resourcePath = resource;
-  if (resource.includes('/drive/root:/')) {
-    console.log('🔄 Converting file path to item-id based resource...');
-    resourcePath = await convertFilePathToResourcePath(resource);
-    console.log(`✅ Using resource path: ${resourcePath}`);
-  }
+  // Get file metadata to extract driveId and itemId
+  console.log('📋 Getting file metadata to construct subscription resource...');
+  const metadata = await getFileMetadata();
+  
+  // Construct subscription resource path: drives/{driveId}/items/{itemId}
+  const resourcePath = getSubscriptionResourcePath(metadata);
+  console.log(`✅ Using subscription resource: ${resourcePath}`);
 
   const subscriptionData = {
     changeType: 'updated', // For OneDrive files, only 'updated' and 'deleted' are valid, not 'created'
@@ -189,120 +285,4 @@ export async function deleteSubscription(subscriptionId) {
     console.error('❌ Error deleting subscription:', error.message);
     throw error;
   }
-}
-
-/**
- * Downloads a file from OneDrive using Microsoft Graph API
- * @param {string} filePath - Path to the file (e.g., "users/{user-id}/drive/root:/carpeta/archivo.xlsx")
- * @returns {Promise<Buffer>} File content as Buffer
- */
-export async function downloadFileFromOneDrive(filePath) {
-  const accessToken = await getAccessToken();
-
-  // Construct the Graph API URL for downloading the file
-  const fileUrl = `https://graph.microsoft.com/v1.0/${filePath}/content`;
-
-  try {
-    const response = await fetch(fileUrl, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`
-      }
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Failed to download file: ${response.status} ${errorText}`);
-    }
-
-    // Get file as array buffer and convert to Buffer
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-
-    console.log(`✅ File downloaded: ${filePath} (${buffer.length} bytes)`);
-    return buffer;
-  } catch (error) {
-    console.error('❌ Error downloading file:', error.message);
-    throw error;
-  }
-}
-
-/**
- * Gets file metadata from OneDrive
- * @param {string} filePath - Path to the file (can be path or item-id based)
- * @returns {Promise<Object>} File metadata
- */
-export async function getFileMetadata(filePath) {
-  const accessToken = await getAccessToken();
-
-  const fileUrl = `https://graph.microsoft.com/v1.0/${filePath}`;
-
-  try {
-    const response = await fetch(fileUrl, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`
-      }
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Failed to get file metadata: ${response.status} ${errorText}`);
-    }
-
-    const metadata = await response.json();
-    return metadata;
-  } catch (error) {
-    console.error('❌ Error getting file metadata:', error.message);
-    throw error;
-  }
-}
-
-/**
- * Gets the item-id of a file from its path
- * Microsoft Graph subscriptions require item-id, not file paths
- * @param {string} filePath - Path to the file (e.g., "users/{id}/drive/root:/folder/file.xlsx")
- * @returns {Promise<string>} Item ID of the file
- */
-export async function getFileItemId(filePath) {
-  try {
-    const metadata = await getFileMetadata(filePath);
-    
-    if (!metadata.id) {
-      throw new Error('File metadata does not contain an id');
-    }
-    
-    console.log(`✅ File item-id obtained: ${metadata.id} for path: ${filePath}`);
-    return metadata.id;
-  } catch (error) {
-    console.error('❌ Error getting file item-id:', error.message);
-    throw error;
-  }
-}
-
-/**
- * Converts a file path to a resource path using item-id
- * This is required because Graph subscriptions don't support drive/root:/path format
- * @param {string} filePath - Path to the file (e.g., "users/{id}/drive/root:/folder/file.xlsx")
- * @returns {Promise<string>} Resource path using item-id (e.g., "users/{id}/drive/items/{item-id}")
- */
-export async function convertFilePathToResourcePath(filePath) {
-  // If the path already uses items/{id} format, return as is
-  if (filePath.includes('/drive/items/')) {
-    return filePath;
-  }
-  
-  // Extract user ID from path
-  const userMatch = filePath.match(/users\/([^/]+)/);
-  if (!userMatch) {
-    throw new Error('Invalid file path format. Expected: users/{id}/drive/root:/path');
-  }
-  
-  const userId = userMatch[1];
-  
-  // Get item-id from file path
-  const itemId = await getFileItemId(filePath);
-  
-  // Return resource path using item-id
-  return `users/${userId}/drive/items/${itemId}`;
 }

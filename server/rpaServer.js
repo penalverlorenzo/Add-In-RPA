@@ -1038,8 +1038,8 @@ app.post('/webhook/onedrive', express.raw({ type: 'application/json', limit: '10
 
           console.log(`📥 Processing notification for resource: ${resource}`);
 
-          // Download the file from OneDrive
-          const fileBuffer = await downloadFileFromOneDrive(resource);
+          // Download the file from OneDrive (uses ONEDRIVE_RESOURCE directly)
+          const fileBuffer = await downloadFileFromOneDrive();
           
           // Convert Excel to JSON
           const jsonData = await convertExcelToJson(fileBuffer);
@@ -1088,14 +1088,20 @@ export async function initializeOneDriveSubscription() {
 
     console.log('🔔 Initializing OneDrive subscription...');
     console.log(`   Webhook URL: ${webhookUrl}`);
-    console.log(`   Resource: ${onedriveResource}`);
+    console.log(`   OneDrive Resource: ${onedriveResource}`);
+
+    // Get file metadata to determine the subscription resource path
+    const { getFileMetadata } = await import('../services/microsoftGraphService.js');
+    const metadata = await getFileMetadata();
+    const expectedResourcePath = `drives/${metadata.parentReference.driveId}/items/${metadata.id}`;
+    console.log(`   Expected subscription resource: ${expectedResourcePath}`);
 
     // Check for existing subscriptions
     const existingSubscriptions = await listSubscriptions();
     
-    // Check if subscription already exists for this resource
+    // Check if subscription already exists for this resource and webhook URL
     const existingSubscription = existingSubscriptions.find(sub => 
-      sub.resource === onedriveResource && 
+      sub.resource === expectedResourcePath && 
       sub.notificationUrl === webhookUrl
     );
 
@@ -1116,7 +1122,7 @@ export async function initializeOneDriveSubscription() {
     } else {
       // Create new subscription
       console.log('📝 Creating new subscription...');
-      const subscription = await createSubscription(onedriveResource, webhookUrl, clientStateSecret);
+      const subscription = await createSubscription(webhookUrl, clientStateSecret);
       console.log(`✅ Subscription created: ${subscription.id}`);
     }
 
