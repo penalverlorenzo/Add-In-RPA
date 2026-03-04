@@ -57,7 +57,7 @@ export async function createSubscription(resource, webhookUrl, clientState = nul
   const accessToken = await getAccessToken();
 
   const subscriptionData = {
-    changeType: 'created,updated',
+    changeType: 'updated', // For OneDrive files, only 'updated' and 'deleted' are valid, not 'created'
     notificationUrl: webhookUrl,
     resource: resource,
     expirationDateTime: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(), // 3 days from now
