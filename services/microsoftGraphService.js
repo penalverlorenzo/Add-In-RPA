@@ -320,3 +320,90 @@ export async function getFileMetadataByItemId(driveId, itemId) {
     throw error;
   }
 }
+
+/**
+ * Gets recently modified files in a drive root
+ * Used when subscription is on drives/{driveId}/root and we need to find which file changed
+ * @param {string} driveId - Drive ID
+ * @param {number} minutesAgo - How many minutes ago to look for changes (default: 5)
+ * @returns {Promise<Array>} Array of file metadata objects
+ */
+export async function getRecentlyModifiedFiles(driveId, minutesAgo = 5) {
+  const accessToken = await getAccessToken();
+  
+  // Calculate the time threshold (5 minutes ago)
+  const timeThreshold = new Date(Date.now() - minutesAgo * 60 * 1000);
+  const timeFilter = timeThreshold.toISOString();
+  
+  // Query for files modified in the last few minutes
+  // Using search endpoint to find files in the root
+  const searchUrl = `https://graph.microsoft.com/v1.0/drives/${driveId}/root/search(q='')?$filter=lastModifiedDateTime ge ${timeFilter}&$orderby=lastModifiedDateTime desc&$top=10`;
+
+  try {
+    const response = await fetch(searchUrl, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`
+      }
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to get recently modified files: ${response.status} ${errorText}`);
+    }
+
+    const data = await response.json();
+    return data.value || [];
+  } catch (error) {
+    console.error('❌ Error getting recently modified files:', error.message);
+    throw error;
+  }
+}
+
+/**
+ * Gets a specific file from drive root by name and path
+ * @param {string} driveId - Drive ID
+ * @param {string} fileName - Name of the file to find
+ * @param {string} folderPath - Optional folder path (e.g., "/Tarifario - Test")
+ * @returns {Promise<Object|null>} File metadata or null if not found
+ */
+export async function findFileInDrive(driveId, fileName, folderPath = null) {
+  const accessToken = await getAccessToken();
+  
+  // Construct the path to the file
+  let filePath = fileName;
+  if (folderPath) {
+    // Remove leading slash if present and construct path
+    const cleanPath = folderPath.startsWith('/') ? folderPath.slice(1) : folderPath;
+    filePath = `${cleanPath}/${fileName}`;
+  }
+  
+  // Use the path-based API to get the file
+  const fileUrl = `https://graph.microsoft.com/v1.0/drives/${driveId}/root:/${filePath}`;
+
+  try {
+    const response = await fetch(fileUrl, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`
+      }
+    });
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        return null; // File not found
+      }
+      const errorText = await response.text();
+      throw new Error(`Failed to find file: ${response.status} ${errorText}`);
+    }
+
+    const metadata = await response.json();
+    return metadata;
+  } catch (error) {
+    if (error.message.includes('404')) {
+      return null; // File not found
+    }
+    console.error('❌ Error finding file in drive:', error.message);
+    throw error;
+  }
+}

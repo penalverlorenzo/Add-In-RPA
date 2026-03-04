@@ -24,7 +24,8 @@ import {
   listSubscriptions,
   downloadFileFromOneDrive,
   getFileMetadataByItemId,
-  getFileMetadata
+  getFileMetadata,
+  findFileInDrive
 } from '../services/microsoftGraphService.js';
 import { convertExcelToJson } from '../services/excelToJsonService.js';
 import config from '../config/index.js';
@@ -1061,13 +1062,6 @@ app.post('/webhook/onedrive', async (req, res) => {
     if (notificationBody.value && Array.isArray(notificationBody.value)) {
       for (const notification of notificationBody.value) {
         try {
-          // Get resourceData from notification (contains item ID and drive ID)
-          const resourceData = notification.resourceData;
-          if (!resourceData || !resourceData.id) {
-            console.warn('⚠️ Notification missing resourceData.id field');
-            continue;
-          }
-
           // Extract driveId from resource path (format: drives/{driveId}/root)
           const resource = notification.resource;
           if (!resource) {
@@ -1082,33 +1076,35 @@ app.post('/webhook/onedrive', async (req, res) => {
           }
 
           const driveId = driveMatch[1];
-          const itemId = resourceData.id;
+          console.log(`📥 Processing notification for drive: ${driveId}`);
 
-          console.log(`📥 Processing notification for item: ${itemId} in drive: ${driveId}`);
-
-          // Get file metadata to validate it's the correct file
-          const fileMetadata = await getFileMetadataByItemId(driveId, itemId);
-          
-          // Filter: Only process if it's the expected file
-          if (expectedFileName && fileMetadata.name !== expectedFileName) {
-            console.log(`⏭️ Skipping file "${fileMetadata.name}" (expected: "${expectedFileName}")`);
+          // When subscription is on drives/{driveId}/root, resourceData doesn't contain the item ID
+          // We need to find the file directly using the expected filename and path
+          if (!expectedFileName) {
+            console.warn('⚠️ Expected file name not available, skipping notification');
             continue;
           }
 
-          // Filter: Check if folder path matches (if expected)
-          if (expectedFolderPath && fileMetadata.parentReference && fileMetadata.parentReference.path) {
-            const parentPath = fileMetadata.parentReference.path;
-            if (!parentPath.includes(expectedFolderPath)) {
-              console.log(`⏭️ Skipping file in path "${parentPath}" (expected folder: "${expectedFolderPath}")`);
-              continue;
-            }
+          // Find the file in the drive using name and path
+          console.log(`🔍 Searching for file: ${expectedFileName} in folder: ${expectedFolderPath || 'root'}`);
+          const fileMetadata = await findFileInDrive(driveId, expectedFileName, expectedFolderPath);
+          
+          if (!fileMetadata) {
+            console.log(`⏭️ File "${expectedFileName}" not found in drive, skipping notification`);
+            continue;
           }
 
-          console.log(`✅ File matches filter criteria: ${fileMetadata.name}`);
+          console.log(`✅ File found: ${fileMetadata.name} (ID: ${fileMetadata.id})`);
+
+          // Verify it's the correct file (double check)
+          if (fileMetadata.name !== expectedFileName) {
+            console.log(`⏭️ File name mismatch: found "${fileMetadata.name}", expected "${expectedFileName}"`);
+            continue;
+          }
 
           // Download the file from OneDrive using the item ID
           const accessToken = await getAccessToken();
-          const downloadUrl = `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${itemId}/content`;
+          const downloadUrl = `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${fileMetadata.id}/content`;
           
           const downloadResponse = await fetch(downloadUrl, {
             method: 'GET',
@@ -1135,7 +1131,7 @@ app.post('/webhook/onedrive', async (req, res) => {
           
           console.log('✅ File processed successfully:', {
             fileName: fileMetadata.name,
-            itemId,
+            itemId: fileMetadata.id,
             driveId,
             hotels: jsonData.Hoteles.length,
             services: jsonData.Servicios.length,
