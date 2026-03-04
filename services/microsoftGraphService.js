@@ -8,9 +8,9 @@
  * @returns {Promise<string>} Access token
  */
 export async function getAccessToken() {
-  const tenantId = process.env.TENANT_ID;
-  const clientId = process.env.CLIENT_ID;
-  const clientSecret = process.env.CLIENT_SECRET;
+  const tenantId = process.env.AZURE_TENANT_ID;
+  const clientId = process.env.AZURE_CLIENT_ID;
+  const clientSecret = process.env.AZURE_CLIENT_SECRET;
 
   if (!tenantId || !clientId || !clientSecret) {
     throw new Error('Missing required environment variables: TENANT_ID, CLIENT_ID, CLIENT_SECRET');
@@ -57,7 +57,7 @@ export async function createSubscription(resource, webhookUrl, clientState = nul
   const accessToken = await getAccessToken();
 
   const subscriptionData = {
-    changeType: 'created,updated',
+    changeType: 'updated', // For OneDrive files, only 'updated' and 'deleted' are valid, not 'created'
     notificationUrl: webhookUrl,
     resource: resource,
     expirationDateTime: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(), // 3 days from now
