@@ -4,6 +4,10 @@
  * 
  * Uses ONEDRIVE_RESOURCE environment variable as the complete Graph API URL for the file
  * Example: https://graph.microsoft.com/v1.0/drives/b!.../root:/path/file.xlsx
+ * 
+ * IMPORTANT: For OneDrive Business subscriptions with app-only (client_credentials),
+ * subscriptions ONLY work with: drives/{driveId}/root
+ * They do NOT work with: drives/{driveId}/items/{itemId}, file paths, or individual files
  */
 
 /**
@@ -125,29 +129,29 @@ export async function downloadFileFromOneDrive() {
 }
 
 /**
- * Gets the subscription resource path from file metadata
- * Extracts driveId and itemId to construct: drives/{driveId}/items/{itemId}
- * @param {Object} metadata - File metadata from getFileMetadata()
- * @returns {string} Resource path for subscription
+ * Gets the drive root resource path for subscriptions
+ * OneDrive Business subscriptions with app-only authentication ONLY work with: drives/{driveId}/root
+ * @returns {Promise<string>} Resource path: drives/{driveId}/root
  */
-function getSubscriptionResourcePath(metadata) {
-  if (!metadata.id) {
-    throw new Error('File metadata does not contain an id');
-  }
-
+export async function getDriveRootResource() {
+  console.log('📋 Getting file metadata to extract driveId...');
+  const metadata = await getFileMetadata();
+  
   if (!metadata.parentReference || !metadata.parentReference.driveId) {
     throw new Error('File metadata does not contain parentReference.driveId');
   }
 
   const driveId = metadata.parentReference.driveId;
-  const itemId = metadata.id;
-
-  return `drives/${driveId}/items/${itemId}`;
+  const resourcePath = `drives/${driveId}/root`;
+  
+  console.log(`✅ Drive root resource: ${resourcePath}`);
+  return resourcePath;
 }
 
 /**
  * Creates a subscription in Microsoft Graph for OneDrive file changes
- * Uses ONEDRIVE_RESOURCE to get file metadata and constructs subscription resource
+ * Subscriptions MUST use drives/{driveId}/root (not individual files or items)
+ * File filtering will be done in the webhook handler
  * @param {string} webhookUrl - URL where notifications will be sent
  * @param {string} clientState - Optional client state for validation
  * @returns {Promise<Object>} Subscription object
@@ -155,13 +159,9 @@ function getSubscriptionResourcePath(metadata) {
 export async function createSubscription(webhookUrl, clientState = null) {
   const accessToken = await getAccessToken();
 
-  // Get file metadata to extract driveId and itemId
-  console.log('📋 Getting file metadata to construct subscription resource...');
-  const metadata = await getFileMetadata();
-  
-  // Construct subscription resource path: drives/{driveId}/items/{itemId}
-  const resourcePath = getSubscriptionResourcePath(metadata);
-  console.log(`✅ Using subscription resource: ${resourcePath}`);
+  // Get drive root resource path (drives/{driveId}/root)
+  const resourcePath = await getDriveRootResource();
+  console.log(`📝 Creating subscription for resource: ${resourcePath}`);
 
   const subscriptionData = {
     changeType: 'updated', // For OneDrive files, only 'updated' and 'deleted' are valid, not 'created'
@@ -188,6 +188,8 @@ export async function createSubscription(webhookUrl, clientState = null) {
 
     const subscription = await response.json();
     console.log('✅ Subscription created:', subscription.id);
+    console.log(`   Resource: ${subscription.resource}`);
+    console.log(`   Expires: ${subscription.expirationDateTime}`);
     return subscription;
   } catch (error) {
     console.error('❌ Error creating subscription:', error.message);
@@ -283,6 +285,38 @@ export async function deleteSubscription(subscriptionId) {
     console.log('✅ Subscription deleted:', subscriptionId);
   } catch (error) {
     console.error('❌ Error deleting subscription:', error.message);
+    throw error;
+  }
+}
+
+/**
+ * Gets file metadata by item ID from a drive
+ * Used by webhook to get file details when processing notifications
+ * @param {string} driveId - Drive ID
+ * @param {string} itemId - Item ID
+ * @returns {Promise<Object>} File metadata
+ */
+export async function getFileMetadataByItemId(driveId, itemId) {
+  const accessToken = await getAccessToken();
+  const fileUrl = `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${itemId}`;
+
+  try {
+    const response = await fetch(fileUrl, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`
+      }
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to get file metadata: ${response.status} ${errorText}`);
+    }
+
+    const metadata = await response.json();
+    return metadata;
+  } catch (error) {
+    console.error('❌ Error getting file metadata by item ID:', error.message);
     throw error;
   }
 }

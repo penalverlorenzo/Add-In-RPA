@@ -22,7 +22,9 @@ import {
   createSubscription, 
   renewSubscription, 
   listSubscriptions,
-  downloadFileFromOneDrive 
+  downloadFileFromOneDrive,
+  getFileMetadataByItemId,
+  getFileMetadata
 } from '../services/microsoftGraphService.js';
 import { convertExcelToJson } from '../services/excelToJsonService.js';
 import config from '../config/index.js';
@@ -1025,21 +1027,101 @@ app.post('/webhook/onedrive', express.raw({ type: 'application/json', limit: '10
       }
     }
 
+    // Get expected file info from ONEDRIVE_RESOURCE for filtering
+    // Extract filename and folder path from ONEDRIVE_RESOURCE
+    const onedriveResource = process.env.ONEDRIVE_RESOURCE;
+    let expectedFileName = null;
+    let expectedFolderPath = null;
+    
+    if (onedriveResource) {
+      try {
+        const metadata = await getFileMetadata();
+        expectedFileName = metadata.name;
+        // Extract folder path from parentReference.path or name
+        if (metadata.parentReference && metadata.parentReference.path) {
+          // parentReference.path format: /drive/root:/Tarifario - Test
+          const pathMatch = metadata.parentReference.path.match(/root:(.+)$/);
+          if (pathMatch) {
+            expectedFolderPath = pathMatch[1].trim();
+          }
+        }
+        console.log(`📋 Expected file: ${expectedFileName}`);
+        if (expectedFolderPath) {
+          console.log(`📋 Expected folder path: ${expectedFolderPath}`);
+        }
+      } catch (error) {
+        console.warn('⚠️ Could not get expected file info, will process all notifications:', error.message);
+      }
+    }
+
     // Process each notification
     if (notificationBody.value && Array.isArray(notificationBody.value)) {
       for (const notification of notificationBody.value) {
         try {
-          // Get the resource path from the notification
+          // Get resourceData from notification (contains item ID and drive ID)
+          const resourceData = notification.resourceData;
+          if (!resourceData || !resourceData.id) {
+            console.warn('⚠️ Notification missing resourceData.id field');
+            continue;
+          }
+
+          // Extract driveId from resource path (format: drives/{driveId}/root)
           const resource = notification.resource;
           if (!resource) {
             console.warn('⚠️ Notification missing resource field');
             continue;
           }
 
-          console.log(`📥 Processing notification for resource: ${resource}`);
+          const driveMatch = resource.match(/drives\/([^/]+)\/root/);
+          if (!driveMatch) {
+            console.warn(`⚠️ Could not extract driveId from resource: ${resource}`);
+            continue;
+          }
 
-          // Download the file from OneDrive (uses ONEDRIVE_RESOURCE directly)
-          const fileBuffer = await downloadFileFromOneDrive();
+          const driveId = driveMatch[1];
+          const itemId = resourceData.id;
+
+          console.log(`📥 Processing notification for item: ${itemId} in drive: ${driveId}`);
+
+          // Get file metadata to validate it's the correct file
+          const fileMetadata = await getFileMetadataByItemId(driveId, itemId);
+          
+          // Filter: Only process if it's the expected file
+          if (expectedFileName && fileMetadata.name !== expectedFileName) {
+            console.log(`⏭️ Skipping file "${fileMetadata.name}" (expected: "${expectedFileName}")`);
+            continue;
+          }
+
+          // Filter: Check if folder path matches (if expected)
+          if (expectedFolderPath && fileMetadata.parentReference && fileMetadata.parentReference.path) {
+            const parentPath = fileMetadata.parentReference.path;
+            if (!parentPath.includes(expectedFolderPath)) {
+              console.log(`⏭️ Skipping file in path "${parentPath}" (expected folder: "${expectedFolderPath}")`);
+              continue;
+            }
+          }
+
+          console.log(`✅ File matches filter criteria: ${fileMetadata.name}`);
+
+          // Download the file from OneDrive using the item ID
+          const accessToken = await getAccessToken();
+          const downloadUrl = `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${itemId}/content`;
+          
+          const downloadResponse = await fetch(downloadUrl, {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${accessToken}`
+            }
+          });
+
+          if (!downloadResponse.ok) {
+            const errorText = await downloadResponse.text();
+            throw new Error(`Failed to download file: ${downloadResponse.status} ${errorText}`);
+          }
+
+          const arrayBuffer = await downloadResponse.arrayBuffer();
+          const fileBuffer = Buffer.from(arrayBuffer);
+          console.log(`✅ File downloaded: ${fileMetadata.name} (${fileBuffer.length} bytes)`);
           
           // Convert Excel to JSON
           const jsonData = await convertExcelToJson(fileBuffer);
@@ -1049,7 +1131,9 @@ app.post('/webhook/onedrive', express.raw({ type: 'application/json', limit: '10
           const result = await updateAgentFilesAgents(jsonData);
           
           console.log('✅ File processed successfully:', {
-            resource,
+            fileName: fileMetadata.name,
+            itemId,
+            driveId,
             hotels: jsonData.Hoteles.length,
             services: jsonData.Servicios.length,
             packages: jsonData.Paquetes.length,
@@ -1090,10 +1174,10 @@ export async function initializeOneDriveSubscription() {
     console.log(`   Webhook URL: ${webhookUrl}`);
     console.log(`   OneDrive Resource: ${onedriveResource}`);
 
-    // Get file metadata to determine the subscription resource path
-    const { getFileMetadata } = await import('../services/microsoftGraphService.js');
-    const metadata = await getFileMetadata();
-    const expectedResourcePath = `drives/${metadata.parentReference.driveId}/items/${metadata.id}`;
+    // Get drive root resource path (drives/{driveId}/root)
+    // Subscriptions MUST use drives/{driveId}/root, not individual files
+    const { getDriveRootResource } = await import('../services/microsoftGraphService.js');
+    const expectedResourcePath = await getDriveRootResource();
     console.log(`   Expected subscription resource: ${expectedResourcePath}`);
 
     // Check for existing subscriptions
