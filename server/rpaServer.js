@@ -17,6 +17,14 @@ import { updateAgentFiles } from '../services/agentFileService.js';
 import { extractUserIdentifier, getOrCreateThread, sendMessageToAssistant } from '../services/assistantChatService.js';
 import { sendMessageToAgent, getOrCreateAgentThread } from '../services/agentChatService.js';
 import { updateAgentFilesAgents } from '../services/agentFileServiceAgents.js';
+import { 
+  getAccessToken, 
+  createSubscription, 
+  renewSubscription, 
+  listSubscriptions,
+  downloadFileFromOneDrive 
+} from '../services/microsoftGraphService.js';
+import { convertExcelToJson } from '../services/excelToJsonService.js';
 import config from '../config/index.js';
 
 // ES Modules equivalent of __dirname
@@ -983,6 +991,162 @@ app.post('/api/agent/update-agent-files', async (req, res) => {
   }
 });
 
+// Webhook endpoint for Microsoft Graph OneDrive notifications
+app.post('/webhook/onedrive', express.raw({ type: 'application/json', limit: '10mb' }), async (req, res) => {
+  try {
+    // Handle validation request from Microsoft Graph
+    // Microsoft Graph sends validationToken as a query parameter during subscription setup
+    const validationToken = req.query.validationToken;
+    if (validationToken) {
+      console.log('✅ Validation token received from Microsoft Graph');
+      // Return validation token as plain text (required by Microsoft Graph)
+      return res.status(200).type('text/plain').send(validationToken);
+    }
+
+    // Parse notification body
+    let notificationBody;
+    try {
+      notificationBody = JSON.parse(req.body.toString());
+    } catch (parseError) {
+      console.error('❌ Error parsing notification body:', parseError.message);
+      return res.status(400).json({ error: 'Invalid JSON in notification body' });
+    }
+
+    console.log('📨 OneDrive notification received:', JSON.stringify(notificationBody, null, 2));
+
+    // Verify clientState if provided
+    const clientStateSecret = process.env.CLIENT_STATE_SECRET;
+    if (clientStateSecret && notificationBody.value) {
+      for (const notification of notificationBody.value) {
+        if (notification.clientState && notification.clientState !== clientStateSecret) {
+          console.warn('⚠️ Client state mismatch, ignoring notification');
+          return res.status(200).json({ message: 'Notification ignored due to client state mismatch' });
+        }
+      }
+    }
+
+    // Process each notification
+    if (notificationBody.value && Array.isArray(notificationBody.value)) {
+      for (const notification of notificationBody.value) {
+        try {
+          // Get the resource path from the notification
+          const resource = notification.resource;
+          if (!resource) {
+            console.warn('⚠️ Notification missing resource field');
+            continue;
+          }
+
+          console.log(`📥 Processing notification for resource: ${resource}`);
+
+          // Download the file from OneDrive
+          const fileBuffer = await downloadFileFromOneDrive(resource);
+          
+          // Convert Excel to JSON
+          const jsonData = await convertExcelToJson(fileBuffer);
+          
+          // Process the JSON data through the existing flow
+          console.log('🔄 Processing JSON data through agent files update...');
+          const result = await updateAgentFilesAgents(jsonData);
+          
+          console.log('✅ File processed successfully:', {
+            resource,
+            hotels: jsonData.Hoteles.length,
+            services: jsonData.Servicios.length,
+            packages: jsonData.Paquetes.length,
+            result
+          });
+        } catch (error) {
+          console.error('❌ Error processing notification:', error.message);
+          // Continue processing other notifications even if one fails
+        }
+      }
+    }
+
+    // Always return 202 Accepted to acknowledge receipt
+    res.status(202).json({ message: 'Notification received and processed' });
+  } catch (error) {
+    console.error('❌ Error in webhook endpoint:', error.message);
+    // Still return 202 to prevent retries for unexpected errors
+    res.status(202).json({ error: error.message });
+  }
+});
+
+/**
+ * Initializes Microsoft Graph subscription on server startup
+ * This should be called after the server starts listening
+ */
+export async function initializeOneDriveSubscription() {
+  try {
+    const webhookUrl = process.env.WEBHOOK_URL;
+    const onedriveResource = process.env.ONEDRIVE_RESOURCE;
+    const clientStateSecret = process.env.CLIENT_STATE_SECRET;
+
+    if (!webhookUrl || !onedriveResource) {
+      console.warn('⚠️ WEBHOOK_URL or ONEDRIVE_RESOURCE not configured, skipping subscription initialization');
+      return;
+    }
+
+    console.log('🔔 Initializing OneDrive subscription...');
+    console.log(`   Webhook URL: ${webhookUrl}`);
+    console.log(`   Resource: ${onedriveResource}`);
+
+    // Check for existing subscriptions
+    const existingSubscriptions = await listSubscriptions();
+    
+    // Check if subscription already exists for this resource
+    const existingSubscription = existingSubscriptions.find(sub => 
+      sub.resource === onedriveResource && 
+      sub.notificationUrl === webhookUrl
+    );
+
+    if (existingSubscription) {
+      console.log(`✅ Existing subscription found: ${existingSubscription.id}`);
+      
+      // Check if subscription is expiring soon (within 24 hours)
+      const expirationDate = new Date(existingSubscription.expirationDateTime);
+      const now = new Date();
+      const hoursUntilExpiration = (expirationDate - now) / (1000 * 60 * 60);
+      
+      if (hoursUntilExpiration < 24) {
+        console.log('🔄 Renewing subscription (expiring soon)...');
+        await renewSubscription(existingSubscription.id);
+      } else {
+        console.log(`ℹ️ Subscription is valid until ${expirationDate.toISOString()}`);
+      }
+    } else {
+      // Create new subscription
+      console.log('📝 Creating new subscription...');
+      const subscription = await createSubscription(onedriveResource, webhookUrl, clientStateSecret);
+      console.log(`✅ Subscription created: ${subscription.id}`);
+    }
+
+    // Set up automatic renewal check (every 12 hours)
+    setInterval(async () => {
+      try {
+        const subscriptions = await listSubscriptions();
+        for (const sub of subscriptions) {
+          const expirationDate = new Date(sub.expirationDateTime);
+          const now = new Date();
+          const hoursUntilExpiration = (expirationDate - now) / (1000 * 60 * 60);
+          
+          // Renew if expiring within 24 hours
+          if (hoursUntilExpiration < 24) {
+            console.log(`🔄 Auto-renewing subscription ${sub.id}...`);
+            await renewSubscription(sub.id);
+          }
+        }
+      } catch (error) {
+        console.error('❌ Error in automatic subscription renewal:', error.message);
+      }
+    }, 12 * 60 * 60 * 1000); // 12 hours
+
+    console.log('✅ OneDrive subscription initialized and auto-renewal scheduled');
+  } catch (error) {
+    console.error('❌ Error initializing OneDrive subscription:', error.message);
+    // Don't throw - allow server to start even if subscription fails
+  }
+}
+
 // Configuración del Bot Framework Adapter para Teams
 let botAdapter = null;
 function initializeBotAdapter() {
@@ -1153,6 +1317,12 @@ loadRpaService().then(() => {
     console.log(`   - POST /api/agent/update-agent-files`);
     console.log(`   - POST /api/messages`);
     console.log(`   - POST /api/messages/agent`);
+    console.log(`   - POST /webhook/onedrive`);
+    
+    // Initialize OneDrive subscription after server starts
+    initializeOneDriveSubscription().catch(error => {
+      console.error('❌ Error initializing OneDrive subscription:', error.message);
+    });
   });
 }).catch(error => {
   console.error(':x: Error al iniciar servidor:', error);
