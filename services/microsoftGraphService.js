@@ -48,7 +48,9 @@ export async function getAccessToken() {
 
 /**
  * Creates a subscription in Microsoft Graph for OneDrive file changes
- * @param {string} resource - Resource to subscribe to (e.g., "users/{user-id}/drive/root:/carpeta/archivo.xlsx")
+ * @param {string} resource - Resource to subscribe to. Can be:
+ *   - File path: "users/{user-id}/drive/root:/carpeta/archivo.xlsx" (will be converted to item-id)
+ *   - Item ID path: "users/{user-id}/drive/items/{item-id}" (used directly)
  * @param {string} webhookUrl - URL where notifications will be sent
  * @param {string} clientState - Optional client state for validation
  * @returns {Promise<Object>} Subscription object
@@ -56,10 +58,19 @@ export async function getAccessToken() {
 export async function createSubscription(resource, webhookUrl, clientState = null) {
   const accessToken = await getAccessToken();
 
+  // Convert file path to item-id based resource if needed
+  // Graph subscriptions don't support drive/root:/path format, only items/{id}
+  let resourcePath = resource;
+  if (resource.includes('/drive/root:/')) {
+    console.log('🔄 Converting file path to item-id based resource...');
+    resourcePath = await convertFilePathToResourcePath(resource);
+    console.log(`✅ Using resource path: ${resourcePath}`);
+  }
+
   const subscriptionData = {
     changeType: 'updated', // For OneDrive files, only 'updated' and 'deleted' are valid, not 'created'
     notificationUrl: webhookUrl,
-    resource: resource,
+    resource: resourcePath,
     expirationDateTime: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(), // 3 days from now
     clientState: clientState || process.env.CLIENT_STATE_SECRET || 'default-client-state'
   };
@@ -218,7 +229,7 @@ export async function downloadFileFromOneDrive(filePath) {
 
 /**
  * Gets file metadata from OneDrive
- * @param {string} filePath - Path to the file
+ * @param {string} filePath - Path to the file (can be path or item-id based)
  * @returns {Promise<Object>} File metadata
  */
 export async function getFileMetadata(filePath) {
@@ -245,4 +256,53 @@ export async function getFileMetadata(filePath) {
     console.error('❌ Error getting file metadata:', error.message);
     throw error;
   }
+}
+
+/**
+ * Gets the item-id of a file from its path
+ * Microsoft Graph subscriptions require item-id, not file paths
+ * @param {string} filePath - Path to the file (e.g., "users/{id}/drive/root:/folder/file.xlsx")
+ * @returns {Promise<string>} Item ID of the file
+ */
+export async function getFileItemId(filePath) {
+  try {
+    const metadata = await getFileMetadata(filePath);
+    
+    if (!metadata.id) {
+      throw new Error('File metadata does not contain an id');
+    }
+    
+    console.log(`✅ File item-id obtained: ${metadata.id} for path: ${filePath}`);
+    return metadata.id;
+  } catch (error) {
+    console.error('❌ Error getting file item-id:', error.message);
+    throw error;
+  }
+}
+
+/**
+ * Converts a file path to a resource path using item-id
+ * This is required because Graph subscriptions don't support drive/root:/path format
+ * @param {string} filePath - Path to the file (e.g., "users/{id}/drive/root:/folder/file.xlsx")
+ * @returns {Promise<string>} Resource path using item-id (e.g., "users/{id}/drive/items/{item-id}")
+ */
+export async function convertFilePathToResourcePath(filePath) {
+  // If the path already uses items/{id} format, return as is
+  if (filePath.includes('/drive/items/')) {
+    return filePath;
+  }
+  
+  // Extract user ID from path
+  const userMatch = filePath.match(/users\/([^/]+)/);
+  if (!userMatch) {
+    throw new Error('Invalid file path format. Expected: users/{id}/drive/root:/path');
+  }
+  
+  const userId = userMatch[1];
+  
+  // Get item-id from file path
+  const itemId = await getFileItemId(filePath);
+  
+  // Return resource path using item-id
+  return `users/${userId}/drive/items/${itemId}`;
 }
