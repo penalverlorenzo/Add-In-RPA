@@ -994,7 +994,8 @@ app.post('/api/agent/update-agent-files', async (req, res) => {
 });
 
 // Webhook endpoint for Microsoft Graph OneDrive notifications
-app.post('/webhook/onedrive', express.raw({ type: 'application/json', limit: '10mb' }), async (req, res) => {
+// Note: express.json() middleware already parses JSON, so req.body is already an object
+app.post('/webhook/onedrive', async (req, res) => {
   try {
     // Handle validation request from Microsoft Graph
     // Microsoft Graph sends validationToken as a query parameter during subscription setup
@@ -1006,12 +1007,14 @@ app.post('/webhook/onedrive', express.raw({ type: 'application/json', limit: '10
     }
 
     // Parse notification body
-    let notificationBody;
-    try {
-      notificationBody = JSON.parse(req.body.toString());
-    } catch (parseError) {
-      console.error('❌ Error parsing notification body:', parseError.message);
-      return res.status(400).json({ error: 'Invalid JSON in notification body' });
+    // req.body is already parsed by express.json() middleware as an object
+    let notificationBody = req.body;
+    console.log('notificationBody', notificationBody);
+    // Validate that body is an object
+    if (!notificationBody || typeof notificationBody !== 'object' || Array.isArray(notificationBody)) {
+      console.error('❌ Invalid notification body format:', typeof notificationBody);
+      console.error('   Body content:', notificationBody);
+      return res.status(400).json({ error: 'Invalid notification body format. Expected JSON object.' });
     }
 
     console.log('📨 OneDrive notification received:', JSON.stringify(notificationBody, null, 2));
