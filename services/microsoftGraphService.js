@@ -8,9 +8,9 @@
  * @returns {Promise<string>} Access token
  */
 export async function getAccessToken() {
-  const tenantId = process.env.TENANT_ID;
-  const clientId = process.env.CLIENT_ID;
-  const clientSecret = process.env.CLIENT_SECRET;
+  const tenantId = process.env.AZURE_TENANT_ID;
+  const clientId = process.env.AZURE_CLIENT_ID;
+  const clientSecret = process.env.AZURE_CLIENT_SECRET;
 
   if (!tenantId || !clientId || !clientSecret) {
     throw new Error('Missing required environment variables: TENANT_ID, CLIENT_ID, CLIENT_SECRET');
