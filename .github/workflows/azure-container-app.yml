@@ -86,6 +86,9 @@ jobs:
                 AZURE_OPENAI_AGENT_ID="${{ secrets.AZURE_OPENAI_AGENT_ID }}" \
                 AZURE_SEARCH_INDEX="${{ secrets.AZURE_SEARCH_INDEX }}" \
                 HEADLESS="${{ secrets.HEADLESS }}" \
+                CLIENT_STATE_SECRET="${{ secrets.CLIENT_STATE_SECRET }}" \
+                WEBHOOK_URL="${{ secrets.WEBHOOK_URL }}" \
+                ONEDRIVE_RESOURCE="${{ secrets.ONEDRIVE_RESOURCE }}" \
                 ITRAFFIC_HOME_URL="${{ secrets.ITRAFFIC_HOME_URL }}" \
                 ITRAFFIC_LOGIN_URL="${{ secrets.ITRAFFIC_LOGIN_URL }}" \
                 ITRAFFIC_USER="${{ secrets.ITRAFFIC_USER }}" \
