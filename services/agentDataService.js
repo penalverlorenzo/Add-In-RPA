@@ -55,6 +55,7 @@ function getMySQLPool() {
 
 /**
  * Converts a date value to MySQL datetime format
+ * Handles DD/MM/YYYY format from Excel and converts to YYYY-MM-DD for MySQL
  * @param {any} dateValue - Date value (string, Date object, or null)
  * @returns {string|null} MySQL datetime string or null
  */
@@ -66,14 +67,39 @@ function convertToMySQLDateTime(dateValue) {
   }
   
   if (typeof dateValue === 'string') {
-    // Try to parse common date formats
-    const date = new Date(dateValue);
+    const trimmed = dateValue.trim();
+    
+    // Check if already in MySQL format (YYYY-MM-DD or YYYY-MM-DD HH:MM:SS)
+    if (/^\d{4}-\d{2}-\d{2}(\s\d{2}:\d{2}:\d{2})?$/.test(trimmed)) {
+      return trimmed;
+    }
+    
+    // Handle DD/MM/YYYY format from Excel (with optional time)
+    // Matches: DD/MM/YYYY or DD/MM/YYYY HH:MM:SS
+    const ddmmyyyyPattern = /^(\d{1,2})\/(\d{1,2})\/(\d{4})(\s+(\d{1,2}):(\d{1,2}):(\d{1,2}))?$/;
+    const ddmmyyyyMatch = trimmed.match(ddmmyyyyPattern);
+    
+    if (ddmmyyyyMatch) {
+      const day = ddmmyyyyMatch[1].padStart(2, '0');
+      const month = ddmmyyyyMatch[2].padStart(2, '0');
+      const year = ddmmyyyyMatch[3];
+      const time = ddmmyyyyMatch[5] ? 
+        ` ${ddmmyyyyMatch[5].padStart(2, '0')}:${ddmmyyyyMatch[6].padStart(2, '0')}:${ddmmyyyyMatch[7].padStart(2, '0')}` : 
+        '';
+      
+      // Validate date components
+      const dayNum = parseInt(day, 10);
+      const monthNum = parseInt(month, 10);
+      
+      if (dayNum >= 1 && dayNum <= 31 && monthNum >= 1 && monthNum <= 12) {
+        return `${year}-${month}-${day}${time}`;
+      }
+    }
+    
+    // Try to parse other common date formats
+    const date = new Date(trimmed);
     if (!isNaN(date.getTime())) {
       return date.toISOString().slice(0, 19).replace('T', ' ');
-    }
-    // If already in MySQL format, return as is
-    if (/^\d{4}-\d{2}-\d{2}(\s\d{2}:\d{2}:\d{2})?$/.test(dateValue)) {
-      return dateValue;
     }
   }
   
