@@ -9,6 +9,7 @@ import { searchServices } from './servicesExtractionService.js';
 import { filterSimilarImages } from './imageHashService.js';
 
 let openaiClient = null;
+let imageExtractorClient = null;
 
 function getOpenAIClient() {
     if (!openaiClient && config.openai.apiKey && config.openai.endpoint) {
@@ -21,99 +22,95 @@ function getOpenAIClient() {
     return openaiClient;
 }
 
+function getImageExtractorClient() {
+    if (!imageExtractorClient && config.imageExtractor.apiKey && config.imageExtractor.endpoint) {
+        imageExtractorClient = new AzureOpenAI({
+            apiKey: config.imageExtractor.apiKey,
+            endpoint: config.imageExtractor.endpoint,
+            apiVersion: config.imageExtractor.apiVersion
+        });
+    }
+    return imageExtractorClient;
+}
+
 /**
- * Extract text from an image using Azure Computer Vision OCR
+ * Extract text from an image using Azure OpenAI Vision API
  * @param {Object} image - Image file object with buffer and mimetype
  * @returns {Promise<string>} Extracted text from the image
  */
 async function extractTextFromImage(image) {
-    if (!config.computerVision.endpoint) {
-        throw new Error('Azure Computer Vision endpoint not configured. Please check your .env file (AZURE_COMPUTER_VISION_ENDPOINT).');
+    if (!config.imageExtractor.apiKey) {
+        throw new Error('Azure OpenAI Image Extractor API key not configured. Please check your .env file (AZURE_OPENAI_IMAGE_EXTRACTOR_API_KEY).');
     }
 
-    if (!config.openai.apiKey) {
-        throw new Error('Azure OpenAI API key not configured. Please check your .env file (AZURE_OPENAI_API_KEY).');
+    if (!config.imageExtractor.endpoint) {
+        throw new Error('Azure OpenAI Image Extractor endpoint not configured. Please check your .env file (AZURE_OPENAI_IMAGE_EXTRACTOR_API_ENDPOINT).');
+    }
+
+    if (!config.imageExtractor.deployment) {
+        throw new Error('Azure OpenAI Image Extractor deployment not configured. Please check your .env file (AZURE_OPENAI_IMAGE_EXTRACTOR_API_DEPLOYMENT).');
     }
 
     try {
-        
-        const endpoint = config.computerVision.endpoint.replace(/\/$/, ''); // Remove trailing slash
-        const apiVersion = '2023-02-01-preview'; // Standard Computer Vision API version
-        const apiKey = config.openai.apiKey; // Use the same API key as OpenAI
-
-        // Step 1: Submit image for OCR analysis
-        const analyzeUrl = `${endpoint}/vision/v3.2/read/analyze?api-version=${apiVersion}`;
-        
-        const analyzeResponse = await fetch(analyzeUrl, {
-            method: 'POST',
-            headers: {
-                'Ocp-Apim-Subscription-Key': apiKey,
-                'Content-Type': image.mimetype || 'application/octet-stream'
-            },
-            body: image.buffer
-        });
-
-        if (!analyzeResponse.ok) {
-            const errorText = await analyzeResponse.text();
-            throw new Error(`Computer Vision API error: ${analyzeResponse.status} - ${errorText}`);
+        const imageExtractorClient = getImageExtractorClient();
+        if (!imageExtractorClient) {
+            throw new Error('Failed to initialize Azure OpenAI Image Extractor client');
         }
 
-        // Get operation location from response headers
-        const operationLocation = analyzeResponse.headers.get('Operation-Location');
-        if (!operationLocation) {
-            throw new Error('No Operation-Location header in response');
-        }
+        // Convert image buffer to base64
+        const base64Image = image.buffer.toString('base64');
+        const imageDataUrl = `data:${image.mimetype || 'image/jpeg'};base64,${base64Image}`;
 
-        // Step 2: Poll for results (Azure Computer Vision is async)
-        let resultResponse;
-        let attempts = 0;
-        const maxAttempts = 30; // Max 30 seconds wait
-        const pollInterval = 1000; // 1 second
+        // Use OpenAI Vision API to extract text from image
+        const model = config.imageExtractor.deployment;
+        const systemPrompt = `You are an OCR (Optical Character Recognition) assistant. Extract ALL text from the image, preserving the structure, layout, and formatting as much as possible. Include:
+- All visible text, numbers, and symbols
+- Tables and structured data (preserve columns and rows)
+- Form fields and their values
+- Dates, times, and codes
+- Any other readable content
 
-        while (attempts < maxAttempts) {
-            await new Promise(resolve => setTimeout(resolve, pollInterval));
-            attempts++;
+Return the extracted text in a clear, organized format. If the image contains no text, respond with "No se encontró texto en la imagen".`;
 
-            resultResponse = await fetch(operationLocation, {
-                method: 'GET',
-                headers: {
-                    'Ocp-Apim-Subscription-Key': apiKey
-                }
-            });
-
-            if (!resultResponse.ok) {
-                const errorText = await resultResponse.text();
-                throw new Error(`Computer Vision result API error: ${resultResponse.status} - ${errorText}`);
-            }
-
-            const result = await resultResponse.json();
-            
-            if (result.status === 'succeeded') {
-                // Extract text from all lines
-                const extractedLines = [];
-                if (result.analyzeResult && result.analyzeResult.readResults) {
-                    for (const readResult of result.analyzeResult.readResults) {
-                        if (readResult.lines) {
-                            for (const line of readResult.lines) {
-                                if (line.text) {
-                                    extractedLines.push(line.text);
-                                }
+        const response = await imageExtractorClient.chat.completions.create({
+            model: model,
+            messages: [
+                { role: 'system', content: systemPrompt },
+                {
+                    role: 'user',
+                    content: [
+                        {
+                            type: 'text',
+                            text: 'Extract all text from this image, including any tables, forms, or structured data. Preserve the layout and structure as much as possible.'
+                        },
+                        {
+                            type: 'image_url',
+                            image_url: {
+                                url: imageDataUrl
                             }
                         }
-                    }
+                    ]
                 }
-                
-                const extractedText = extractedLines.join('\n');
-                console.log(`   📊 OCR completed: ${extractedText.length} characters extracted`);
-                
-                return extractedText || 'No se encontró texto en la imagen';
-            } else if (result.status === 'failed') {
-                throw new Error(`OCR analysis failed: ${result.error?.message || 'Unknown error'}`);
-            }
-            // If status is 'running' or 'notStarted', continue polling
-        }
+            ],
+            temperature: 0.1, // Low temperature for deterministic text extraction
+            max_tokens: 4000 // Allow for longer text extraction
+        });
 
-        throw new Error('OCR analysis timeout: operation did not complete in time');
+        const extractedText = response.choices[0].message.content.trim();
+        
+        if (extractedText && extractedText !== 'No se encontró texto en la imagen') {
+            console.log(`   📊 OCR completed using ${model}: ${extractedText.length} characters extracted`);
+            
+            // Log token usage for image extraction
+            if (response.usage) {
+                const { prompt_tokens, completion_tokens, total_tokens } = response.usage;
+                console.log(`   📊 Image extraction tokens: ${total_tokens.toLocaleString()} (prompt: ${prompt_tokens.toLocaleString()}, completion: ${completion_tokens.toLocaleString()})`);
+            }
+        } else {
+            console.log(`   ⚠️ No se encontró texto en ${image.originalname}`);
+        }
+        
+        return extractedText || 'No se encontró texto en la imagen';
     } catch (error) {
         console.error(`   ⚠️ Error extrayendo texto de imagen ${image.originalname}:`, error.message);
         throw error;
