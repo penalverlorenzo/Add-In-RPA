@@ -367,13 +367,84 @@ export function formatTableStructuresForPrompt(structures) {
 }
 
 /**
- * Builds the complete agent prompt by inserting table structures into the base prompt
- * @param {Object} structures - Object with hotels, services, packages structures
- * @returns {string} Complete prompt with table structures inserted
+ * Gets the single row of data from descriptions table (id=1)
+ * @returns {Promise<Object|null>} Description data object or null if not found
  */
-export function buildAgentPromptWithStructures(structures) {
+export async function getDescriptionsData() {
+  const pool = getMySQLPool();
+  if (!pool) {
+    console.error('❌ MySQL connection pool not available');
+    return null;
+  }
+
+  try {
+    const query = `SELECT * FROM descriptions WHERE id = 1 LIMIT 1`;
+    const [rows] = await pool.query(query);
+    
+    if (rows && rows.length > 0) {
+      return rows[0];
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('❌ Error getting descriptions data:', error.message);
+    return null;
+  }
+}
+
+/**
+ * Formats descriptions data for prompt as "Columna: Valor" (excluding 'id' column)
+ * @param {Object} descriptionsData - Description data object from database
+ * @returns {string} Formatted descriptions data
+ */
+export function formatDescriptionsForPrompt(descriptionsData) {
+  if (!descriptionsData || typeof descriptionsData !== 'object') {
+    return '';
+  }
+
+  const formatted = [];
+  
+  // Iterate through all columns except 'id'
+  for (const [column, value] of Object.entries(descriptionsData)) {
+    if (column === 'id') {
+      continue; // Skip id column
+    }
+    
+    // Format as "Columna: Valor"
+    // Handle null/undefined values
+    const displayValue = value === null || value === undefined ? '(vacío)' : String(value);
+    formatted.push(`${column}: ${displayValue}`);
+  }
+  
+  if (formatted.length === 0) {
+    return '';
+  }
+  
+  return formatted.join('\n');
+}
+
+/**
+ * Builds the complete agent prompt by inserting table structures and descriptions data into the base prompt
+ * @param {Object} structures - Object with hotels, services, packages structures
+ * @returns {Promise<string>} Complete prompt with table structures and descriptions data inserted
+ */
+export async function buildAgentPromptWithStructures(structures) {
   const tableStructures = formatTableStructuresForPrompt(structures);
-  return BASE_AGENT_PROMPT.replace('{{TABLE_STRUCTURES}}', tableStructures);
+  
+  // Get descriptions data and format it
+  const descriptionsData = await getDescriptionsData();
+  let descriptionsSection = '';
+  
+  if (descriptionsData) {
+    const formattedDescriptions = formatDescriptionsForPrompt(descriptionsData);
+    if (formattedDescriptions) {
+      descriptionsSection = `\n**DESCRIPCIONES:**\n${formattedDescriptions}\n`;
+    }
+  }
+  
+  // Replace {{TABLE_STRUCTURES}} with table structures + descriptions data
+  const replacement = tableStructures + descriptionsSection;
+  return BASE_AGENT_PROMPT.replace('{{TABLE_STRUCTURES}}', replacement);
 }
 
 /**
@@ -399,15 +470,15 @@ export async function updateAgentPromptWithStructures(structures) {
 
     const client = await createClient();
     
-    // Build complete prompt with table structures
-    const completePrompt = buildAgentPromptWithStructures(structures);
+    // Build complete prompt with table structures and descriptions data
+    const completePrompt = await buildAgentPromptWithStructures(structures);
     
     // Update agent with new instructions
     await client.updateAgent(config.agent.agentId, {
       instructions: completePrompt
     });
 
-    console.log('✅ Prompt del agente actualizado exitosamente con nuevas estructuras de tablas');
+    console.log('✅ Prompt del agente actualizado exitosamente con nuevas estructuras de tablas y datos de descripciones');
     return true;
   } catch (error) {
     console.error('❌ Error actualizando prompt del agente:', error.message);

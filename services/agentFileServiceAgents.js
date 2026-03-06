@@ -38,11 +38,11 @@ function validateConfiguration() {
 
 /**
  * Validates the request body
- * @param {Object} body - Request body with Hoteles, Servicios, Paquetes
+ * @param {Object} body - Request body with Hoteles, Servicios, Paquetes, Descripciones (optional)
  * @throws {Error} If validation fails
  */
 function validateBody(body) {
-  const { Hoteles, Servicios, Paquetes } = body;
+  const { Hoteles, Servicios, Paquetes, Descripciones } = body;
 
   if (!Hoteles || !Array.isArray(Hoteles)) {
     throw new Error('El campo "Hoteles" es requerido y debe ser un array');
@@ -54,6 +54,11 @@ function validateBody(body) {
 
   if (!Paquetes || !Array.isArray(Paquetes)) {
     throw new Error('El campo "Paquetes" es requerido y debe ser un array');
+  }
+
+  // Descripciones is optional
+  if (Descripciones !== undefined && !Array.isArray(Descripciones)) {
+    throw new Error('El campo "Descripciones" debe ser un array si se proporciona');
   }
 }
 
@@ -161,7 +166,7 @@ async function uploadFile(client, vectorStoreId, fileData) {
 
 /**
  * Updates agent files in the vector store using AgentsClient
- * @param {Object} body - Request body with Hoteles, Servicios, Paquetes arrays
+ * @param {Object} body - Request body with Hoteles, Servicios, Paquetes arrays, Descripciones (optional)
  * @returns {Promise<Object>} Result with deleted files count, uploaded files info, and summary
  */
 export async function updateAgentFilesAgents(body) {
@@ -171,8 +176,9 @@ export async function updateAgentFilesAgents(body) {
   // Validate body
   validateBody(body);
 
-  const { Hoteles, Servicios, Paquetes } = body;
-  console.log(`📊 Datos recibidos: ${Hoteles.length} hoteles, ${Servicios.length} servicios, ${Paquetes.length} paquetes`);
+  const { Hoteles, Servicios, Paquetes, Descripciones } = body;
+  const descripcionesInfo = Descripciones && Descripciones.length > 0 ? `, ${Descripciones.length} descripciones` : '';
+  console.log(`📊 Datos recibidos: ${Hoteles.length} hoteles, ${Servicios.length} servicios, ${Paquetes.length} paquetes${descripcionesInfo}`);
 
   // Create AgentsClient
   const client = await createClient();
@@ -216,7 +222,7 @@ export async function updateAgentFilesAgents(body) {
   let dbResults = null;
   try {
     console.log('💾 Guardando datos en base de datos MySQL...');
-    dbResults = await saveAllDataToDB(Hoteles, Servicios, Paquetes);
+    dbResults = await saveAllDataToDB(Hoteles, Servicios, Paquetes, Descripciones);
     console.log('✅ Datos guardados en base de datos MySQL');
   } catch (error) {
     console.error('❌ Error guardando datos en base de datos:', error.message);
@@ -225,7 +231,8 @@ export async function updateAgentFilesAgents(body) {
       error: error.message,
       hotels: { inserted: 0, updated: 0, errors: Hoteles.length, total: Hoteles.length },
       services: { inserted: 0, updated: 0, errors: Servicios.length, total: Servicios.length },
-      packages: { inserted: 0, updated: 0, errors: Paquetes.length, total: Paquetes.length }
+      packages: { inserted: 0, updated: 0, errors: Paquetes.length, total: Paquetes.length },
+      descriptions: { inserted: 0, updated: 0, errors: Descripciones?.length || 0, total: Descripciones?.length || 0 }
     };
   }
 

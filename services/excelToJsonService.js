@@ -1,15 +1,15 @@
 /**
  * Excel to JSON Service
- * Converts Excel files to JSON format for hotels, services, and packages
+ * Converts Excel files to JSON format for hotels, services, packages, and descriptions
  */
 
 import XLSX from 'xlsx';
 
 /**
  * Converts Excel buffer to JSON objects
- * Expects Excel file with sheets named: "Hoteles", "Servicios", "Paquetes"
+ * Expects Excel file with sheets named: "Hoteles", "Servicios", "Paquetes", "Descripciones" (optional)
  * @param {Buffer} excelBuffer - Excel file as Buffer
- * @returns {Promise<Object>} Object with Hoteles, Servicios, Paquetes arrays
+ * @returns {Promise<Object>} Object with Hoteles, Servicios, Paquetes, Descripciones arrays
  */
 export async function convertExcelToJson(excelBuffer) {
   try {
@@ -23,7 +23,8 @@ export async function convertExcelToJson(excelBuffer) {
     const result = {
       Hoteles: [],
       Servicios: [],
-      Paquetes: []
+      Paquetes: [],
+      Descripciones: []
     };
 
     // Process each sheet
@@ -48,6 +49,9 @@ export async function convertExcelToJson(excelBuffer) {
       } else if (normalizedSheetName.toLowerCase() === 'paquetes' || normalizedSheetName.toLowerCase() === 'packages') {
         result.Paquetes = jsonData;
         console.log(`✅ Procesada hoja "${sheetName}": ${jsonData.length} paquetes`);
+      } else if (normalizedSheetName.toLowerCase() === 'descripciones' || normalizedSheetName.toLowerCase() === 'descriptions') {
+        result.Descripciones = jsonData;
+        console.log(`✅ Procesada hoja "${sheetName}": ${jsonData.length} fila(s) de descripciones`);
       } else {
         console.warn(`⚠️ Hoja "${sheetName}" no reconocida, se omitirá`);
       }
@@ -59,7 +63,9 @@ export async function convertExcelToJson(excelBuffer) {
       throw new Error('No se encontraron datos en las hojas esperadas (Hoteles, Servicios, Paquetes)');
     }
 
-    console.log(`✅ Conversión completada: ${result.Hoteles.length} hoteles, ${result.Servicios.length} servicios, ${result.Paquetes.length} paquetes`);
+    const descripcionesCount = result.Descripciones.length;
+    const descripcionesInfo = descripcionesCount > 0 ? `, ${descripcionesCount} descripciones` : '';
+    console.log(`✅ Conversión completada: ${result.Hoteles.length} hoteles, ${result.Servicios.length} servicios, ${result.Paquetes.length} paquetes${descripcionesInfo}`);
 
     return result;
   } catch (error) {
