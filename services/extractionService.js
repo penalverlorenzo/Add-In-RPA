@@ -23,12 +23,44 @@ function getOpenAIClient() {
 }
 
 function getImageExtractorClient() {
-    if (!imageExtractorClient && config.imageExtractor.apiKey && config.imageExtractor.endpoint) {
-        imageExtractorClient = new AzureOpenAI({
-            apiKey: config.imageExtractor.apiKey,
-            endpoint: config.imageExtractor.endpoint,
-            apiVersion: config.imageExtractor.apiVersion
-        });
+    if (!imageExtractorClient) {
+        if (!config.imageExtractor.apiKey) {
+            throw new Error('Azure OpenAI Image Extractor API key not configured');
+        }
+        if (!config.imageExtractor.endpoint) {
+            throw new Error('Azure OpenAI Image Extractor endpoint not configured');
+        }
+        
+        // Normalize endpoint (remove trailing slash if present)
+        let normalizedEndpoint = config.imageExtractor.endpoint.replace(/\/$/, '');
+        
+        // Validate endpoint format (should be a valid Azure OpenAI endpoint)
+        if (!normalizedEndpoint.startsWith('http://') && !normalizedEndpoint.startsWith('https://')) {
+            throw new Error(`Invalid endpoint format: ${normalizedEndpoint}. Endpoint must start with http:// or https://`);
+        }
+        
+        // Log configuration (mask API key for security)
+        const maskedApiKey = config.imageExtractor.apiKey ? 
+            `${config.imageExtractor.apiKey.substring(0, 8)}...${config.imageExtractor.apiKey.substring(config.imageExtractor.apiKey.length - 4)}` : 
+            'not configured';
+        
+        console.log(`   🔧 Initializing Azure OpenAI Image Extractor client`);
+        console.log(`      Endpoint: ${normalizedEndpoint}`);
+        console.log(`      API Key: ${maskedApiKey}`);
+        console.log(`      Deployment: ${config.imageExtractor.deployment || 'not configured'}`);
+        console.log(`      API Version: ${config.imageExtractor.apiVersion || 'not configured'}`);
+        
+        try {
+            imageExtractorClient = new AzureOpenAI({
+                apiKey: config.imageExtractor.apiKey,
+                endpoint: normalizedEndpoint,
+                apiVersion: config.imageExtractor.apiVersion
+            });
+            console.log(`   ✅ Azure OpenAI Image Extractor client initialized successfully`);
+        } catch (initError) {
+            console.error(`   ❌ Failed to initialize Azure OpenAI Image Extractor client:`, initError.message);
+            throw new Error(`Failed to initialize client: ${initError.message}`);
+        }
     }
     return imageExtractorClient;
 }
@@ -57,9 +89,19 @@ async function extractTextFromImage(image) {
             throw new Error('Failed to initialize Azure OpenAI Image Extractor client');
         }
 
+        // Validate image size (Azure OpenAI has limits)
+        const imageSizeMB = image.buffer.length / (1024 * 1024);
+        const maxSizeMB = 20; // Azure OpenAI typically supports up to 20MB
+        if (imageSizeMB > maxSizeMB) {
+            throw new Error(`Image size (${imageSizeMB.toFixed(2)}MB) exceeds maximum allowed size (${maxSizeMB}MB)`);
+        }
+
         // Convert image buffer to base64
         const base64Image = image.buffer.toString('base64');
-        const imageDataUrl = `data:${image.mimetype || 'image/jpeg'};base64,${base64Image}`;
+        
+        // Azure OpenAI Vision API requires the data URL format
+        const mimeType = image.mimetype || 'image/jpeg';
+        const imageDataUrl = `data:${mimeType};base64,${base64Image}`;
 
         // Use OpenAI Vision API to extract text from image
         const model = config.imageExtractor.deployment;
@@ -72,7 +114,17 @@ async function extractTextFromImage(image) {
 
 Return the extracted text in a clear, organized format. If the image contains no text, respond with "No se encontró texto en la imagen".`;
 
-        const response = await imageExtractorClient.chat.completions.create({
+        console.log(`   🔍 Sending image to ${model} (${imageSizeMB.toFixed(2)}MB, ${mimeType})...`);
+
+        // Create a timeout promise (60 seconds for image processing)
+        const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => {
+                reject(new Error('Image extraction timeout: Request took longer than 60 seconds'));
+            }, 60000);
+        });
+
+        // Create the API request promise
+        const apiRequest = imageExtractorClient.chat.completions.create({
             model: model,
             messages: [
                 { role: 'system', content: systemPrompt },
@@ -96,6 +148,9 @@ Return the extracted text in a clear, organized format. If the image contains no
             max_tokens: 4000 // Allow for longer text extraction
         });
 
+        // Race between the API request and timeout
+        const response = await Promise.race([apiRequest, timeoutPromise]);
+
         const extractedText = response.choices[0].message.content.trim();
         
         if (extractedText && extractedText !== 'No se encontró texto en la imagen') {
@@ -112,7 +167,29 @@ Return the extracted text in a clear, organized format. If the image contains no
         
         return extractedText || 'No se encontró texto en la imagen';
     } catch (error) {
+        // Enhanced error logging
+        const errorDetails = {
+            message: error.message,
+            status: error.status || error.statusCode,
+            code: error.code,
+            endpoint: config.imageExtractor.endpoint ? `${config.imageExtractor.endpoint.substring(0, 30)}...` : 'not configured',
+            deployment: config.imageExtractor.deployment || 'not configured',
+            imageName: image.originalname,
+            imageSize: image.buffer ? `${(image.buffer.length / (1024 * 1024)).toFixed(2)}MB` : 'unknown'
+        };
+        
         console.error(`   ⚠️ Error extrayendo texto de imagen ${image.originalname}:`, error.message);
+        console.error(`   📋 Error details:`, JSON.stringify(errorDetails, null, 2));
+        
+        // If it's a connection error, provide more helpful information
+        if (error.message && error.message.includes('Connection')) {
+            console.error(`   💡 Connection error troubleshooting:`);
+            console.error(`      - Verify AZURE_OPENAI_IMAGE_EXTRACTOR_API_ENDPOINT is correct`);
+            console.error(`      - Verify AZURE_OPENAI_IMAGE_EXTRACTOR_API_KEY is valid`);
+            console.error(`      - Verify AZURE_OPENAI_IMAGE_EXTRACTOR_API_DEPLOYMENT exists and supports vision`);
+            console.error(`      - Check network connectivity to Azure OpenAI endpoint`);
+        }
+        
         throw error;
     }
 }
