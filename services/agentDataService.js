@@ -691,19 +691,121 @@ export async function savePackagesToDB(paquetes) {
 }
 
 /**
- * Saves all data (hotels, services, packages) to MySQL database
+ * Saves descriptions to MySQL database
+ * Only saves the first row (id=1) since descriptions table has only one row
+ * @param {Array} descripciones - Array of description objects (only first one is used)
+ * @returns {Promise<Object>} Statistics: { inserted, updated, errors, total }
+ */
+export async function saveDescriptionsToDB(descripciones) {
+  if (!descripciones || !Array.isArray(descripciones) || descripciones.length === 0) {
+    return { inserted: 0, updated: 0, errors: 0, total: 0 };
+  }
+
+  const pool = getMySQLPool();
+  if (!pool) {
+    console.error('❌ MySQL connection pool not available');
+    return { inserted: 0, updated: 0, errors: 1, total: 1 };
+  }
+
+  // Only use the first row
+  const firstRecord = descripciones[0];
+  const jsonKeys = Object.keys(firstRecord);
+  
+  // Get existing columns from descriptions table
+  let existingColumns = await getTableColumns('descriptions');
+  
+  // Create missing columns
+  const systemColumns = ['id'];
+  const columnsCreated = await createMissingColumns('descriptions', jsonKeys, existingColumns, systemColumns);
+  
+  if (columnsCreated > 0) {
+    console.log(`✅ ${columnsCreated} columnas nuevas creadas en tabla descriptions`);
+    // Refresh columns list to include newly created ones
+    existingColumns = await getTableColumns('descriptions');
+  }
+  
+  // Remove columns that are no longer in JSON
+  const columnsRemoved = await removeMissingColumns('descriptions', jsonKeys, existingColumns, systemColumns);
+  
+  if (columnsRemoved > 0) {
+    console.log(`✅ ${columnsRemoved} columnas eliminadas de tabla descriptions`);
+    // Refresh columns list after removal
+    existingColumns = await getTableColumns('descriptions');
+  }
+
+  // Include 'id' in dbColumns since we need it for the INSERT
+  const dbColumns = existingColumns.filter(col => col !== 'id');
+  const allColumns = ['id', ...dbColumns];
+  
+  // Build query with INSERT ... ON DUPLICATE KEY UPDATE
+  // Since we always use id=1, this will update the existing row or insert if it doesn't exist
+  const updateColumns = dbColumns; // Update all columns except id
+  const columnsPlaceholders = allColumns.map(() => '??').join(', ');
+  const valuesPlaceholders = allColumns.map(() => '?').join(', ');
+  const updateClause = updateColumns.map(col => `?? = VALUES(??)`).join(', ');
+  
+  const query = `
+    INSERT INTO ?? (${columnsPlaceholders})
+    VALUES (${valuesPlaceholders})
+    ON DUPLICATE KEY UPDATE
+      ${updateClause}
+  `;
+
+  let inserted = 0;
+  let updated = 0;
+  let errors = 0;
+
+  console.log(`💾 Guardando descripciones en la base de datos...`);
+
+  try {
+    // Map JSON to database columns dynamically
+    const mappedData = mapJsonToDbColumns(firstRecord, dbColumns);
+    
+    // Ensure id is set to 1
+    mappedData.id = 1;
+
+    // Build query parameters
+    const queryParams = [
+      'descriptions', // table name
+      ...allColumns, // column names for INSERT (id, col1, col2, ...)
+      1, // id value (always 1)
+      ...dbColumns.map(col => mappedData[col] !== undefined ? mappedData[col] : null), // other values
+      ...updateColumns.flatMap(col => [col, col]) // column names for UPDATE (twice for VALUES())
+    ];
+
+    const [result] = await pool.query(query, queryParams);
+
+    // Check if it was an insert (affectedRows = 1) or update (affectedRows = 2)
+    if (result.affectedRows === 1) {
+      inserted++;
+    } else if (result.affectedRows === 2) {
+      updated++;
+    }
+  } catch (error) {
+    console.error(`❌ Error guardando descripciones:`, error.message);
+    errors++;
+  }
+
+  console.log(`✅ Descripciones guardadas: ${inserted} insertadas, ${updated} actualizadas, ${errors} errores`);
+  return { inserted, updated, errors, total: 1 };
+}
+
+/**
+ * Saves all data (hotels, services, packages, descriptions) to MySQL database
  * @param {Array} hoteles - Array of hotel objects
  * @param {Array} servicios - Array of service objects
  * @param {Array} paquetes - Array of package objects
+ * @param {Array} descripciones - Array of description objects (optional)
  * @returns {Promise<Object>} Summary of all operations
  */
-export async function saveAllDataToDB(hoteles, servicios, paquetes) {
+export async function saveAllDataToDB(hoteles, servicios, paquetes, descripciones) {
   console.log('💾 Iniciando guardado de datos en base de datos MySQL...');
   
   const results = {
     hotels: { inserted: 0, updated: 0, errors: 0, total: 0 },
     services: { inserted: 0, updated: 0, errors: 0, total: 0 },
-    packages: { inserted: 0, updated: 0, errors: 0, total: 0 }
+    packages: { inserted: 0, updated: 0, errors: 0, total: 0 },
+    descriptions: { inserted: 0, updated: 0, errors: 0, total: 0 }
   };
 
   try {
@@ -736,9 +838,19 @@ export async function saveAllDataToDB(hoteles, servicios, paquetes) {
     results.packages.errors = paquetes?.length || 0;
   }
 
-  const totalInserted = results.hotels.inserted + results.services.inserted + results.packages.inserted;
-  const totalUpdated = results.hotels.updated + results.services.updated + results.packages.updated;
-  const totalErrors = results.hotels.errors + results.services.errors + results.packages.errors;
+  try {
+    // Save descriptions
+    if (descripciones && descripciones.length > 0) {
+      results.descriptions = await saveDescriptionsToDB(descripciones);
+    }
+  } catch (error) {
+    console.error('❌ Error guardando descripciones:', error.message);
+    results.descriptions.errors = descripciones?.length || 0;
+  }
+
+  const totalInserted = results.hotels.inserted + results.services.inserted + results.packages.inserted + results.descriptions.inserted;
+  const totalUpdated = results.hotels.updated + results.services.updated + results.packages.updated + results.descriptions.updated;
+  const totalErrors = results.hotels.errors + results.services.errors + results.packages.errors + results.descriptions.errors;
 
   console.log(`✅ Guardado completado: ${totalInserted} insertados, ${totalUpdated} actualizados, ${totalErrors} errores`);
 
@@ -746,11 +858,12 @@ export async function saveAllDataToDB(hoteles, servicios, paquetes) {
     hotels: results.hotels,
     services: results.services,
     packages: results.packages,
+    descriptions: results.descriptions,
     summary: {
       totalInserted,
       totalUpdated,
       totalErrors,
-      totalProcessed: results.hotels.total + results.services.total + results.packages.total
+      totalProcessed: results.hotels.total + results.services.total + results.packages.total + results.descriptions.total
     }
   };
 }
