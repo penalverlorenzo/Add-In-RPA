@@ -1,6 +1,6 @@
 /**
  * Agent Data Service
- * Handles saving Hotels, Services, and Packages data to MySQL database
+ * Handles saving Hotels, Services, Packages, Wineries, Sale Rates, and Descriptions data to MySQL database
  * Uses INSERT ... ON DUPLICATE KEY UPDATE to handle duplicates
  */
 
@@ -691,6 +691,216 @@ export async function savePackagesToDB(paquetes) {
 }
 
 /**
+ * Saves wineries (bodegas) to MySQL database
+ * @param {Array} bodegas - Array of winery objects
+ * @returns {Promise<Object>} Statistics: { inserted, updated, errors, total }
+ */
+export async function saveWineriesToDB(bodegas) {
+  if (!bodegas || !Array.isArray(bodegas) || bodegas.length === 0) {
+    return { inserted: 0, updated: 0, errors: 0, total: 0 };
+  }
+
+  const pool = getMySQLPool();
+  if (!pool) {
+    console.error('❌ MySQL connection pool not available');
+    return { inserted: 0, updated: 0, errors: bodegas.length, total: bodegas.length };
+  }
+
+  // Get keys from first record (all records have the same structure)
+  const firstRecord = bodegas[0];
+  const jsonKeys = Object.keys(firstRecord);
+
+  // Get existing columns from winery table
+  let existingColumns = await getTableColumns('winery');
+
+  // Create missing columns
+  const systemColumns = ['id', 'BodegaID'];
+  const columnsCreated = await createMissingColumns('winery', jsonKeys, existingColumns, systemColumns);
+
+  if (columnsCreated > 0) {
+    console.log(`✅ ${columnsCreated} columnas nuevas creadas en tabla winery`);
+    // Refresh columns list to include newly created ones
+    existingColumns = await getTableColumns('winery');
+  }
+
+  // Remove columns that are no longer in JSON
+  const columnsRemoved = await removeMissingColumns('winery', jsonKeys, existingColumns, systemColumns);
+
+  if (columnsRemoved > 0) {
+    console.log(`✅ ${columnsRemoved} columnas eliminadas de tabla winery`);
+    // Refresh columns list after removal
+    existingColumns = await getTableColumns('winery');
+  }
+
+  // Filter columns: exclude 'id' (auto-generated), include all others
+  const dbColumns = existingColumns.filter(col => col !== 'id');
+
+  // Build query once (reusable for all records)
+  const updateColumns = dbColumns.filter(col => col !== 'BodegaID');
+  const columnsPlaceholders = dbColumns.map(() => '??').join(', ');
+  const valuesPlaceholders = dbColumns.map(() => '?').join(', ');
+  const updateClause = updateColumns.map(col => `?? = VALUES(??)`).join(', ');
+
+  const query = `
+    INSERT INTO ?? (${columnsPlaceholders})
+    VALUES (${valuesPlaceholders})
+    ON DUPLICATE KEY UPDATE
+      ${updateClause}
+  `;
+
+  let inserted = 0;
+  let updated = 0;
+  let errors = 0;
+
+  console.log(`💾 Guardando ${bodegas.length} bodegas en la base de datos...`);
+
+  for (const bodega of bodegas) {
+    try {
+      // Validate required field
+      if (!bodega.BodegaID) {
+        console.warn(`⚠️ Bodega sin BodegaID, saltando registro:`, bodega);
+        errors++;
+        continue;
+      }
+
+      // Map JSON to database columns dynamically
+      const mappedData = mapJsonToDbColumns(bodega, dbColumns);
+
+      // Ensure BodegaID is set (required)
+      mappedData.BodegaID = bodega.BodegaID;
+
+      // Build query parameters
+      const queryParams = [
+        'winery', // table name
+        ...dbColumns, // column names for INSERT
+        ...dbColumns.map(col => mappedData[col] !== undefined ? mappedData[col] : null), // values
+        ...updateColumns.flatMap(col => [col, col]) // column names for UPDATE (twice for VALUES())
+      ];
+
+      const [result] = await pool.query(query, queryParams);
+
+      // Check if it was an insert (affectedRows = 1) or update (affectedRows = 2)
+      if (result.affectedRows === 1) {
+        inserted++;
+      } else if (result.affectedRows === 2) {
+        updated++;
+      }
+    } catch (error) {
+      console.error(`❌ Error guardando bodega ${bodega.BodegaID || 'sin ID'}:`, error.message);
+      errors++;
+    }
+  }
+
+  console.log(`✅ Bodegas guardadas: ${inserted} insertadas, ${updated} actualizadas, ${errors} errores`);
+  return { inserted, updated, errors, total: bodegas.length };
+}
+
+/**
+ * Saves sale rates (tarifas) to MySQL database
+ * @param {Array} tarifas - Array of sale rate objects
+ * @returns {Promise<Object>} Statistics: { inserted, updated, errors, total }
+ */
+export async function saveSaleRatesToDB(tarifas) {
+  if (!tarifas || !Array.isArray(tarifas) || tarifas.length === 0) {
+    return { inserted: 0, updated: 0, errors: 0, total: 0 };
+  }
+
+  const pool = getMySQLPool();
+  if (!pool) {
+    console.error('❌ MySQL connection pool not available');
+    return { inserted: 0, updated: 0, errors: tarifas.length, total: tarifas.length };
+  }
+
+  // Get keys from first record (all records have the same structure)
+  const firstRecord = tarifas[0];
+  const jsonKeys = Object.keys(firstRecord);
+
+  // Get existing columns from sale_rates table
+  let existingColumns = await getTableColumns('sale_rates');
+
+  // Create missing columns
+  const systemColumns = ['id', 'TarifaID'];
+  const columnsCreated = await createMissingColumns('sale_rates', jsonKeys, existingColumns, systemColumns);
+
+  if (columnsCreated > 0) {
+    console.log(`✅ ${columnsCreated} columnas nuevas creadas en tabla sale_rates`);
+    // Refresh columns list to include newly created ones
+    existingColumns = await getTableColumns('sale_rates');
+  }
+
+  // Remove columns that are no longer in JSON
+  const columnsRemoved = await removeMissingColumns('sale_rates', jsonKeys, existingColumns, systemColumns);
+
+  if (columnsRemoved > 0) {
+    console.log(`✅ ${columnsRemoved} columnas eliminadas de tabla sale_rates`);
+    // Refresh columns list after removal
+    existingColumns = await getTableColumns('sale_rates');
+  }
+
+  // Filter columns: exclude 'id' (auto-generated), include all others
+  const dbColumns = existingColumns.filter(col => col !== 'id');
+
+  // Build query once (reusable for all records)
+  const updateColumns = dbColumns.filter(col => col !== 'TarifaID');
+  const columnsPlaceholders = dbColumns.map(() => '??').join(', ');
+  const valuesPlaceholders = dbColumns.map(() => '?').join(', ');
+  const updateClause = updateColumns.map(col => `?? = VALUES(??)`).join(', ');
+
+  const query = `
+    INSERT INTO ?? (${columnsPlaceholders})
+    VALUES (${valuesPlaceholders})
+    ON DUPLICATE KEY UPDATE
+      ${updateClause}
+  `;
+
+  let inserted = 0;
+  let updated = 0;
+  let errors = 0;
+
+  console.log(`💾 Guardando ${tarifas.length} tarifas en la base de datos...`);
+
+  for (const tarifa of tarifas) {
+    try {
+      // Validate required field
+      if (!tarifa.TarifaID) {
+        console.warn(`⚠️ Tarifa sin TarifaID, saltando registro:`, tarifa);
+        errors++;
+        continue;
+      }
+
+      // Map JSON to database columns dynamically
+      const mappedData = mapJsonToDbColumns(tarifa, dbColumns);
+
+      // Ensure TarifaID is set (required)
+      mappedData.TarifaID = tarifa.TarifaID;
+
+      // Build query parameters
+      const queryParams = [
+        'sale_rates', // table name
+        ...dbColumns, // column names for INSERT
+        ...dbColumns.map(col => mappedData[col] !== undefined ? mappedData[col] : null), // values
+        ...updateColumns.flatMap(col => [col, col]) // column names for UPDATE (twice for VALUES())
+      ];
+
+      const [result] = await pool.query(query, queryParams);
+
+      // Check if it was an insert (affectedRows = 1) or update (affectedRows = 2)
+      if (result.affectedRows === 1) {
+        inserted++;
+      } else if (result.affectedRows === 2) {
+        updated++;
+      }
+    } catch (error) {
+      console.error(`❌ Error guardando tarifa ${tarifa.TarifaID || 'sin ID'}:`, error.message);
+      errors++;
+    }
+  }
+
+  console.log(`✅ Tarifas guardadas: ${inserted} insertadas, ${updated} actualizadas, ${errors} errores`);
+  return { inserted, updated, errors, total: tarifas.length };
+}
+
+/**
  * Saves descriptions to MySQL database
  * Only saves the first row (id=1) since descriptions table has only one row
  * @param {Array} descripciones - Array of description objects (only first one is used)
@@ -791,20 +1001,24 @@ export async function saveDescriptionsToDB(descripciones) {
 }
 
 /**
- * Saves all data (hotels, services, packages, descriptions) to MySQL database
+ * Saves all data (hotels, services, packages, wineries, sale rates, descriptions) to MySQL database
  * @param {Array} hoteles - Array of hotel objects
  * @param {Array} servicios - Array of service objects
  * @param {Array} paquetes - Array of package objects
+ * @param {Array} bodegas - Array of winery objects (optional)
+ * @param {Array} tarifas - Array of sale rate objects (optional)
  * @param {Array} descripciones - Array of description objects (optional)
  * @returns {Promise<Object>} Summary of all operations
  */
-export async function saveAllDataToDB(hoteles, servicios, paquetes, descripciones) {
+export async function saveAllDataToDB(hoteles, servicios, paquetes, bodegas, tarifas, descripciones) {
   console.log('💾 Iniciando guardado de datos en base de datos MySQL...');
-  
+
   const results = {
     hotels: { inserted: 0, updated: 0, errors: 0, total: 0 },
     services: { inserted: 0, updated: 0, errors: 0, total: 0 },
     packages: { inserted: 0, updated: 0, errors: 0, total: 0 },
+    wineries: { inserted: 0, updated: 0, errors: 0, total: 0 },
+    saleRates: { inserted: 0, updated: 0, errors: 0, total: 0 },
     descriptions: { inserted: 0, updated: 0, errors: 0, total: 0 }
   };
 
@@ -839,6 +1053,26 @@ export async function saveAllDataToDB(hoteles, servicios, paquetes, descripcione
   }
 
   try {
+    // Save wineries (bodegas)
+    if (bodegas && bodegas.length > 0) {
+      results.wineries = await saveWineriesToDB(bodegas);
+    }
+  } catch (error) {
+    console.error('❌ Error guardando bodegas:', error.message);
+    results.wineries.errors = bodegas?.length || 0;
+  }
+
+  try {
+    // Save sale rates (tarifas)
+    if (tarifas && tarifas.length > 0) {
+      results.saleRates = await saveSaleRatesToDB(tarifas);
+    }
+  } catch (error) {
+    console.error('❌ Error guardando tarifas:', error.message);
+    results.saleRates.errors = tarifas?.length || 0;
+  }
+
+  try {
     // Save descriptions
     if (descripciones && descripciones.length > 0) {
       results.descriptions = await saveDescriptionsToDB(descripciones);
@@ -848,9 +1082,9 @@ export async function saveAllDataToDB(hoteles, servicios, paquetes, descripcione
     results.descriptions.errors = descripciones?.length || 0;
   }
 
-  const totalInserted = results.hotels.inserted + results.services.inserted + results.packages.inserted + results.descriptions.inserted;
-  const totalUpdated = results.hotels.updated + results.services.updated + results.packages.updated + results.descriptions.updated;
-  const totalErrors = results.hotels.errors + results.services.errors + results.packages.errors + results.descriptions.errors;
+  const totalInserted = results.hotels.inserted + results.services.inserted + results.packages.inserted + results.wineries.inserted + results.saleRates.inserted + results.descriptions.inserted;
+  const totalUpdated = results.hotels.updated + results.services.updated + results.packages.updated + results.wineries.updated + results.saleRates.updated + results.descriptions.updated;
+  const totalErrors = results.hotels.errors + results.services.errors + results.packages.errors + results.wineries.errors + results.saleRates.errors + results.descriptions.errors;
 
   console.log(`✅ Guardado completado: ${totalInserted} insertados, ${totalUpdated} actualizados, ${totalErrors} errores`);
 
@@ -858,12 +1092,14 @@ export async function saveAllDataToDB(hoteles, servicios, paquetes, descripcione
     hotels: results.hotels,
     services: results.services,
     packages: results.packages,
+    wineries: results.wineries,
+    saleRates: results.saleRates,
     descriptions: results.descriptions,
     summary: {
       totalInserted,
       totalUpdated,
       totalErrors,
-      totalProcessed: results.hotels.total + results.services.total + results.packages.total + results.descriptions.total
+      totalProcessed: results.hotels.total + results.services.total + results.packages.total + results.wineries.total + results.saleRates.total + results.descriptions.total
     }
   };
 }
