@@ -1,15 +1,15 @@
 /**
  * Excel to JSON Service
- * Converts Excel files to JSON format for hotels, services, packages, and descriptions
+ * Converts Excel files to JSON format for hotels, services, packages, wineries, sale rates, and descriptions
  */
 
 import XLSX from 'xlsx';
 
 /**
  * Converts Excel buffer to JSON objects
- * Expects Excel file with sheets named: "Hoteles", "Servicios", "Paquetes", "Descripciones" (optional)
+ * Expects Excel file with sheets named: "Hoteles", "Servicios", "Paquetes", "Bodegas" (optional), "Tarifas" (optional), "Descripciones" (optional)
  * @param {Buffer} excelBuffer - Excel file as Buffer
- * @returns {Promise<Object>} Object with Hoteles, Servicios, Paquetes, Descripciones arrays
+ * @returns {Promise<Object>} Object with Hoteles, Servicios, Paquetes, Bodegas, Tarifas, Descripciones arrays
  */
 export async function convertExcelToJson(excelBuffer) {
   try {
@@ -24,6 +24,8 @@ export async function convertExcelToJson(excelBuffer) {
       Hoteles: [],
       Servicios: [],
       Paquetes: [],
+      Bodegas: [],
+      Tarifas: [],
       Descripciones: []
     };
 
@@ -49,6 +51,12 @@ export async function convertExcelToJson(excelBuffer) {
       } else if (normalizedSheetName.toLowerCase() === 'paquetes' || normalizedSheetName.toLowerCase() === 'packages') {
         result.Paquetes = jsonData;
         console.log(`✅ Procesada hoja "${sheetName}": ${jsonData.length} paquetes`);
+      } else if (normalizedSheetName.toLowerCase() === 'bodegas' || normalizedSheetName.toLowerCase() === 'winery') {
+        result.Bodegas = jsonData;
+        console.log(`✅ Procesada hoja "${sheetName}": ${jsonData.length} bodegas`);
+      } else if (normalizedSheetName.toLowerCase() === 'tarifas' || normalizedSheetName.toLowerCase() === 'sale_rates') {
+        result.Tarifas = jsonData;
+        console.log(`✅ Procesada hoja "${sheetName}": ${jsonData.length} tarifas`);
       } else if (normalizedSheetName.toLowerCase() === 'descripciones' || normalizedSheetName.toLowerCase() === 'descriptions') {
         result.Descripciones = jsonData;
         console.log(`✅ Procesada hoja "${sheetName}": ${jsonData.length} fila(s) de descripciones`);
@@ -63,9 +71,10 @@ export async function convertExcelToJson(excelBuffer) {
       throw new Error('No se encontraron datos en las hojas esperadas (Hoteles, Servicios, Paquetes)');
     }
 
-    const descripcionesCount = result.Descripciones.length;
-    const descripcionesInfo = descripcionesCount > 0 ? `, ${descripcionesCount} descripciones` : '';
-    console.log(`✅ Conversión completada: ${result.Hoteles.length} hoteles, ${result.Servicios.length} servicios, ${result.Paquetes.length} paquetes${descripcionesInfo}`);
+    const bodegasInfo = result.Bodegas.length > 0 ? `, ${result.Bodegas.length} bodegas` : '';
+    const tarifasInfo = result.Tarifas.length > 0 ? `, ${result.Tarifas.length} tarifas` : '';
+    const descripcionesInfo = result.Descripciones.length > 0 ? `, ${result.Descripciones.length} descripciones` : '';
+    console.log(`✅ Conversión completada: ${result.Hoteles.length} hoteles, ${result.Servicios.length} servicios, ${result.Paquetes.length} paquetes${bodegasInfo}${tarifasInfo}${descripcionesInfo}`);
 
     return result;
   } catch (error) {
