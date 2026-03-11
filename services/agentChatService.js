@@ -276,7 +276,8 @@ export async function sendMessageToAgent(userMessage, agentId, threadId) {
     }
 
     console.log("AI Response:", textResponse);
-    assistantResponse = textResponse.replace(/【.*?†source】/g, "").trim();
+    // Remove OpenAI Agents API citation markers (e.g. 【10:0†bodegas.json】, 【5:2†source】)
+    assistantResponse = textResponse.replace(/【[^】]*】/g, "").replace(/\s{2,}/g, " ").trim();
   }
   
   return assistantResponse;
