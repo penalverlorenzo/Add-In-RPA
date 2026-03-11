@@ -1062,15 +1062,15 @@ export async function saveAllDataToDB(hoteles, servicios, paquetes, bodegas, tar
     results.wineries.errors = bodegas?.length || 0;
   }
 
-  try {
-    // Save sale rates (tarifas)
-    if (tarifas && tarifas.length > 0) {
-      results.saleRates = await saveSaleRatesToDB(tarifas);
-    }
-  } catch (error) {
-    console.error('❌ Error guardando tarifas:', error.message);
-    results.saleRates.errors = tarifas?.length || 0;
-  }
+  // DISABLED: Tarifas - re-enable when in use (saveSaleRatesToDB)
+  // try {
+  //   if (tarifas && tarifas.length > 0) {
+  //     results.saleRates = await saveSaleRatesToDB(tarifas);
+  //   }
+  // } catch (error) {
+  //   console.error('❌ Error guardando tarifas:', error.message);
+  //   results.saleRates.errors = tarifas?.length || 0;
+  // }
 
   try {
     // Save descriptions
@@ -1082,9 +1082,9 @@ export async function saveAllDataToDB(hoteles, servicios, paquetes, bodegas, tar
     results.descriptions.errors = descripciones?.length || 0;
   }
 
-  const totalInserted = results.hotels.inserted + results.services.inserted + results.packages.inserted + results.wineries.inserted + results.saleRates.inserted + results.descriptions.inserted;
-  const totalUpdated = results.hotels.updated + results.services.updated + results.packages.updated + results.wineries.updated + results.saleRates.updated + results.descriptions.updated;
-  const totalErrors = results.hotels.errors + results.services.errors + results.packages.errors + results.wineries.errors + results.saleRates.errors + results.descriptions.errors;
+  const totalInserted = results.hotels.inserted + results.services.inserted + results.packages.inserted + results.wineries.inserted + results.descriptions.inserted; // + results.saleRates.inserted when tarifas enabled
+  const totalUpdated = results.hotels.updated + results.services.updated + results.packages.updated + results.wineries.updated + results.descriptions.updated; // + results.saleRates.updated
+  const totalErrors = results.hotels.errors + results.services.errors + results.packages.errors + results.wineries.errors + results.descriptions.errors; // + results.saleRates.errors
 
   console.log(`✅ Guardado completado: ${totalInserted} insertados, ${totalUpdated} actualizados, ${totalErrors} errores`);
 
@@ -1099,7 +1099,7 @@ export async function saveAllDataToDB(hoteles, servicios, paquetes, bodegas, tar
       totalInserted,
       totalUpdated,
       totalErrors,
-      totalProcessed: results.hotels.total + results.services.total + results.packages.total + results.wineries.total + results.saleRates.total + results.descriptions.total
+      totalProcessed: results.hotels.total + results.services.total + results.packages.total + results.wineries.total + results.descriptions.total // + results.saleRates.total when tarifas enabled
     }
   };
 }

@@ -54,9 +54,10 @@ export async function convertExcelToJson(excelBuffer) {
       } else if (normalizedSheetName.toLowerCase() === 'bodegas' || normalizedSheetName.toLowerCase() === 'winery') {
         result.Bodegas = jsonData;
         console.log(`✅ Procesada hoja "${sheetName}": ${jsonData.length} bodegas`);
-      } else if (normalizedSheetName.toLowerCase() === 'tarifas' || normalizedSheetName.toLowerCase() === 'sale_rates') {
-        result.Tarifas = jsonData;
-        console.log(`✅ Procesada hoja "${sheetName}": ${jsonData.length} tarifas`);
+      // DISABLED: Tarifas - re-enable when in use (do not send to IA)
+      // } else if (normalizedSheetName.toLowerCase() === 'tarifas' || normalizedSheetName.toLowerCase() === 'sale_rates') {
+      //   result.Tarifas = jsonData;
+      //   console.log(`✅ Procesada hoja "${sheetName}": ${jsonData.length} tarifas`);
       } else if (normalizedSheetName.toLowerCase() === 'descripciones' || normalizedSheetName.toLowerCase() === 'descriptions') {
         result.Descripciones = jsonData;
         console.log(`✅ Procesada hoja "${sheetName}": ${jsonData.length} fila(s) de descripciones`);
@@ -72,9 +73,8 @@ export async function convertExcelToJson(excelBuffer) {
     }
 
     const bodegasInfo = result.Bodegas.length > 0 ? `, ${result.Bodegas.length} bodegas` : '';
-    const tarifasInfo = result.Tarifas.length > 0 ? `, ${result.Tarifas.length} tarifas` : '';
     const descripcionesInfo = result.Descripciones.length > 0 ? `, ${result.Descripciones.length} descripciones` : '';
-    console.log(`✅ Conversión completada: ${result.Hoteles.length} hoteles, ${result.Servicios.length} servicios, ${result.Paquetes.length} paquetes${bodegasInfo}${tarifasInfo}${descripcionesInfo}`);
+    console.log(`✅ Conversión completada: ${result.Hoteles.length} hoteles, ${result.Servicios.length} servicios, ${result.Paquetes.length} paquetes${bodegasInfo}${descripcionesInfo}`);
 
     return result;
   } catch (error) {

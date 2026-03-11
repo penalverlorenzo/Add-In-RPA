@@ -49,10 +49,10 @@ function validateBody(body) {
     throw new Error('El campo "Bodegas" debe ser un array si se proporciona');
   }
 
-  // Tarifas is optional
-  if (Tarifas !== undefined && !Array.isArray(Tarifas)) {
-    throw new Error('El campo "Tarifas" debe ser un array si se proporciona');
-  }
+  // DISABLED: Tarifas - re-enable when in use
+  // if (Tarifas !== undefined && !Array.isArray(Tarifas)) {
+  //   throw new Error('El campo "Tarifas" debe ser un array si se proporciona');
+  // }
 
   // Descripciones is optional
   if (Descripciones !== undefined && !Array.isArray(Descripciones)) {
@@ -179,11 +179,10 @@ export async function updateAgentFiles(body) {
   // Validate body
   validateBody(body);
 
-  const { Hoteles, Servicios, Paquetes, Bodegas, Tarifas, Descripciones } = body;
+  const { Hoteles, Servicios, Paquetes, Bodegas, Descripciones } = body;
   const bodegasInfo = Bodegas && Bodegas.length > 0 ? `, ${Bodegas.length} bodegas` : '';
-  const tarifasInfo = Tarifas && Tarifas.length > 0 ? `, ${Tarifas.length} tarifas` : '';
   const descripcionesInfo = Descripciones && Descripciones.length > 0 ? `, ${Descripciones.length} descripciones` : '';
-  console.log(`📊 Datos recibidos: ${Hoteles.length} hoteles, ${Servicios.length} servicios, ${Paquetes.length} paquetes${bodegasInfo}${tarifasInfo}${descripcionesInfo}`);
+  console.log(`📊 Datos recibidos: ${Hoteles.length} hoteles, ${Servicios.length} servicios, ${Paquetes.length} paquetes${bodegasInfo}${descripcionesInfo}`);
 
   // Create Azure OpenAI client
   const client = createClient();
@@ -218,13 +217,14 @@ export async function updateAgentFiles(body) {
       data: Bodegas
     });
   }
-  if (Tarifas && Tarifas.length > 0) {
-    filesToUpload.push({
-      name: 'tarifas.json',
-      content: JSON.stringify(Tarifas, null, 2),
-      data: Tarifas
-    });
-  }
+  // DISABLED: Tarifas - re-enable when in use (do not send tarifas.json to IA)
+  // if (Tarifas && Tarifas.length > 0) {
+  //   filesToUpload.push({
+  //     name: 'tarifas.json',
+  //     content: JSON.stringify(Tarifas, null, 2),
+  //     data: Tarifas
+  //   });
+  // }
 
   // 3. Upload files to vector store
   console.log('📤 Subiendo archivos al vector store...');
@@ -241,7 +241,7 @@ export async function updateAgentFiles(body) {
   let dbResults = null;
   try {
     console.log('💾 Guardando datos en base de datos MySQL...');
-    dbResults = await saveAllDataToDB(Hoteles, Servicios, Paquetes, Bodegas, Tarifas, Descripciones);
+    dbResults = await saveAllDataToDB(Hoteles, Servicios, Paquetes, Bodegas, undefined, Descripciones); // Tarifas disabled
     console.log('✅ Datos guardados en base de datos MySQL');
   } catch (error) {
     console.error('❌ Error guardando datos en base de datos:', error.message);
@@ -252,7 +252,7 @@ export async function updateAgentFiles(body) {
       services: { inserted: 0, updated: 0, errors: Servicios.length, total: Servicios.length },
       packages: { inserted: 0, updated: 0, errors: Paquetes.length, total: Paquetes.length },
       wineries: { inserted: 0, updated: 0, errors: Bodegas?.length || 0, total: Bodegas?.length || 0 },
-      saleRates: { inserted: 0, updated: 0, errors: Tarifas?.length || 0, total: Tarifas?.length || 0 },
+      saleRates: { inserted: 0, updated: 0, errors: 0, total: 0 }, // tarifas disabled
       descriptions: { inserted: 0, updated: 0, errors: Descripciones?.length || 0, total: Descripciones?.length || 0 }
     };
   }
@@ -264,8 +264,7 @@ export async function updateAgentFiles(body) {
       hoteles: Hoteles.length,
       servicios: Servicios.length,
       paquetes: Paquetes.length,
-      bodegas: Bodegas?.length ?? 0,
-      tarifas: Tarifas?.length ?? 0
+      bodegas: Bodegas?.length ?? 0
     },
     database: dbResults
   };
