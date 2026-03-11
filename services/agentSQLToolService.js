@@ -47,10 +47,10 @@ async function getMySQLPool() {
  * @param {string} tableName - Table name to validate
  * @returns {boolean} True if table is allowed
  */
+const ALLOWED_TABLES = ['hotels', 'services', 'packages', 'winery', 'sale_rates'];
+
 function isValidTableName(tableName) {
-  // Only allow the three main tables: hotels, services, packages
-  const allowedTables = ['hotels', 'services', 'packages'];
-  return allowedTables.includes(tableName.toLowerCase());
+  return ALLOWED_TABLES.includes(tableName.toLowerCase());
 }
 
 /**
@@ -103,16 +103,15 @@ export async function executeSQLQuery(params) {
       isNull: tableName === null, 
       isUndefined: tableName === undefined 
     });
-    throw new Error('Table name is required and must be a string. Please specify one of: hotels, services, or packages.');
+    throw new Error('Table name is required and must be a string. Please specify one of: hotels, services, packages, winery, or sale_rates.');
   }
 
   // Normalize table name to lowercase for comparison
   const normalizedTableName = tableName.toLowerCase();
-  const allowedTables = ['hotels', 'services', 'packages'];
-  
+
   if (!isValidTableName(normalizedTableName)) {
-    console.error(`❌ Invalid table name: ${tableName}. Allowed: ${allowedTables.join(', ')}`);
-    throw new Error(`Invalid table name: "${tableName}". Allowed tables are: hotels, services, packages.`);
+    console.error(`❌ Invalid table name: ${tableName}. Allowed: ${ALLOWED_TABLES.join(', ')}`);
+    throw new Error(`Invalid table name: "${tableName}". Allowed tables are: ${ALLOWED_TABLES.join(', ')}.`);
   }
   
   // Use normalized name for query
@@ -145,7 +144,7 @@ export async function executeSQLQuery(params) {
       }
       const normalizedJoinTable = join.table.toLowerCase();
       if (!isValidTableName(normalizedJoinTable)) {
-        throw new Error(`Invalid JOIN table name: ${join.table}. Allowed tables are: hotels, services, packages.`);
+        throw new Error(`Invalid JOIN table name: ${join.table}. Allowed tables are: ${ALLOWED_TABLES.join(', ')}.`);
       }
       if (!join.on || typeof join.on !== 'string') {
         throw new Error('JOIN must have a valid ON clause');
@@ -317,13 +316,13 @@ export async function ensureSQLToolExists(client, agentId) {
     // Create the SQL tool definition
     const sqlTool = ToolUtility.createFunctionTool({
       name: toolName,
-      description: 'Executes SQL SELECT queries on the MySQL database. REQUIRED parameters: tableName (must be "hotels", "services", or "packages") and columns (array of column names). Supports JOINs, WHERE clauses, ORDER BY, and LIMIT. Returns query results as JSON. Always filter by Activo = "ACTIVADO" when querying.',
+      description: 'Executes SQL SELECT queries on the MySQL database. REQUIRED parameters: tableName (must be "hotels", "services", "packages", "winery", or "sale_rates") and columns (array of column names). Supports JOINs, WHERE clauses, ORDER BY, and LIMIT. Returns query results as JSON. Always filter by Activo = "ACTIVADO" when that column exists.',
       parameters: {
         type: 'object',
         properties: {
           tableName: {
             type: 'string',
-            description: 'REQUIRED: Name of the main table for the FROM clause. Must be exactly one of: "hotels", "services", or "packages" (lowercase).'
+            description: 'REQUIRED: Name of the main table for the FROM clause. Must be exactly one of: "hotels", "services", "packages", "winery", or "sale_rates" (lowercase).'
           },
           columns: {
             type: 'array',
