@@ -47,7 +47,8 @@ async function getMySQLPool() {
  * @param {string} tableName - Table name to validate
  * @returns {boolean} True if table is allowed
  */
-const ALLOWED_TABLES = ['hotels', 'services', 'packages', 'winery', 'sale_rates'];
+// sale_rates disabled for now; re-add when tarifas is in use
+const ALLOWED_TABLES = ['hotels', 'services', 'packages', 'winery'];
 
 function isValidTableName(tableName) {
   return ALLOWED_TABLES.includes(tableName.toLowerCase());
@@ -103,7 +104,7 @@ export async function executeSQLQuery(params) {
       isNull: tableName === null, 
       isUndefined: tableName === undefined 
     });
-    throw new Error('Table name is required and must be a string. Please specify one of: hotels, services, packages, winery, or sale_rates.');
+    throw new Error('Table name is required and must be a string. Please specify one of: hotels, services, packages, or winery.');
   }
 
   // Normalize table name to lowercase for comparison
@@ -316,13 +317,13 @@ export async function ensureSQLToolExists(client, agentId) {
     // Create the SQL tool definition
     const sqlTool = ToolUtility.createFunctionTool({
       name: toolName,
-      description: 'Executes SQL SELECT queries on the MySQL database. REQUIRED parameters: tableName (must be "hotels", "services", "packages", "winery", or "sale_rates") and columns (array of column names). Supports JOINs, WHERE clauses, ORDER BY, and LIMIT. Returns query results as JSON. Always filter by Activo = "ACTIVADO" when that column exists.',
+      description: 'Executes SQL SELECT queries on the MySQL database. REQUIRED parameters: tableName (must be "hotels", "services", "packages", or "winery") and columns (array of column names). Supports JOINs, WHERE clauses, ORDER BY, and LIMIT. Returns query results as JSON. Always filter by Activo = "ACTIVADO" when that column exists.',
       parameters: {
         type: 'object',
         properties: {
           tableName: {
             type: 'string',
-            description: 'REQUIRED: Name of the main table for the FROM clause. Must be exactly one of: "hotels", "services", "packages", "winery", or "sale_rates" (lowercase).'
+            description: 'REQUIRED: Name of the main table for the FROM clause. Must be exactly one of: "hotels", "services", "packages", or "winery" (lowercase).'
           },
           columns: {
             type: 'array',

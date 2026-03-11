@@ -15,7 +15,7 @@ import config from '../config/index.js';
  */
 export const BASE_AGENT_PROMPT = `Eres un asistente especializado en responder consultas utilizando exclusivamente la información contenida en los archivos disponibles en tu base de conocimiento (Hoteles, Servicios y Paquetes) o consultando directamente la base de datos MySQL mediante la tool SQL disponible.
 
-Los archivos se proporcionan en formato JSON, cada archivo lleva consigo información específica: hoteles.json lleva toda la información sobre hoteles, paquetes.json lleva combinaciones o packs de varios servicios y hoteles, servicios.json lleva servicios (traslados, cenas, almuerzos, etc.), bodegas.json lleva información de bodegas (cuando exista) y tarifas.json lleva información de tarifas (cuando exista). Estos archivos pueden cambiar su estructura con el tiempo.
+Los archivos se proporcionan en formato JSON, cada archivo lleva consigo información específica: hoteles.json lleva toda la información sobre hoteles, paquetes.json lleva combinaciones o packs de varios servicios y hoteles, servicios.json lleva servicios (traslados, cenas, almuerzos, etc.), bodegas.json lleva información de bodegas (cuando exista). Estos archivos pueden cambiar su estructura con el tiempo.
 
 **DECISIÓN ENTRE TOOL SQL Y ARCHIVOS:**
 
@@ -35,7 +35,7 @@ Tienes dos formas de acceder a la información:
 
 **TABLAS DISPONIBLES EN LA BASE DE DATOS:**
 
-Solo tienes acceso a las siguientes tablas mediante la tool SQL: hotels, services, packages, winery, sale_rates.
+Solo tienes acceso a las siguientes tablas mediante la tool SQL: hotels, services, packages, winery.
 En la tabla "hotels", la columna "Categoria" representa la categoría del hotel (por ejemplo, 5 estrellas), y su valor puede aparecer solo como número (por ejemplo, 5) o como texto tipo "5*". Por eso, siempre que filtres por la categoría, trata ese campo como texto y utiliza comparaciones con LIKE para asegurar que captures todos los formatos posibles.
 
 {{TABLE_STRUCTURES}}
@@ -45,7 +45,7 @@ En la tabla "hotels", la columna "Categoria" representa la categoría del hotel 
 - Usa WHERE clauses con parámetros para filtros de fecha, precio, etc.
 - Puedes hacer JOINs entre las tablas cuando sea necesario
 - Respeta los límites de resultados (máximo 1000 filas)
-- Los nombres de tablas son exactamente: "hotels", "services", "packages", "winery", "sale_rates" (en minúsculas)
+- Los nombres de tablas son exactamente: "hotels", "services", "packages", "winery" (en minúsculas)
 
 **1. Comportamiento general**
 
@@ -82,7 +82,6 @@ Hoteles → usar archivo de Hoteles o tabla "hotels"
 Servicios → usar archivo de Servicios o tabla "services"
 Paquetes → usar archivo de Paquetes o tabla "packages"
 Bodegas → usar archivo de Bodegas o tabla "winery"
-Tarifas → usar archivo de Tarifas o tabla "sale_rates"
 
 Si la consulta involucra más de un tipo, puedes combinar información de múltiples archivos o hacer JOINs entre tablas.
 
@@ -247,26 +246,26 @@ async function getTableStructure(tableName) {
 }
 
 /**
- * Gets structures for all tables (hotels, services, packages, winery, sale_rates)
+ * Gets structures for all tables (hotels, services, packages, winery; sale_rates disabled for now)
  * @returns {Promise<Object>} Object with table structures
  */
 export async function getAllTableStructures() {
   console.log('📊 Obteniendo estructuras de tablas desde MySQL...');
   
-  const [hotelsStructure, servicesStructure, packagesStructure, wineryStructure, saleRatesStructure] = await Promise.all([
+  const [hotelsStructure, servicesStructure, packagesStructure, wineryStructure] = await Promise.all([
     getTableStructure('hotels'),
     getTableStructure('services'),
     getTableStructure('packages'),
-    getTableStructure('winery'),
-    getTableStructure('sale_rates')
+    getTableStructure('winery')
+    // getTableStructure('sale_rates') // DISABLED: Tarifas - re-enable when in use
   ]);
 
   return {
     hotels: hotelsStructure,
     services: servicesStructure,
     packages: packagesStructure,
-    winery: wineryStructure,
-    sale_rates: saleRatesStructure
+    winery: wineryStructure
+    // sale_rates: saleRatesStructure
   };
 }
 
@@ -375,17 +374,17 @@ export function formatTableStructuresForPrompt(structures) {
     formatted += 'Estructura:\n';
     const wineryColumns = structures.winery.map(col => formatColumnForPrompt(col));
     formatted += wineryColumns.join('\n');
-    formatted += '\n\n';
-  }
-  
-  // Format sale_rates table (tarifas)
-  if (structures.sale_rates && structures.sale_rates.length > 0) {
-    formatted += '**5. Tabla: sale_rates** (tarifas)\n';
-    formatted += 'Estructura:\n';
-    const saleRatesColumns = structures.sale_rates.map(col => formatColumnForPrompt(col));
-    formatted += saleRatesColumns.join('\n');
     formatted += '\n';
   }
+  
+  // DISABLED: Tarifas - re-enable when in use (do not add sale_rates to system prompt)
+  // if (structures.sale_rates && structures.sale_rates.length > 0) {
+  //   formatted += '**5. Tabla: sale_rates** (tarifas)\n';
+  //   formatted += 'Estructura:\n';
+  //   const saleRatesColumns = structures.sale_rates.map(col => formatColumnForPrompt(col));
+  //   formatted += saleRatesColumns.join('\n');
+  //   formatted += '\n';
+  // }
   
   return formatted;
 }
