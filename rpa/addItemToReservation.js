@@ -120,7 +120,6 @@ export async function addItemToReservation(page, service, itemText = "Agregar Se
 
     await selectBestMatchFromTable(page, service, itemType);
   }
-
     await page.waitForTimeout(500);
   // Si es un hotel, configurar la cantidad de habitaciones antes de guardar
     await selectAndFillRoomQuantity(page, service, passengers);

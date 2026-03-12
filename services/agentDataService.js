@@ -247,7 +247,7 @@ async function createMissingColumns(tableName, jsonKeys, existingColumns, system
   let created = 0;
   for (const columnName of uniqueMissingColumns) {
     try {
-      const query = `ALTER TABLE ?? ADD COLUMN ?? VARCHAR(255) NULL`;
+      const query = `ALTER TABLE ?? ADD COLUMN ?? TEXT NULL`;
       await pool.query(query, [tableName, columnName]);
       console.log(`   ✅ Columna creada: ${columnName}`);
       created++;

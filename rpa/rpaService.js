@@ -148,6 +148,7 @@ export async function runRpa(reservationData = null, isEdit = false) {
                 await addItemToReservation(page, service, 'Agregar Servicio', reservationData.passengers || []);
                 console.log('✅ Servicio guardado');
             }
+            await page.pause();
         } else if (isEdit && !changes?.services) {
             console.log('⏭️  Saltando servicios (sin cambios)');
         }

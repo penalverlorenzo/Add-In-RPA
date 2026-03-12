@@ -472,7 +472,8 @@ function transformFormDataToExtractionFormat(formData, originalData) {
       basePax: s.basePax || 0,
       servicio: s.servicio || null,
       descripcion: s.descripcion || null,
-      estado: s.estado || null
+      estado: s.estado || null,
+      categoria: s.categoria ?? null
     };
   }) || [];
 
