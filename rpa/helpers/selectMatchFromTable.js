@@ -67,14 +67,16 @@ export async function selectBestMatchFromTable(page, service, itemType) {
                   tipo_habitacion: await getCellText(row, 5),
                   categoria: await getCellText(row, 9)
               };
+              // TODO RPA: use service.Categoria to filter or select the matching row when the search UI supports category (e.g. filter grid by Categoria before matching).
           } else if (itemType === 'servicio') {
-              // Servicio según SelectableOptions.txt: l0=Nombre servicio, l1=Proveedor, l2=Ciudad, l4=Fecha desde, l5=Fecha hasta
+              // Servicio: l0=Servicio, l1=Proveedor, l2=Ciudad, l4=Vig.Desde, l5=Vig.Hasta, l10=Categoria
               rowData = {
                   servicio: await getCellText(row, 0),
                   proveedor: await getCellText(row, 1),
                   ciudad: await getCellText(row, 2),
                   fechaDesde: await getCellText(row, 4),
-                  fechaHasta: await getCellText(row, 5)
+                  fechaHasta: await getCellText(row, 5),
+                  categoria: await getCellText(row, 10)
               };
           } else if (itemType === 'programa') {
               // Programa según SelectableOptions.txt: l0=Código, l2=Proveedor, l5=Fecha desde, l6=Fecha hasta, l9=Categoría
@@ -261,6 +263,16 @@ function calculateMatchScore(rowData, serviceData, itemType) {
           const rowProv = rowData.proveedor.toLowerCase();
           if (serviceProv === rowProv || rowProv.includes(serviceProv)) {
               score += 20;
+          }
+      }
+
+      // Categoría (Regular/Privado) - when grid has category column
+      if (serviceData.categoria && rowData.categoria) {
+          maxScore += 10;
+          const serviceCat = String(serviceData.categoria).toLowerCase();
+          const rowCat = rowData.categoria.toLowerCase();
+          if (rowCat.includes(serviceCat) || serviceCat.includes(rowCat)) {
+              score += 10;
           }
       }
   } else if (itemType === 'programa') {

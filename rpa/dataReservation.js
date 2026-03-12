@@ -26,9 +26,10 @@ export async function dataReservation(page, reservationData = null, originData =
                 direccion: 'Test Address 123'
             }
         ],
+        currency: 'Peso',
         reservationType: 'AGENCIAS [COAG]',
         status: 'PENDIENTE DE CONFIRMACION [PC]',
-        client: 'DESPEGAR - TEST - 1',
+        client: 'NO COBRAR',
         travelDate: '12/01/2026', //Debe ser MM/DD/AAAA
         seller: 'TEST TEST',
     };
@@ -106,6 +107,22 @@ export async function dataReservation(page, reservationData = null, originData =
         await takeScreenshot(page, '12-dataReservation-05-client');
     } else {
         console.log('⏭️  Saltando client (sin cambios)');
+    }
+
+    // Moneda (solo en creación; en edición no se puede cambiar en iTraffic)
+    // Select2: div.field.Moneda .select2-container or [id^="s2id_"][id$="_Moneda"]
+    if (!isEdit && data.currency) {
+        const monedaSelector = '[id^="s2id_"][id*="ReservaDialog"][id$="_Moneda"]';
+        const currencyToOption = (c) => {
+            if (!c || c === 'ARS') return 'PESOS';
+            if (c === 'Dolar') return 'DOLARES';
+            if (c === 'Peso') return 'PESOS';
+            return String(c).toUpperCase();
+        };
+        await select2BySearch(page, monedaSelector, currencyToOption(data.currency));
+        takeScreenshot(page, '12b-dataReservation-05b-currency');
+    } else if (isEdit) {
+        console.log('⏭️  Saltando currency (solo se setea en creación)');
     }
     
     await takeScreenshot(page, '13-dataReservation-06-details');
