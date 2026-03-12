@@ -33,10 +33,8 @@ OPCIONES DISPONIBLES EN EL SISTEMA (debes seleccionar EXACTAMENTE uno de estos v
 CAMPOS A EXTRAER:
 - codigo: Código interno o número de expediente
 - reservationType: Tipo de reserva. Si hay lista de opciones, elige una. Si no, null.
-- status: Estado de la reserva según INTENCIÓN del email:
-  * "CONFIRMACION [FI]" si AFIRMA/CONFIRMA: "confirmamos la reserva", "reserva confirmada", vouchers/códigos
-  * "CANCELADO [CX]" si CANCELA: "cancelar la reserva", "reserva cancelada"
-  * "PENDIENTE DE CONFIRMACION [PC]" si PREGUNTA/SOLICITA: "¿puedes confirmar?", "solicito cotización", "confirmar disponibilidad"
+- status: Estado de la reserva. EXACTAMENTE uno de estos valores (incluir texto y código entre corchetes):
+  CONFIRMACION [FI], PEDIDO DE CANCELACION [CL], CANCELADO [CX], CANCELACION AUTORIZADA [CA], PENDIENTE DE CONFIRMACION [PC], RVA MIGRADA [MI], SVS CFM [SC]. Elegir según intención del email (confirmación, cancelación, pendiente, etc.).
 - estadoDeuda: Estado de deuda (Pagada, Pendiente, Parcial)
 - reservationDate, travelDate, tourEndDate, dueDate: Fechas en YYYY-MM-DD
 - seller: Vendedor o agente. Busca en firma del email. OBLIGATORIO si hay lista de opciones.
