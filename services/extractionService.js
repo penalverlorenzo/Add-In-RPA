@@ -868,7 +868,12 @@ function validateDetailType(type) {
 }
 
 /**
- * Helper: Validate detail estado (status code)
+ * Helper: Validate detail estado (status code for services/items).
+ * Valid codes: LI=Liberado, OK=Confirmado, WL=Lista de espera, RM=Favor modificar, NN=Favor reservar,
+ * RQ=Requerido, LK=RVA OK s/liquidar, RE=Rechazado, MQ=Modificación requerida, CL=Favor cancelar,
+ * CA=Cancelación solicitada, CX=Cancelado, EM=Emitido, EN=Entregado, AR=Favor reservar, HK=OK cupo,
+ * PE=Penalidad, NO=Negado, NC=No conformidad, PF=Pendiente fc. comisión, AO=Requerir on line,
+ * CO=Cancelar online, GX=Gastos cancelación online, EO=En tráfico, KL=Requerido cupo, MI=Reserva migrada, VO=Void.
  */
 function validateDetailEstado(estado) {
     const validEstados = [
