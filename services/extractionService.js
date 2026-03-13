@@ -550,7 +550,8 @@ function validateExtractionResult(data) {
             servicio: sanitizeString(detailData.servicio),
             descripcion: sanitizeString(detailData.descripcion),
             estado: validateDetailEstado(detailData.estado),
-            prioridad: validateDetailPrioridad(detailData.prioridad)
+            prioridad: validateDetailPrioridad(detailData.prioridad),
+            categoria: validateDetailCategoria(detailData.categoria)
         };
     };
     
@@ -898,6 +899,19 @@ function validateDetailEstado(estado) {
     if (!estado || typeof estado !== 'string') return null;
     const normalized = estado.trim().toUpperCase();
     return validEstados.includes(normalized) ? normalized : null;
+}
+
+/**
+ * Helper: Validate detail categoria (category for services). Valid values: "Regular", "Privado".
+ */
+function validateDetailCategoria(categoria) {
+    if (categoria == null || typeof categoria !== 'string') return null;
+    const normalized = categoria.trim();
+    if (!normalized) return null;
+    const lower = normalized.toLowerCase();
+    if (lower === 'regular') return 'Regular';
+    if (lower === 'privado') return 'Privado';
+    return null;
 }
 
 /**
