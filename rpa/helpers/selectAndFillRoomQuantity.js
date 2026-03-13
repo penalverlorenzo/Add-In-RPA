@@ -1,19 +1,21 @@
 /**
- * Selecciona y configura la cantidad de habitaciones basándose en el tipo de habitación y pasajeros
+ * Selecciona y configura la cantidad de habitaciones basándose en el tipo de habitación y pasajeros.
+ * When service.basePax is present and does not match the total passenger count (or passengers is empty),
+ * uses service.basePax and treats all as adults.
  * @param {import('playwright').Page} page - Página de Playwright
- * @param {Object} service - Datos del servicio/hotel (debe tener tipo_habitacion si es hotel)
+ * @param {Object} service - Datos del servicio/hotel (debe tener tipo_habitacion si es hotel; basePax opcional)
  * @param {Array} passengers - Array de pasajeros con paxType (ADU, CHD, INF)
  */
 export async function selectAndFillRoomQuantity(page, service, passengers = []) {
   console.log('🏨 Configurando cantidad de habitaciones...');
-  
+
   // Contar pasajeros por tipo
   const passengerCounts = {
     ADU: 0,
     CHD: 0,
     INF: 0
   };
-  
+
   if (passengers && passengers.length > 0) {
     passengers.forEach(pax => {
       const paxType = (pax.paxType || pax.passengerType || '').toUpperCase();
@@ -24,7 +26,16 @@ export async function selectAndFillRoomQuantity(page, service, passengers = []) 
       }
     });
   }
-  
+
+  const totalFromPassengers = passengerCounts.ADU + passengerCounts.CHD + passengerCounts.INF;
+  const basePax = service.basePax != null ? Number(service.basePax) : 0;
+  if (basePax > 0 && totalFromPassengers !== basePax) {
+    passengerCounts.ADU = basePax;
+    passengerCounts.CHD = 0;
+    passengerCounts.INF = 0;
+    console.log(`📊 Usando basePax=${basePax} (pasajeros total=${totalFromPassengers} no coincide o vacío); tratando todos como adultos`);
+  }
+
   console.log(`📊 Pasajeros: ADU=${passengerCounts.ADU}, CHD=${passengerCounts.CHD}, INF=${passengerCounts.INF}`);
   
   // Obtener tipo de habitación del hotel

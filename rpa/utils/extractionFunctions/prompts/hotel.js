@@ -14,6 +14,7 @@ Para HOTEL:
 - Categoria: Categoría de habitación (ej: "Habitacion Clasica", "Suite", "Deluxe")
 - in: Fecha check-in (YYYY-MM-DD)
 - out: Fecha check-out (YYYY-MM-DD)
+- prioridad: Código de prioridad. Valores válidos (exactamente uno): 1=Único, NA=NACIONAL, EX=EXTRANJERO, DE=DESPEGAR, VD=VENTA DIRECTA, NE=NACIONAL EXTRANJERO, AZUL=AZUL VIAGENS, AZ=AZUL VIAGENS, CV=CVC. Si no se menciona, null. Si la prioridad aparece una sola vez en el email (para hotel o servicios), usar esa misma prioridad para el hotel.
 
 REGLA CRÍTICA: Solo devuelve el objeto "hotel" si puedes extraer nombre_hotel. Si no hay nombre de hotel identificable, devuelve "hotel": null.
 
@@ -26,7 +27,8 @@ Responde ÚNICAMENTE con JSON válido:
     "Ciudad": "string | null",
     "Categoria": "string | null",
     "in": "YYYY-MM-DD | null",
-    "out": "YYYY-MM-DD | null"
+    "out": "YYYY-MM-DD | null",
+    "prioridad": "string | null"
   }
 }
 
