@@ -549,7 +549,8 @@ function validateExtractionResult(data) {
             basePax: typeof detailData.basePax === 'number' ? detailData.basePax : 0,
             servicio: sanitizeString(detailData.servicio),
             descripcion: sanitizeString(detailData.descripcion),
-            estado: validateDetailEstado(detailData.estado)
+            estado: validateDetailEstado(detailData.estado),
+            prioridad: validateDetailPrioridad(detailData.prioridad)
         };
     };
     
@@ -573,7 +574,8 @@ function validateExtractionResult(data) {
             Ciudad: sanitizeString(data.hotel.Ciudad),
             Categoria: sanitizeString(data.hotel.Categoria),
             in: validateDate(data.hotel.in),
-            out: validateDate(data.hotel.out)
+            out: validateDate(data.hotel.out),
+            prioridad: validateDetailPrioridad(data.hotel.prioridad)
         };
         
         // Si no hay nombre_hotel, establecer hotel como null (no devolver hotel sin nombre)
@@ -615,6 +617,18 @@ function validateExtractionResult(data) {
     }
     
     validated.services = servicesArray;
+
+    // Single-priority normalization: if exactly one distinct prioridad across services + hotel, apply it to all
+    const prioridadValues = [];
+    validated.services.forEach(s => { if (s.prioridad) prioridadValues.push(s.prioridad); });
+    if (validated.hotel && validated.hotel.prioridad) prioridadValues.push(validated.hotel.prioridad);
+    const uniquePrioridades = [...new Set(prioridadValues)];
+    if (uniquePrioridades.length === 1) {
+        const singlePrioridad = uniquePrioridades[0];
+        validated.services.forEach(s => { s.prioridad = singlePrioridad; });
+        if (validated.hotel) validated.hotel.prioridad = singlePrioridad;
+    }
+
     console.log('validated.services', validated.services);
     // Date logic: Default reservationDate to today, travelDate to checkIn, tourEndDate to checkOut
     // This must be after hotel validation so checkIn/checkOut are available
@@ -885,6 +899,21 @@ function validateDetailEstado(estado) {
     const normalized = estado.trim().toUpperCase();
     return validEstados.includes(normalized) ? normalized : null;
 }
+
+/**
+ * Helper: Validate detail prioridad (priority code for services/hotel).
+ * Valid codes: 1=Único, NA=NACIONAL, EX=EXTRANJERO, DE=DESPEGAR, VD=VENTA DIRECTA,
+ * NE=NACIONAL EXTRANJERO, AZUL=AZUL VIAGENS, AZ=AZUL VIAGENS, CV=CVC.
+ */
+function validateDetailPrioridad(prioridad) {
+    const validPrioridades = ['1', 'NA', 'EX', 'DE', 'VD', 'NE', 'AZUL', 'AZ', 'CV'];
+    if (prioridad == null || typeof prioridad !== 'string') return null;
+    const trimmed = prioridad.trim();
+    if (trimmed === '1') return '1';
+    const normalized = trimmed.toUpperCase();
+    return validPrioridades.includes(normalized) ? normalized : null;
+}
+
 /**
  * Helper: Normalize document type to match master data codes
  */

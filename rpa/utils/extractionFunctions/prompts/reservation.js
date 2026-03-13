@@ -40,7 +40,7 @@ CAMPOS A EXTRAER:
 - seller: Vendedor o agente. Busca en firma del email. OBLIGATORIO si hay lista de opciones.
 - client: Cliente a facturar (Agencia/Operador que envía el email). OBLIGATORIO si hay lista de opciones.
 - contact: Nombre de la persona de contacto en la agencia
-- currency: Moneda (USD, ARS, EUR, BRL, etc.)
+- currency: Moneda (USD = Dolar, ARS = Peso) Devolver Peso o Dolar según corresponda.
 - exchangeRate, commission: Números
 - netAmount, grossAmount: Montos (números)
 - tripName: Nombre del viaje o referencia (puedes usar el asunto del correo)

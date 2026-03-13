@@ -90,6 +90,8 @@ export async function addItemToReservation(page, service, itemText = "Agregar Se
         await selectQuickFilterSelect2(page, "ServicioCodigoPrestador", service.proveedor);
       if (service.destino)
         await selectQuickFilterSelect2(page, "ServicioCiudad", service.destino);
+      if (service.prioridad)
+        await selectQuickFilterSelect2(page, "PsCodigoListadePrecio", service.prioridad);
       if (service.in)
         await fillQuickFilterDateRange(page, service.in, service.out);
     }
@@ -100,6 +102,8 @@ export async function addItemToReservation(page, service, itemText = "Agregar Se
         await fillQuickFilterInput(page, "Hotel", hotel, false);
       if (service.Ciudad)
         await selectQuickFilterSelect2(page, "Hotelciudad", service.Ciudad);
+      if (service.prioridad)
+        await selectQuickFilterSelect2(page, "phCodigoListadePrecio", service.prioridad);
       if (service.in)
         await fillQuickFilterDateRange(page, service.in, service.out);
     }
