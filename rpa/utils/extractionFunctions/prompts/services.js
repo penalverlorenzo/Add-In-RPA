@@ -17,6 +17,7 @@ Para cada ítem en el array "services":
 - estado: CÓDIGO de estado del servicio (exactamente uno de estos valores):
   LI=Liberado, OK=Confirmado, WL=Lista de espera, RM=Favor modificar, NN=Favor reservar, RQ=Requerido, LK=RVA OK s/liquidar, RE=Rechazado, MQ=Modificación requerida, CL=Favor cancelar, CA=Cancelación solicitada, CX=Cancelado, EM=Emitido, EN=Entregado, AR=Favor reservar, HK=OK cupo, PE=Penalidad, NO=Negado, NC=No conformidad, PF=Pendiente de fc. comisión, AO=Requerir on line, CO=Cancelar online, GX=Gastos cancelación online, EO=En tráfico, KL=Requerido cupo, MI=Reserva migrada, VO=Void. Si no seguro, usar "RQ", "AF" tiene prioridad sobre "NN". Si solo se aclara el estado de un solo servicio, usar el código disponible para todos los servicios.
 - prioridad: Código de prioridad. Valores válidos (exactamente uno): 1=Único, NA=NACIONAL, EX=EXTRANJERO, DE=DESPEGAR, VD=VENTA DIRECTA, NE=NACIONAL EXTRANJERO, AZUL=AZUL VIAGENS, AZ=AZUL VIAGENS, CV=CVC. Si no se menciona, null. Si la prioridad aparece una sola vez en el email, aplicar esa misma prioridad a todos los servicios.
+- categoria: Categoría del servicio. Valores válidos (exactamente uno): "Regular", "Privado". Si no se menciona, null. Si la categoría aparece una sola vez en el email, aplicar esa misma categoría a todos los servicios.
 
 REGLAS:
 - Extrae TODOS los servicios/eventuales/programas mencionados (incluidos en tablas o imágenes).
@@ -34,7 +35,8 @@ REGLAS:
       "servicio": "string | null",
       "descripcion": "string | null",
       "estado": "string | null",
-      "prioridad": "string | null"
+      "prioridad": "string | null",
+      "categoria": "string | null"
     }
   ]
 }
