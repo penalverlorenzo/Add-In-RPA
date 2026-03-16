@@ -47,8 +47,8 @@ async function getMySQLPool() {
  * @param {string} tableName - Table name to validate
  * @returns {boolean} True if table is allowed
  */
-// sale_rates disabled for now; re-add when tarifas is in use
-const ALLOWED_TABLES = ['hotels', 'services', 'packages', 'winery'];
+// products_information disabled for now; re-add when products_information is in use
+const ALLOWED_TABLES = ['hotels', 'services', 'packages', 'winery', 'products_information'];
 
 function isValidTableName(tableName) {
   return ALLOWED_TABLES.includes(tableName.toLowerCase());

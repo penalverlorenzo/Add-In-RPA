@@ -796,45 +796,45 @@ export async function saveWineriesToDB(bodegas) {
 }
 
 /**
- * Saves sale rates (tarifas) to MySQL database
- * @param {Array} tarifas - Array of sale rate objects
+ * Saves products information (products_information) to MySQL database
+ * @param {Array} products_information - Array of products information objects
  * @returns {Promise<Object>} Statistics: { inserted, updated, errors, total }
  */
-export async function saveSaleRatesToDB(tarifas) {
-  if (!tarifas || !Array.isArray(tarifas) || tarifas.length === 0) {
+export async function saveProductsInformationToDB(products_information) {
+  if (!products_information || !Array.isArray(products_information) || products_information.length === 0) {
     return { inserted: 0, updated: 0, errors: 0, total: 0 };
   }
 
   const pool = getMySQLPool();
   if (!pool) {
     console.error('❌ MySQL connection pool not available');
-    return { inserted: 0, updated: 0, errors: tarifas.length, total: tarifas.length };
+    return { inserted: 0, updated: 0, errors: products_information.length, total: products_information.length };
   }
 
   // Get keys from first record (all records have the same structure)
-  const firstRecord = tarifas[0];
+  const firstRecord = products_information[0];
   const jsonKeys = Object.keys(firstRecord);
 
-  // Get existing columns from sale_rates table
-  let existingColumns = await getTableColumns('sale_rates');
+  // Get existing columns from products_information table
+  let existingColumns = await getTableColumns('products_information');
 
   // Create missing columns
   const systemColumns = ['id', 'TarifaID'];
-  const columnsCreated = await createMissingColumns('sale_rates', jsonKeys, existingColumns, systemColumns);
+  const columnsCreated = await createMissingColumns('products_information', jsonKeys, existingColumns, systemColumns);
 
   if (columnsCreated > 0) {
-    console.log(`✅ ${columnsCreated} columnas nuevas creadas en tabla sale_rates`);
+    console.log(`✅ ${columnsCreated} columnas nuevas creadas en tabla products_information`);
     // Refresh columns list to include newly created ones
-    existingColumns = await getTableColumns('sale_rates');
+    existingColumns = await getTableColumns('products_information');
   }
 
   // Remove columns that are no longer in JSON
-  const columnsRemoved = await removeMissingColumns('sale_rates', jsonKeys, existingColumns, systemColumns);
+  const columnsRemoved = await removeMissingColumns('products_information', jsonKeys, existingColumns, systemColumns);
 
   if (columnsRemoved > 0) {
-    console.log(`✅ ${columnsRemoved} columnas eliminadas de tabla sale_rates`);
+    console.log(`✅ ${columnsRemoved} columnas eliminadas de tabla products_information`);
     // Refresh columns list after removal
-    existingColumns = await getTableColumns('sale_rates');
+    existingColumns = await getTableColumns('products_information');
   }
 
   // Filter columns: exclude 'id' (auto-generated), include all others
@@ -857,26 +857,26 @@ export async function saveSaleRatesToDB(tarifas) {
   let updated = 0;
   let errors = 0;
 
-  console.log(`💾 Guardando ${tarifas.length} tarifas en la base de datos...`);
+  console.log(`💾 Guardando ${products_information.length} products_information en la base de datos...`);
 
-  for (const tarifa of tarifas) {
+  for (const product_information of products_information) {
     try {
       // Validate required field
-      if (!tarifa.TarifaID) {
-        console.warn(`⚠️ Tarifa sin TarifaID, saltando registro:`, tarifa);
+      if (!product_information.InfoID) {
+        console.warn(`⚠️ Tarifa sin TarifaID, saltando registro:`, product_information);
         errors++;
         continue;
       }
 
       // Map JSON to database columns dynamically
-      const mappedData = mapJsonToDbColumns(tarifa, dbColumns);
+      const mappedData = mapJsonToDbColumns(product_information, dbColumns);
 
-      // Ensure TarifaID is set (required)
-      mappedData.TarifaID = tarifa.TarifaID;
+      // Ensure InfoID is set (required)
+      mappedData.InfoID = product_information.InfoID;
 
       // Build query parameters
       const queryParams = [
-        'sale_rates', // table name
+        'products_information', // table name
         ...dbColumns, // column names for INSERT
         ...dbColumns.map(col => mappedData[col] !== undefined ? mappedData[col] : null), // values
         ...updateColumns.flatMap(col => [col, col]) // column names for UPDATE (twice for VALUES())
@@ -891,13 +891,13 @@ export async function saveSaleRatesToDB(tarifas) {
         updated++;
       }
     } catch (error) {
-      console.error(`❌ Error guardando tarifa ${tarifa.TarifaID || 'sin ID'}:`, error.message);
+      console.error(`❌ Error guardando products_information ${product_information.InfoID || 'sin ID'}:`, error.message);
       errors++;
     }
   }
 
-  console.log(`✅ Tarifas guardadas: ${inserted} insertadas, ${updated} actualizadas, ${errors} errores`);
-  return { inserted, updated, errors, total: tarifas.length };
+  console.log(`✅ products_information guardadas: ${inserted} insertadas, ${updated} actualizadas, ${errors} errores`);
+  return { inserted, updated, errors, total: products_information.length };
 }
 
 /**
@@ -1006,11 +1006,11 @@ export async function saveDescriptionsToDB(descripciones) {
  * @param {Array} servicios - Array of service objects
  * @param {Array} paquetes - Array of package objects
  * @param {Array} bodegas - Array of winery objects (optional)
- * @param {Array} tarifas - Array of sale rate objects (optional)
+ * @param {Array} products_information - Array of products information objects (optional)
  * @param {Array} descripciones - Array of description objects (optional)
  * @returns {Promise<Object>} Summary of all operations
  */
-export async function saveAllDataToDB(hoteles, servicios, paquetes, bodegas, tarifas, descripciones) {
+export async function saveAllDataToDB(hoteles, servicios, paquetes, bodegas, products_information, descripciones) {
   console.log('💾 Iniciando guardado de datos en base de datos MySQL...');
 
   const results = {
@@ -1018,7 +1018,7 @@ export async function saveAllDataToDB(hoteles, servicios, paquetes, bodegas, tar
     services: { inserted: 0, updated: 0, errors: 0, total: 0 },
     packages: { inserted: 0, updated: 0, errors: 0, total: 0 },
     wineries: { inserted: 0, updated: 0, errors: 0, total: 0 },
-    saleRates: { inserted: 0, updated: 0, errors: 0, total: 0 },
+    products_information: { inserted: 0, updated: 0, errors: 0, total: 0 },
     descriptions: { inserted: 0, updated: 0, errors: 0, total: 0 }
   };
 
@@ -1062,15 +1062,15 @@ export async function saveAllDataToDB(hoteles, servicios, paquetes, bodegas, tar
     results.wineries.errors = bodegas?.length || 0;
   }
 
-  // DISABLED: Tarifas - re-enable when in use (saveSaleRatesToDB)
-  // try {
-  //   if (tarifas && tarifas.length > 0) {
-  //     results.saleRates = await saveSaleRatesToDB(tarifas);
-  //   }
-  // } catch (error) {
-  //   console.error('❌ Error guardando tarifas:', error.message);
-  //   results.saleRates.errors = tarifas?.length || 0;
-  // }
+  // DISABLED: products_information - re-enable when in use (saveProductsInformationToDB)
+   try {
+     if (products_information && products_information.length > 0) {
+       results.products_information = await saveProductsInformationToDB(products_information);
+     }
+   } catch (error) {
+     console.error('❌ Error guardando products_information:', error.message);
+     results.saleRates.errors = products_information?.length || 0;
+   }
 
   try {
     // Save descriptions
@@ -1082,9 +1082,9 @@ export async function saveAllDataToDB(hoteles, servicios, paquetes, bodegas, tar
     results.descriptions.errors = descripciones?.length || 0;
   }
 
-  const totalInserted = results.hotels.inserted + results.services.inserted + results.packages.inserted + results.wineries.inserted + results.descriptions.inserted; // + results.saleRates.inserted when tarifas enabled
-  const totalUpdated = results.hotels.updated + results.services.updated + results.packages.updated + results.wineries.updated + results.descriptions.updated; // + results.saleRates.updated
-  const totalErrors = results.hotels.errors + results.services.errors + results.packages.errors + results.wineries.errors + results.descriptions.errors; // + results.saleRates.errors
+  const totalInserted = results.hotels.inserted + results.services.inserted + results.packages.inserted + results.wineries.inserted + results.descriptions.inserted + results.products_information.inserted;
+  const totalUpdated = results.hotels.updated + results.services.updated + results.packages.updated + results.wineries.updated + results.descriptions.updated + results.products_information.updated;
+  const totalErrors = results.hotels.errors + results.services.errors + results.packages.errors + results.wineries.errors + results.descriptions.errors + results.products_information.errors;
 
   console.log(`✅ Guardado completado: ${totalInserted} insertados, ${totalUpdated} actualizados, ${totalErrors} errores`);
 
@@ -1093,13 +1093,13 @@ export async function saveAllDataToDB(hoteles, servicios, paquetes, bodegas, tar
     services: results.services,
     packages: results.packages,
     wineries: results.wineries,
-    saleRates: results.saleRates,
+    products_information: results.products_information,
     descriptions: results.descriptions,
     summary: {
       totalInserted,
       totalUpdated,
       totalErrors,
-      totalProcessed: results.hotels.total + results.services.total + results.packages.total + results.wineries.total + results.descriptions.total // + results.saleRates.total when tarifas enabled
+      totalProcessed: results.hotels.total + results.services.total + results.packages.total + results.wineries.total + results.descriptions.total + results.products_information.total
     }
   };
 }
