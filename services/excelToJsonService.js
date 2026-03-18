@@ -25,7 +25,7 @@ export async function convertExcelToJson(excelBuffer) {
       Servicios: [],
       Paquetes: [],
       Bodegas: [],
-      Informacionproductos: [],
+      ProductsInformation: [],
       Descripciones: []
     };
 
@@ -62,7 +62,18 @@ export async function convertExcelToJson(excelBuffer) {
         result.Descripciones = jsonData;
         console.log(`✅ Procesada hoja "${sheetName}": ${jsonData.length} fila(s) de descripciones`);
       } else {
-        console.warn(`⚠️ Hoja "${sheetName}" no reconocida, se omitirá`);
+        // Fallback: sheet name may have invisible/weird chars (Excel); match by alphanumeric core
+        const keyOnly = normalizedSheetName.toLowerCase().replace(/[^a-z0-9_]/g, '');
+        if (
+          keyOnly === 'informacionproductos' ||
+          keyOnly === 'productsinformation' ||
+          keyOnly === 'products_information'
+        ) {
+          result.ProductsInformation = jsonData;
+          console.log(`✅ Procesada hoja "${sheetName}": ${jsonData.length} Information Products`);
+        } else {
+          console.warn(`⚠️ Hoja "${sheetName}" no reconocida, se omitirá`);
+        }
       }
     }
 

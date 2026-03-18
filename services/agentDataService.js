@@ -148,21 +148,33 @@ function convertToNumber(value) {
 
 /**
  * Normalizes column name from JSON to database format
- * Handles camelCase, PascalCase, and keeps original if already in DB format
+ * - Removes diacritics (accents): á->a, é->e, etc.
+ * - Replaces spaces and hyphens with underscore
+ * - Handles camelCase, PascalCase, and keeps original if already in DB format
  * @param {string} jsonKey - Key from JSON object
  * @returns {string} Normalized column name
  */
 function normalizeColumnName(jsonKey) {
   if (!jsonKey || typeof jsonKey !== 'string') return jsonKey;
-  
-  // If already in PascalCase format (like HotelID, NombreHotel), return as is
-  if (/^[A-Z][a-zA-Z0-9]*$/.test(jsonKey)) {
-    return jsonKey;
+
+  let normalized = jsonKey
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // remove combining diacritics (accents)
+    .replace(/\s+/g, '_') // spaces to underscore
+    .replace(/-+/g, '_') // hyphens to underscore
+    .replace(/_+/g, '_') // collapse multiple underscores
+    .replace(/^_|_$/g, ''); // trim leading/trailing underscores
+
+  if (!normalized) return jsonKey;
+
+  // If already in PascalCase format (like HotelID, NombreHotel, Precio_Unitario), return as is
+  if (/^[A-Z][a-zA-Z0-9_]*$/.test(normalized)) {
+    return normalized;
   }
-  
-  // Convert camelCase to PascalCase
-  // e.g., "nombreHotel" -> "NombreHotel", "cantidadMinima" -> "CantidadMinima"
-  return jsonKey.charAt(0).toUpperCase() + jsonKey.slice(1);
+
+  // Convert camelCase to PascalCase (first letter upper)
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 }
 
 /**
