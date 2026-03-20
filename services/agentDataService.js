@@ -1,6 +1,6 @@
 /**
  * Agent Data Service
- * Handles saving Hotels, Services, Packages, Wineries, Sale Rates, and Descriptions data to MySQL database
+ * Handles saving Hotels, Services, Packages, Wineries, Providers, Sale Rates, and Descriptions data to MySQL database
  * Uses INSERT ... ON DUPLICATE KEY UPDATE to handle duplicates
  */
 
@@ -808,6 +808,98 @@ export async function saveWineriesToDB(bodegas) {
 }
 
 /**
+ * Saves providers (proveedores) to MySQL database. Table `providers` is keyed by CodProveedor (unique).
+ * @param {Array} proveedores - Array of provider objects (Proveedor, CodProveedor)
+ * @returns {Promise<Object>} Statistics: { inserted, updated, errors, total }
+ */
+export async function saveProvidersToDB(proveedores) {
+  if (!proveedores || !Array.isArray(proveedores) || proveedores.length === 0) {
+    return { inserted: 0, updated: 0, errors: 0, total: 0 };
+  }
+
+  const pool = getMySQLPool();
+  if (!pool) {
+    console.error('❌ MySQL connection pool not available');
+    return { inserted: 0, updated: 0, errors: proveedores.length, total: proveedores.length };
+  }
+
+  const firstRecord = proveedores[0];
+  const jsonKeys = Object.keys(firstRecord);
+
+  let existingColumns = await getTableColumns('providers');
+
+  const systemColumns = ['id', 'CodProveedor'];
+  const columnsCreated = await createMissingColumns('providers', jsonKeys, existingColumns, systemColumns);
+
+  if (columnsCreated > 0) {
+    console.log(`✅ ${columnsCreated} columnas nuevas creadas en tabla providers`);
+    existingColumns = await getTableColumns('providers');
+  }
+
+  const columnsRemoved = await removeMissingColumns('providers', jsonKeys, existingColumns, systemColumns);
+
+  if (columnsRemoved > 0) {
+    console.log(`✅ ${columnsRemoved} columnas eliminadas de tabla providers`);
+    existingColumns = await getTableColumns('providers');
+  }
+
+  const dbColumns = existingColumns.filter(col => col !== 'id');
+
+  const updateColumns = dbColumns.filter(col => col !== 'CodProveedor');
+  const columnsPlaceholders = dbColumns.map(() => '??').join(', ');
+  const valuesPlaceholders = dbColumns.map(() => '?').join(', ');
+  const updateClause = updateColumns.map(col => `?? = VALUES(??)`).join(', ');
+
+  const query = `
+    INSERT INTO ?? (${columnsPlaceholders})
+    VALUES (${valuesPlaceholders})
+    ON DUPLICATE KEY UPDATE
+      ${updateClause}
+  `;
+
+  let inserted = 0;
+  let updated = 0;
+  let errors = 0;
+
+  console.log(`💾 Guardando ${proveedores.length} proveedores en la base de datos...`);
+
+  for (const row of proveedores) {
+    try {
+      const codRaw = row.CodProveedor ?? row.codProveedor;
+      if (codRaw === null || codRaw === undefined || String(codRaw).trim() === '') {
+        console.warn(`⚠️ Proveedor sin CodProveedor, saltando registro:`, row);
+        errors++;
+        continue;
+      }
+
+      const mappedData = mapJsonToDbColumns(row, dbColumns);
+      mappedData.CodProveedor = String(codRaw).trim();
+
+      const queryParams = [
+        'providers',
+        ...dbColumns,
+        ...dbColumns.map(col => mappedData[col] !== undefined ? mappedData[col] : null),
+        ...updateColumns.flatMap(col => [col, col])
+      ];
+
+      const [result] = await pool.query(query, queryParams);
+
+      if (result.affectedRows === 1) {
+        inserted++;
+      } else if (result.affectedRows === 2) {
+        updated++;
+      }
+    } catch (error) {
+      console.error(`❌ Error guardando proveedor ${row.CodProveedor || 'sin código'}:`, error.message);
+      errors++;
+    }
+  }
+
+  console.log(`✅ Proveedores guardados: ${inserted} insertados, ${updated} actualizados, ${errors} errores`);
+  return { inserted, updated, errors, total: proveedores.length };
+}
+
+/**
  * Saves products information (products_information) to MySQL database
  * @param {Array} products_information - Array of products information objects
  * @returns {Promise<Object>} Statistics: { inserted, updated, errors, total }
@@ -1020,9 +1112,10 @@ export async function saveDescriptionsToDB(descripciones) {
  * @param {Array} bodegas - Array of winery objects (optional)
  * @param {Array} products_information - Array of products information objects (optional)
  * @param {Array} descripciones - Array of description objects (optional)
+ * @param {Array} proveedores - Array of provider objects (optional); persisted only to DB, not to vector store
  * @returns {Promise<Object>} Summary of all operations
  */
-export async function saveAllDataToDB(hoteles, servicios, paquetes, bodegas, products_information, descripciones) {
+export async function saveAllDataToDB(hoteles, servicios, paquetes, bodegas, products_information, descripciones, proveedores) {
   console.log('💾 Iniciando guardado de datos en base de datos MySQL...');
 
   const results = {
@@ -1031,7 +1124,8 @@ export async function saveAllDataToDB(hoteles, servicios, paquetes, bodegas, pro
     packages: { inserted: 0, updated: 0, errors: 0, total: 0 },
     wineries: { inserted: 0, updated: 0, errors: 0, total: 0 },
     products_information: { inserted: 0, updated: 0, errors: 0, total: 0 },
-    descriptions: { inserted: 0, updated: 0, errors: 0, total: 0 }
+    descriptions: { inserted: 0, updated: 0, errors: 0, total: 0 },
+    providers: { inserted: 0, updated: 0, errors: 0, total: 0 }
   };
 
   try {
@@ -1074,6 +1168,15 @@ export async function saveAllDataToDB(hoteles, servicios, paquetes, bodegas, pro
     results.wineries.errors = bodegas?.length || 0;
   }
 
+  try {
+    if (proveedores && proveedores.length > 0) {
+      results.providers = await saveProvidersToDB(proveedores);
+    }
+  } catch (error) {
+    console.error('❌ Error guardando proveedores:', error.message);
+    results.providers.errors = proveedores?.length || 0;
+  }
+
   // DISABLED: products_information - re-enable when in use (saveProductsInformationToDB)
    try {
      if (products_information && products_information.length > 0) {
@@ -1081,7 +1184,7 @@ export async function saveAllDataToDB(hoteles, servicios, paquetes, bodegas, pro
      }
    } catch (error) {
      console.error('❌ Error guardando products_information:', error.message);
-     results.saleRates.errors = products_information?.length || 0;
+     results.products_information.errors = products_information?.length || 0;
    }
 
   try {
@@ -1094,9 +1197,9 @@ export async function saveAllDataToDB(hoteles, servicios, paquetes, bodegas, pro
     results.descriptions.errors = descripciones?.length || 0;
   }
 
-  const totalInserted = results.hotels.inserted + results.services.inserted + results.packages.inserted + results.wineries.inserted + results.descriptions.inserted + results.products_information.inserted;
-  const totalUpdated = results.hotels.updated + results.services.updated + results.packages.updated + results.wineries.updated + results.descriptions.updated + results.products_information.updated;
-  const totalErrors = results.hotels.errors + results.services.errors + results.packages.errors + results.wineries.errors + results.descriptions.errors + results.products_information.errors;
+  const totalInserted = results.hotels.inserted + results.services.inserted + results.packages.inserted + results.wineries.inserted + results.descriptions.inserted + results.products_information.inserted + results.providers.inserted;
+  const totalUpdated = results.hotels.updated + results.services.updated + results.packages.updated + results.wineries.updated + results.descriptions.updated + results.products_information.updated + results.providers.updated;
+  const totalErrors = results.hotels.errors + results.services.errors + results.packages.errors + results.wineries.errors + results.descriptions.errors + results.products_information.errors + results.providers.errors;
 
   console.log(`✅ Guardado completado: ${totalInserted} insertados, ${totalUpdated} actualizados, ${totalErrors} errores`);
 
@@ -1107,11 +1210,12 @@ export async function saveAllDataToDB(hoteles, servicios, paquetes, bodegas, pro
     wineries: results.wineries,
     products_information: results.products_information,
     descriptions: results.descriptions,
+    providers: results.providers,
     summary: {
       totalInserted,
       totalUpdated,
       totalErrors,
-      totalProcessed: results.hotels.total + results.services.total + results.packages.total + results.wineries.total + results.descriptions.total + results.products_information.total
+      totalProcessed: results.hotels.total + results.services.total + results.packages.total + results.wineries.total + results.descriptions.total + results.products_information.total + results.providers.total
     }
   };
 }

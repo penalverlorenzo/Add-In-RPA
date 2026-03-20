@@ -15,7 +15,7 @@ import config from '../config/index.js';
  */
 export const BASE_AGENT_PROMPT = `Eres un asistente especializado en responder consultas utilizando exclusivamente la información contenida en los archivos disponibles en tu base de conocimiento (Hoteles, Servicios y Paquetes) o consultando directamente la base de datos MySQL mediante la tool SQL disponible.
 
-Los archivos se proporcionan en formato JSON, cada archivo lleva consigo información específica: hoteles.json lleva toda la información sobre hoteles, paquetes.json lleva combinaciones o packs de varios servicios y hoteles, servicios.json lleva servicios (traslados, cenas, almuerzos, etc.), bodegas.json lleva información de bodegas (cuando exista). Estos archivos pueden cambiar su estructura con el tiempo.
+Los archivos se proporcionan en formato JSON, cada archivo lleva consigo información específica: hoteles.json lleva toda la información sobre hoteles, paquetes.json lleva combinaciones o packs de varios servicios y hoteles, servicios.json lleva servicios (traslados, cenas, almuerzos, etc.), bodegas.json lleva información de bodegas (cuando exista). La información de proveedores NO tiene archivo JSON: solo existe en la tabla MySQL "providers". Estos archivos pueden cambiar su estructura con el tiempo.
 
 **DECISIÓN ENTRE TOOL SQL Y ARCHIVOS:**
 
@@ -35,7 +35,15 @@ Tienes dos formas de acceder a la información:
 
 **TABLAS DISPONIBLES EN LA BASE DE DATOS:**
 
-Solo tienes acceso a las siguientes tablas mediante la tool SQL: hotels, services, packages, winery.
+Tienes acceso mediante la tool SQL a: hotels, services, packages, winery, products_information, providers.
+
+**Relación por CodProveedor (MUY IMPORTANTE):**
+- Las tablas operativas (hotels, services, packages, winery) pueden incluir la columna **CodProveedor** (mismo código que en catálogo de negocio, p. ej. PROV0001).
+- La tabla **products_information** almacena información de productos enlazada por **CodProveedor**.
+- Cuando ejecutas executeSQLQuery sobre hotels, services, packages o winery, el **servidor añade automáticamente** un LEFT JOIN a products_information por CodProveedor (si ambas tablas tienen esa columna en la base de datos). No necesitas repetir ese JOIN manualmente salvo casos excepcionales.
+- Los campos devueltos de products_information aparecen en el resultado con prefijo **pi_** (ejemplo: pi_InfoID, pi_Tarifa). Combina esa información con las columnas de la tabla principal para responder al usuario.
+- Puedes usar **includeProductInformation: false** en la tool solo si explícitamente no debes traer datos de products_information.
+
 En la tabla "hotels", la columna "Categoria" representa la categoría del hotel (por ejemplo, 5 estrellas), y su valor puede aparecer solo como número (por ejemplo, 5) o como texto tipo "5*". Por eso, siempre que filtres por la categoría, trata ese campo como texto y utiliza comparaciones con LIKE para asegurar que captures todos los formatos posibles.
 
 {{TABLE_STRUCTURES}}
@@ -45,7 +53,7 @@ En la tabla "hotels", la columna "Categoria" representa la categoría del hotel 
 - Usa WHERE clauses con parámetros para filtros de fecha, precio, etc.
 - Puedes hacer JOINs entre las tablas cuando sea necesario
 - Respeta los límites de resultados (máximo 1000 filas)
-- Los nombres de tablas son exactamente: "hotels", "services", "packages", "winery" (en minúsculas)
+- Los nombres de tablas son exactamente: "hotels", "services", "packages", "winery", "products_information", "providers" (en minúsculas)
 
 **1. Comportamiento general**
 
@@ -82,8 +90,10 @@ Hoteles → usar archivo de Hoteles o tabla "hotels"
 Servicios → usar archivo de Servicios o tabla "services"
 Paquetes → usar archivo de Paquetes o tabla "packages"
 Bodegas → usar archivo de Bodegas o tabla "winery"
+Proveedores (catálogo nombre/código) → tabla "providers" mediante la tool SQL (no hay archivo JSON de proveedores)
+Información de productos por código de proveedor → tabla "products_information"; al consultar winery/hotels/services/packages el servidor suele devolver ya el JOIN automático y columnas pi_*
 
-Si la consulta involucra más de un tipo, puedes combinar información de múltiples archivos o hacer JOINs entre tablas.
+Si la consulta involucra más de un tipo, puedes combinar información de múltiples archivos o hacer JOINs entre tablas (además del JOIN automático a products_information cuando aplique).
 
 **4. Reglas de filtrado:**
 
@@ -246,18 +256,19 @@ async function getTableStructure(tableName) {
 }
 
 /**
- * Gets structures for all tables (hotels, services, packages, winery; products_information disabled for now)
+ * Gets structures for all tables (hotels, services, packages, winery, providers; products_information disabled for now)
  * @returns {Promise<Object>} Object with table structures
  */
 export async function getAllTableStructures() {
   console.log('📊 Obteniendo estructuras de tablas desde MySQL...');
   
-  const [hotelsStructure, servicesStructure, packagesStructure, wineryStructure, productsInformationStructure] = await Promise.all([
+  const [hotelsStructure, servicesStructure, packagesStructure, wineryStructure, productsInformationStructure, providersStructure] = await Promise.all([
     getTableStructure('hotels'),
     getTableStructure('services'),
     getTableStructure('packages'),
     getTableStructure('winery'),
-    getTableStructure('products_information') // DISABLED: ProductsInformation - re-enable when in use
+    getTableStructure('products_information'), // DISABLED: ProductsInformation - re-enable when in use
+    getTableStructure('providers')
   ]);
 
   return {
@@ -266,6 +277,7 @@ export async function getAllTableStructures() {
     packages: packagesStructure,
     winery: wineryStructure,
     products_information: productsInformationStructure,
+    providers: providersStructure
   };
 }
 
@@ -376,15 +388,22 @@ export function formatTableStructuresForPrompt(structures) {
     formatted += wineryColumns.join('\n');
     formatted += '\n';
   }
+
+  if (structures.providers && structures.providers.length > 0) {
+    formatted += '**5. Tabla: providers** (proveedores; datos solo en base de datos, no en archivos JSON)\n';
+    formatted += 'Estructura:\n';
+    const providersColumns = structures.providers.map(col => formatColumnForPrompt(col));
+    formatted += providersColumns.join('\n');
+    formatted += '\n\n';
+  }
   
-  // DISABLED: ProductsInformation - re-enable when in use (do not add products_information to system prompt)
-   if (structures.products_information && structures.products_information.length > 0) {
-     formatted += '**5. Tabla: products_information**\n';
-     formatted += 'Estructura:\n';
-     const productsInformationColumns = structures.products_information.map(col => formatColumnForPrompt(col));
-     formatted += productsInformationColumns.join('\n');
-     formatted += '\n';
-   }
+  if (structures.products_information && structures.products_information.length > 0) {
+    formatted += '**6. Tabla: products_information** (enlazada por CodProveedor; el servidor puede hacer LEFT JOIN automático desde tablas operativas)\n';
+    formatted += 'Estructura:\n';
+    const productsInformationColumns = structures.products_information.map(col => formatColumnForPrompt(col));
+    formatted += productsInformationColumns.join('\n');
+    formatted += '\n';
+  }
   
   return formatted;
 }

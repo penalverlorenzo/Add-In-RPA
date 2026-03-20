@@ -136,7 +136,7 @@ export async function sendMessageToAgent(userMessage, agentId, threadId) {
                   toolCallId: toolCall.id,
                   output: JSON.stringify({
                     success: false,
-                    error: 'Missing required parameters. You must provide both "tableName" (one of: "hotels", "services", "packages") and "columns" (array of column names) as parameters when calling executeSQLQuery.',
+                    error: 'Missing required parameters. You must provide both "tableName" (one of: "hotels", "services", "packages", "winery", "products_information", "providers") and "columns" (array of column names) as parameters when calling executeSQLQuery.',
                     example: {
                       tableName: 'hotels',
                       columns: ['HotelID', 'NombreHotel', 'Categoria', 'Precio', 'Moneda'],
@@ -172,7 +172,7 @@ export async function sendMessageToAgent(userMessage, agentId, threadId) {
               if (!params.tableName) {
                 console.error(`❌ Missing required parameter: tableName`);
                 console.error(`📋 Available parameters:`, Object.keys(params));
-                throw new Error('Missing required parameter: tableName. Please specify which table to query (hotels, services, or packages).');
+                throw new Error('Missing required parameter: tableName. Please specify which table to query (hotels, services, packages, winery, products_information, or providers).');
               }
               
               if (!params.columns || !Array.isArray(params.columns) || params.columns.length === 0) {
@@ -211,7 +211,7 @@ export async function sendMessageToAgent(userMessage, agentId, threadId) {
                   error: error.message,
                   data: [],
                   suggestion: error.message.includes('tableName') 
-                    ? 'Please specify the table name (hotels, services, or packages) and columns to select.' 
+                    ? 'Please specify the table name (hotels, services, packages, winery, etc.) and columns to select.' 
                     : 'Please check the parameters and try again.'
                 })
               });

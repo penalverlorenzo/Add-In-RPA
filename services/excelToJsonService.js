@@ -7,9 +7,9 @@ import XLSX from 'xlsx';
 
 /**
  * Converts Excel buffer to JSON objects
- * Expects Excel file with sheets named: "Hoteles", "Servicios", "Paquetes", "Bodegas" (optional), "ProductsInformation" (optional), "Descripciones" (optional)
+ * Expects Excel file with sheets named: "Hoteles", "Servicios", "Paquetes", "Bodegas" (optional), "Proveedores" (optional), "ProductsInformation" (optional), "Descripciones" (optional)
  * @param {Buffer} excelBuffer - Excel file as Buffer
- * @returns {Promise<Object>} Object with Hoteles, Servicios, Paquetes, Bodegas, ProductsInformation, Descripciones arrays
+ * @returns {Promise<Object>} Object with Hoteles, Servicios, Paquetes, Bodegas, Proveedores, ProductsInformation, Descripciones arrays
  */
 export async function convertExcelToJson(excelBuffer) {
   try {
@@ -25,6 +25,7 @@ export async function convertExcelToJson(excelBuffer) {
       Servicios: [],
       Paquetes: [],
       Bodegas: [],
+      Proveedores: [],
       ProductsInformation: [],
       Descripciones: []
     };
@@ -54,6 +55,9 @@ export async function convertExcelToJson(excelBuffer) {
       } else if (normalizedSheetName.toLowerCase() === 'bodegas' || normalizedSheetName.toLowerCase() === 'winery') {
         result.Bodegas = jsonData;
         console.log(`✅ Procesada hoja "${sheetName}": ${jsonData.length} bodegas`);
+      } else if (normalizedSheetName.toLowerCase() === 'proveedores' || normalizedSheetName.toLowerCase() === 'providers') {
+        result.Proveedores = jsonData;
+        console.log(`✅ Procesada hoja "${sheetName}": ${jsonData.length} proveedores`);
       // DISABLED: ProductsInformation - re-enable when in use (do not send to IA)
       } else if (normalizedSheetName.toLowerCase() === 'informacionproductos' || normalizedSheetName.toLowerCase() === 'products_information') {
         result.ProductsInformation = jsonData;
@@ -84,8 +88,9 @@ export async function convertExcelToJson(excelBuffer) {
     }
 
     const bodegasInfo = result.Bodegas.length > 0 ? `, ${result.Bodegas.length} bodegas` : '';
+    const proveedoresInfo = result.Proveedores.length > 0 ? `, ${result.Proveedores.length} proveedores` : '';
     const descripcionesInfo = result.Descripciones.length > 0 ? `, ${result.Descripciones.length} descripciones` : '';
-    console.log(`✅ Conversión completada: ${result.Hoteles.length} hoteles, ${result.Servicios.length} servicios, ${result.Paquetes.length} paquetes${bodegasInfo}${descripcionesInfo}`);
+    console.log(`✅ Conversión completada: ${result.Hoteles.length} hoteles, ${result.Servicios.length} servicios, ${result.Paquetes.length} paquetes${bodegasInfo}${proveedoresInfo}${descripcionesInfo}`);
 
     return result;
   } catch (error) {
