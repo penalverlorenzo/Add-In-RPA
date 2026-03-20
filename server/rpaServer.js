@@ -16,6 +16,7 @@ import masterDataService from '../services/mysqlMasterDataService.js';
 import { updateAgentFiles } from '../services/agentFileService.js';
 import { extractUserIdentifier, getOrCreateThread, sendMessageToAssistant } from '../services/assistantChatService.js';
 import { sendMessageToAgent, getOrCreateAgentThread } from '../services/agentChatService.js';
+import { resetAssistantTeamsChatForUser, resetAgentTeamsChatForUser } from '../services/teamsChatsResetService.js';
 import { updateAgentFilesAgents } from '../services/agentFileServiceAgents.js';
 import { 
   getAccessToken, 
@@ -1289,6 +1290,17 @@ app.post('/api/messages', async (req, res) => {
         return;
       }
 
+      if (userMessage === 'Reiniciar') {
+        try {
+          const resetMessage = await resetAssistantTeamsChatForUser(userId);
+          await context.sendActivity(resetMessage);
+        } catch (error) {
+          console.error(':x: Error reiniciando conversación (asistente):', error.message);
+          await context.sendActivity('No se pudo reiniciar la conversación. Por favor, intenta de nuevo más tarde.');
+        }
+        return;
+      }
+
       // Obtener o crear thread para el usuario
       let threadId;
       try {
@@ -1346,6 +1358,17 @@ app.post('/api/messages/agent', async (req, res) => {
       } catch (error) {
         console.error(':x: Error extrayendo identificador de usuario:', error.message);
         await context.sendActivity('No se pudo identificar al usuario. Por favor, intenta de nuevo.');
+        return;
+      }
+
+      if (userMessage === 'Reiniciar') {
+        try {
+          const resetMessage = await resetAgentTeamsChatForUser(userId);
+          await context.sendActivity(resetMessage);
+        } catch (error) {
+          console.error(':x: Error reiniciando conversación (agente):', error.message);
+          await context.sendActivity('No se pudo reiniciar la conversación. Por favor, intenta de nuevo más tarde.');
+        }
         return;
       }
 

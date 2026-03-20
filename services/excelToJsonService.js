@@ -7,9 +7,9 @@ import XLSX from 'xlsx';
 
 /**
  * Converts Excel buffer to JSON objects
- * Expects Excel file with sheets named: "Hoteles", "Servicios", "Paquetes", "Bodegas" (optional), "Tarifas" (optional), "Descripciones" (optional)
+ * Expects Excel file with sheets named: "Hoteles", "Servicios", "Paquetes", "Bodegas" (optional), "ProductsInformation" (optional), "Descripciones" (optional)
  * @param {Buffer} excelBuffer - Excel file as Buffer
- * @returns {Promise<Object>} Object with Hoteles, Servicios, Paquetes, Bodegas, Tarifas, Descripciones arrays
+ * @returns {Promise<Object>} Object with Hoteles, Servicios, Paquetes, Bodegas, ProductsInformation, Descripciones arrays
  */
 export async function convertExcelToJson(excelBuffer) {
   try {
@@ -25,7 +25,7 @@ export async function convertExcelToJson(excelBuffer) {
       Servicios: [],
       Paquetes: [],
       Bodegas: [],
-      Tarifas: [],
+      ProductsInformation: [],
       Descripciones: []
     };
 
@@ -54,15 +54,26 @@ export async function convertExcelToJson(excelBuffer) {
       } else if (normalizedSheetName.toLowerCase() === 'bodegas' || normalizedSheetName.toLowerCase() === 'winery') {
         result.Bodegas = jsonData;
         console.log(`✅ Procesada hoja "${sheetName}": ${jsonData.length} bodegas`);
-      // DISABLED: Tarifas - re-enable when in use (do not send to IA)
-      // } else if (normalizedSheetName.toLowerCase() === 'tarifas' || normalizedSheetName.toLowerCase() === 'sale_rates') {
-      //   result.Tarifas = jsonData;
-      //   console.log(`✅ Procesada hoja "${sheetName}": ${jsonData.length} tarifas`);
+      // DISABLED: ProductsInformation - re-enable when in use (do not send to IA)
+      } else if (normalizedSheetName.toLowerCase() === 'informacionproductos' || normalizedSheetName.toLowerCase() === 'products_information') {
+        result.ProductsInformation = jsonData;
+        console.log(`✅ Procesada hoja "${sheetName}": ${jsonData.length} Information Products`);
       } else if (normalizedSheetName.toLowerCase() === 'descripciones' || normalizedSheetName.toLowerCase() === 'descriptions') {
         result.Descripciones = jsonData;
         console.log(`✅ Procesada hoja "${sheetName}": ${jsonData.length} fila(s) de descripciones`);
       } else {
-        console.warn(`⚠️ Hoja "${sheetName}" no reconocida, se omitirá`);
+        // Fallback: sheet name may have invisible/weird chars (Excel); match by alphanumeric core
+        const keyOnly = normalizedSheetName.toLowerCase().replace(/[^a-z0-9_]/g, '');
+        if (
+          keyOnly === 'informacionproductos' ||
+          keyOnly === 'productsinformation' ||
+          keyOnly === 'products_information'
+        ) {
+          result.ProductsInformation = jsonData;
+          console.log(`✅ Procesada hoja "${sheetName}": ${jsonData.length} Information Products`);
+        } else {
+          console.warn(`⚠️ Hoja "${sheetName}" no reconocida, se omitirá`);
+        }
       }
     }
 

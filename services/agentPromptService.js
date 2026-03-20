@@ -246,26 +246,26 @@ async function getTableStructure(tableName) {
 }
 
 /**
- * Gets structures for all tables (hotels, services, packages, winery; sale_rates disabled for now)
+ * Gets structures for all tables (hotels, services, packages, winery; products_information disabled for now)
  * @returns {Promise<Object>} Object with table structures
  */
 export async function getAllTableStructures() {
   console.log('📊 Obteniendo estructuras de tablas desde MySQL...');
   
-  const [hotelsStructure, servicesStructure, packagesStructure, wineryStructure] = await Promise.all([
+  const [hotelsStructure, servicesStructure, packagesStructure, wineryStructure, productsInformationStructure] = await Promise.all([
     getTableStructure('hotels'),
     getTableStructure('services'),
     getTableStructure('packages'),
-    getTableStructure('winery')
-    // getTableStructure('sale_rates') // DISABLED: Tarifas - re-enable when in use
+    getTableStructure('winery'),
+    getTableStructure('products_information') // DISABLED: ProductsInformation - re-enable when in use
   ]);
 
   return {
     hotels: hotelsStructure,
     services: servicesStructure,
     packages: packagesStructure,
-    winery: wineryStructure
-    // sale_rates: saleRatesStructure
+    winery: wineryStructure,
+    products_information: productsInformationStructure,
   };
 }
 
@@ -335,7 +335,7 @@ function formatColumnForPrompt(column) {
 
 /**
  * Formats table structures for prompt (bullet list format matching user's prompt style)
- * @param {Object} structures - Object with hotels, services, packages, winery, sale_rates structures
+ * @param {Object} structures - Object with hotels, services, packages, winery, products_information structures
  * @returns {string} Formatted table structures
  */
 export function formatTableStructuresForPrompt(structures) {
@@ -377,14 +377,14 @@ export function formatTableStructuresForPrompt(structures) {
     formatted += '\n';
   }
   
-  // DISABLED: Tarifas - re-enable when in use (do not add sale_rates to system prompt)
-  // if (structures.sale_rates && structures.sale_rates.length > 0) {
-  //   formatted += '**5. Tabla: sale_rates** (tarifas)\n';
-  //   formatted += 'Estructura:\n';
-  //   const saleRatesColumns = structures.sale_rates.map(col => formatColumnForPrompt(col));
-  //   formatted += saleRatesColumns.join('\n');
-  //   formatted += '\n';
-  // }
+  // DISABLED: ProductsInformation - re-enable when in use (do not add products_information to system prompt)
+   if (structures.products_information && structures.products_information.length > 0) {
+     formatted += '**5. Tabla: products_information**\n';
+     formatted += 'Estructura:\n';
+     const productsInformationColumns = structures.products_information.map(col => formatColumnForPrompt(col));
+     formatted += productsInformationColumns.join('\n');
+     formatted += '\n';
+   }
   
   return formatted;
 }
@@ -448,7 +448,7 @@ export function formatDescriptionsForPrompt(descriptionsData) {
 
 /**
  * Builds the complete agent prompt by inserting table structures and descriptions data into the base prompt
- * @param {Object} structures - Object with hotels, services, packages, winery, sale_rates structures
+ * @param {Object} structures - Object with hotels, services, packages, winery, products_information structures
  * @returns {Promise<string>} Complete prompt with table structures and descriptions data inserted
  */
 export async function buildAgentPromptWithStructures(structures) {
@@ -482,7 +482,7 @@ async function createClient() {
 
 /**
  * Updates the agent's system prompt with new table structures
- * @param {Object} structures - Object with hotels, services, packages, winery, sale_rates structures
+ * @param {Object} structures - Object with hotels, services, packages, winery, products_information structures
  * @returns {Promise<boolean>} True if update was successful
  */
 export async function updateAgentPromptWithStructures(structures) {

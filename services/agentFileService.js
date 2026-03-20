@@ -26,11 +26,11 @@ function validateConfiguration() {
 
 /**
  * Validates the request body
- * @param {Object} body - Request body with Hoteles, Servicios, Paquetes, Bodegas (optional), Tarifas (optional), Descripciones (optional)
+ * @param {Object} body - Request body with Hoteles, Servicios, Paquetes, Bodegas (optional), ProductsInformation (optional), Descripciones (optional)
  * @throws {Error} If validation fails
  */
 function validateBody(body) {
-  const { Hoteles, Servicios, Paquetes, Bodegas, Tarifas, Descripciones } = body;
+  const { Hoteles, Servicios, Paquetes, Bodegas, ProductsInformation, Descripciones } = body;
 
   if (!Hoteles || !Array.isArray(Hoteles)) {
     throw new Error('El campo "Hoteles" es requerido y debe ser un array');
@@ -49,10 +49,10 @@ function validateBody(body) {
     throw new Error('El campo "Bodegas" debe ser un array si se proporciona');
   }
 
-  // DISABLED: Tarifas - re-enable when in use
-  // if (Tarifas !== undefined && !Array.isArray(Tarifas)) {
-  //   throw new Error('El campo "Tarifas" debe ser un array si se proporciona');
-  // }
+  // DISABLED: ProductsInformation - re-enable when in use
+   if (ProductsInformation !== undefined && !Array.isArray(ProductsInformation)) {
+     throw new Error('El campo "ProductsInformation" debe ser un array si se proporciona');
+   }
 
   // Descripciones is optional
   if (Descripciones !== undefined && !Array.isArray(Descripciones)) {
@@ -169,7 +169,7 @@ async function uploadFile(client, vectorStoreId, fileData) {
 
 /**
  * Updates agent files in the vector store
- * @param {Object} body - Request body with Hoteles, Servicios, Paquetes arrays, Bodegas (optional), Tarifas (optional), Descripciones (optional)
+ * @param {Object} body - Request body with Hoteles, Servicios, Paquetes arrays, Bodegas (optional), ProductsInformation (optional), Descripciones (optional)
  * @returns {Promise<Object>} Result with deleted files count, uploaded files info, and summary
  */
 export async function updateAgentFiles(body) {
@@ -179,10 +179,11 @@ export async function updateAgentFiles(body) {
   // Validate body
   validateBody(body);
 
-  const { Hoteles, Servicios, Paquetes, Bodegas, Descripciones } = body;
+  const { Hoteles, Servicios, Paquetes, Bodegas, ProductsInformation, Descripciones } = body;
   const bodegasInfo = Bodegas && Bodegas.length > 0 ? `, ${Bodegas.length} bodegas` : '';
+  const productsInformationInfo = ProductsInformation && ProductsInformation.length > 0 ? `, ${ProductsInformation.length} products_information` : '';
   const descripcionesInfo = Descripciones && Descripciones.length > 0 ? `, ${Descripciones.length} descripciones` : '';
-  console.log(`📊 Datos recibidos: ${Hoteles.length} hoteles, ${Servicios.length} servicios, ${Paquetes.length} paquetes${bodegasInfo}${descripcionesInfo}`);
+  console.log(`📊 Datos recibidos: ${Hoteles.length} hoteles, ${Servicios.length} servicios, ${Paquetes.length} paquetes${bodegasInfo}${productsInformationInfo}${descripcionesInfo}`);
 
   // Create Azure OpenAI client
   const client = createClient();
@@ -217,14 +218,14 @@ export async function updateAgentFiles(body) {
       data: Bodegas
     });
   }
-  // DISABLED: Tarifas - re-enable when in use (do not send tarifas.json to IA)
-  // if (Tarifas && Tarifas.length > 0) {
-  //   filesToUpload.push({
-  //     name: 'tarifas.json',
-  //     content: JSON.stringify(Tarifas, null, 2),
-  //     data: Tarifas
-  //   });
-  // }
+  // DISABLED: ProductsInformation - re-enable when in use (do not send products_information.json to IA)
+   if (ProductsInformation && ProductsInformation.length > 0) {
+     filesToUpload.push({
+       name: 'products_information.json',
+       content: JSON.stringify(ProductsInformation, null, 2),
+       data: ProductsInformation
+     });
+   }
 
   // 3. Upload files to vector store
   console.log('📤 Subiendo archivos al vector store...');
@@ -241,7 +242,7 @@ export async function updateAgentFiles(body) {
   let dbResults = null;
   try {
     console.log('💾 Guardando datos en base de datos MySQL...');
-    dbResults = await saveAllDataToDB(Hoteles, Servicios, Paquetes, Bodegas, undefined, Descripciones); // Tarifas disabled
+    dbResults = await saveAllDataToDB(Hoteles, Servicios, Paquetes, Bodegas, ProductsInformation, Descripciones); // ProductsInformation disabled
     console.log('✅ Datos guardados en base de datos MySQL');
   } catch (error) {
     console.error('❌ Error guardando datos en base de datos:', error.message);
@@ -252,7 +253,7 @@ export async function updateAgentFiles(body) {
       services: { inserted: 0, updated: 0, errors: Servicios.length, total: Servicios.length },
       packages: { inserted: 0, updated: 0, errors: Paquetes.length, total: Paquetes.length },
       wineries: { inserted: 0, updated: 0, errors: Bodegas?.length || 0, total: Bodegas?.length || 0 },
-      saleRates: { inserted: 0, updated: 0, errors: 0, total: 0 }, // tarifas disabled
+      products_information: { inserted: 0, updated: 0, errors: ProductsInformation?.length || 0, total: ProductsInformation?.length || 0 }, // products_information disabled
       descriptions: { inserted: 0, updated: 0, errors: Descripciones?.length || 0, total: Descripciones?.length || 0 }
     };
   }
@@ -264,7 +265,8 @@ export async function updateAgentFiles(body) {
       hoteles: Hoteles.length,
       servicios: Servicios.length,
       paquetes: Paquetes.length,
-      bodegas: Bodegas?.length ?? 0
+      bodegas: Bodegas?.length ?? 0,
+      products_information: ProductsInformation?.length ?? 0
     },
     database: dbResults
   };

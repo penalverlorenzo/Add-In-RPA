@@ -909,6 +909,32 @@ async function updateTeamsChatThread(userId, threadId) {
     }
 }
 
+async function clearTeamsChatThread(userId) {
+    const pool = getMySQLConnection();
+    if (!pool) {
+        console.warn('⚠️ MySQL connection pool not available for clearTeamsChatThread');
+        throw new Error('Database connection not available');
+    }
+
+    try {
+        const [result] = await pool.query(
+            `UPDATE teams_chats SET threadId = NULL WHERE userId = ?`,
+            [userId]
+        );
+        if (result.affectedRows === 0) {
+            console.log(`ℹ️ No teams_chats row to clear for userId: ${userId}`);
+        } else {
+            console.log(`✅ Teams chat thread cleared for userId: ${userId}`);
+        }
+        return { userId, cleared: result.affectedRows > 0 };
+    } catch (error) {
+        console.error('❌ Error clearing teams chat thread:', error.message);
+        console.error('   Error code:', error.code);
+        console.error('   UserId:', userId);
+        throw error;
+    }
+}
+
 export default {
     getAllSellers,
     getAllClients,
@@ -928,5 +954,6 @@ export default {
     getUserByEmail,
     getTeamsChatByUserId,
     createTeamsChat,
-    updateTeamsChatThread
+    updateTeamsChatThread,
+    clearTeamsChatThread
 };
