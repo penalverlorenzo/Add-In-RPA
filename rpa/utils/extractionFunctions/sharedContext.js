@@ -8,6 +8,7 @@ export const COMMON_CONTEXT = `CONTEXTO:
 - Los emails pueden contener hilos de conversación (múltiples forwards)
 - Los datos pueden estar en español, portugués o inglés
 - El año actual es ${new Date().getFullYear()}. Si las fechas no tienen año, usar el año actual.
+- Output Format: Tu formato de salida debe ser uno que sea visualmente agradable para el AzureBot que está conectado con Microsoft Teams.
 - Formato de salida: JSON estrictamente estructurado
 - IMPORTANTE SOBRE TEXTO DE IMÁGENES:
   * El contenido puede incluir texto extraído de imágenes adjuntas en una sección marcada como "=== TEXTO EXTRAÍDO DE IMÁGENES ADJUNTAS ==="
