@@ -417,6 +417,41 @@ export function formatTableStructuresForPrompt(structures) {
   return formatted;
 }
 
+const TOOL_DESCRIPTION_TABLE_LABELS = {
+  hotels: 'hotels',
+  services: 'services',
+  packages: 'packages',
+  winery: 'winery (bodegas)',
+  providers: 'providers',
+  products_information: 'products_information'
+};
+
+/**
+ * Builds a schema appendix for Azure function tool descriptions (same column detail as the system prompt).
+ * @param {Object} structures - Object from getAllTableStructures()
+ * @param {string[]} tableKeys - Subset e.g. ['hotels','services','packages','winery']
+ * @returns {string} Text to append to a tool description, or empty if nothing to show
+ */
+export function formatTableStructuresForToolDescriptions(structures, tableKeys) {
+  if (!structures || !Array.isArray(tableKeys) || tableKeys.length === 0) {
+    return '';
+  }
+  const blocks = [];
+  for (const key of tableKeys) {
+    const cols = structures[key];
+    if (!cols || cols.length === 0) {
+      continue;
+    }
+    const label = TOOL_DESCRIPTION_TABLE_LABELS[key] || key;
+    const lines = cols.map((col) => formatColumnForPrompt(col));
+    blocks.push(`Table ${label}:\n${lines.join('\n')}`);
+  }
+  if (blocks.length === 0) {
+    return '';
+  }
+  return `\n\nSchema (from DB):\n${blocks.join('\n\n')}`;
+}
+
 /**
  * Gets the single row of data from descriptions table (id=1)
  * @returns {Promise<Object|null>} Description data object or null if not found
@@ -540,17 +575,13 @@ export async function updateAgentPromptWithStructures(structures) {
 /**
  * Main function to update agent prompt with current table structures from database
  * This function automatically gets the table structures and updates the agent prompt
- * @returns {Promise<boolean>} True if update was successful
+ * @returns {Promise<Object>} structures object from getAllTableStructures (for syncing tool descriptions)
  */
 export async function updateAgentPromptWithTableStructures() {
   try {
-    // Get current table structures from database
     const structures = await getAllTableStructures();
-    
-    // Update agent prompt with structures
     await updateAgentPromptWithStructures(structures);
-    
-    return true;
+    return structures;
   } catch (error) {
     console.error('❌ Error en updateAgentPromptWithTableStructures:', error.message);
     throw error;

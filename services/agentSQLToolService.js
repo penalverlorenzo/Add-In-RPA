@@ -6,6 +6,10 @@
 import { ToolUtility } from '@azure/ai-agents';
 import mysql from 'mysql2/promise';
 import config from '../config/index.js';
+import {
+  getAllTableStructures,
+  formatTableStructuresForToolDescriptions
+} from './agentPromptService.js';
 
 async function getMySQLPool() {
   if (!config.mysql.host || !config.mysql.user || !config.mysql.password) {
@@ -47,6 +51,39 @@ const DATA_TOOL_NAMES = [
   'queryOperationalData',
   'queryProductsInformation'
 ];
+
+const STRUCTURES_CACHE_TTL_MS = 10 * 60 * 1000;
+let cachedStructuresForTools = null;
+let cachedStructuresForToolsAt = 0;
+
+/**
+ * @param {{ structures?: Object, bypassCache?: boolean }} [options]
+ * @returns {Promise<Object|null>}
+ */
+async function loadStructuresForDataTools(options = {}) {
+  if (options.structures) {
+    cachedStructuresForTools = options.structures;
+    cachedStructuresForToolsAt = Date.now();
+    return options.structures;
+  }
+  const now = Date.now();
+  if (
+    !options.bypassCache &&
+    cachedStructuresForTools &&
+    now - cachedStructuresForToolsAt < STRUCTURES_CACHE_TTL_MS
+  ) {
+    return cachedStructuresForTools;
+  }
+  try {
+    const s = await getAllTableStructures();
+    cachedStructuresForTools = s;
+    cachedStructuresForToolsAt = now;
+    return s;
+  } catch (e) {
+    console.warn('⚠️ getAllTableStructures failed for data tools:', e.message);
+    return null;
+  }
+}
 
 async function getTableColumnNames(pool, tableName) {
   const [rows] = await pool.query(
@@ -739,11 +776,12 @@ export async function discoverDataWithoutProvider(params) {
   };
 }
 
-function buildSearchProvidersToolDefinition() {
+function buildSearchProvidersToolDefinition(schemaAppend = '') {
   return ToolUtility.createFunctionTool({
     name: 'searchProvidersByName',
     description:
-      'Step 1: Search the providers catalog by name. Runs LIKE on text columns (e.g. Proveedor). Returns matching rows with CodProveedor and names. If rowCount is 0 or the user gave no provider, call discoverDataWithoutProvider next when other search criteria exist (it queries all four operational tables). Otherwise use the chosen CodProveedor with queryProductsInformation and queryOperationalData.',
+      'Step 1: Search the providers catalog by name. Runs LIKE on text columns (e.g. Proveedor). Returns matching rows with CodProveedor and names. If rowCount is 0 or the user gave no provider, call discoverDataWithoutProvider next when other search criteria exist (it queries all four operational tables). Otherwise use the chosen CodProveedor with queryProductsInformation and queryOperationalData.' +
+      schemaAppend,
     parameters: {
       type: 'object',
       properties: {
@@ -761,18 +799,20 @@ function buildSearchProvidersToolDefinition() {
   }).definition;
 }
 
-function buildQueryOperationalToolDefinition() {
+function buildQueryOperationalToolDefinition(schemaAppend = '') {
   return ToolUtility.createFunctionTool({
     name: 'queryOperationalData',
     description:
-      'Step 2: Query one operational table (hotels, services, packages, winery) filtered by CodProveedor. Requires codProveedor from searchProvidersByName or from the user. Does NOT join products_information — use queryProductsInformation for product rows.',
+      'Step 2: Query one operational table (hotels, services, packages, winery) filtered by CodProveedor. Requires codProveedor from searchProvidersByName or from the user. Does NOT join products_information — use queryProductsInformation for product rows.' +
+      schemaAppend,
     parameters: {
       type: 'object',
       properties: {
         domainTable: {
           type: 'string',
           enum: ['hotels', 'services', 'packages', 'winery'],
-          description: 'Which operational table to query'
+          description:
+            'Which operational table to query. Use only columns listed for that table in the Schema section below.'
         },
         codProveedor: {
           oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }],
@@ -806,11 +846,12 @@ function buildQueryOperationalToolDefinition() {
   }).definition;
 }
 
-function buildQueryProductsToolDefinition() {
+function buildQueryProductsToolDefinition(schemaAppend = '') {
   return ToolUtility.createFunctionTool({
     name: 'queryProductsInformation',
     description:
-      'Step 3: Query products_information filtered by CodProveedor. Run after resolving the provider code. Combine results with queryOperationalData for a full answer.',
+      'Step 3: Query products_information filtered by CodProveedor. Run after resolving the provider code. Combine results with queryOperationalData for a full answer.' +
+      schemaAppend,
     parameters: {
       type: 'object',
       properties: {
@@ -846,11 +887,12 @@ function buildQueryProductsToolDefinition() {
   }).definition;
 }
 
-function buildDiscoverWithoutProviderToolDefinition() {
+function buildDiscoverWithoutProviderToolDefinition(schemaAppend = '') {
   return ToolUtility.createFunctionTool({
     name: 'discoverDataWithoutProvider',
     description:
-      'Fallback when searchProvidersByName returns zero rows OR the user gave no provider name but gave other criteria. Always queries ALL four operational tables (hotels, services, packages, winery) in one call—no server-side CodProveedor filter. For each table, columns is intersected with that table schema and CodProveedor is included when the column exists. Optional searchText applies OR LIKE across text columns per table. Without searchText, limit per table is capped at 50. Response has dataByTable, rowCountByTable, and distinctCodProveedores (union). Next step: call queryProductsInformation with codProveedor from distinctCodProveedores; use queryOperationalData if you need more fields from a specific domain table.',
+      'Fallback when searchProvidersByName returns zero rows OR the user gave no provider name but gave other criteria. Always queries ALL four operational tables (hotels, services, packages, winery) in one call—no server-side CodProveedor filter. For each table, columns is intersected with that table schema and CodProveedor is included when the column exists. Optional searchText applies OR LIKE across text columns per table. Without searchText, limit per table is capped at 50. Response has dataByTable, rowCountByTable, and distinctCodProveedores (union). Next step: call queryProductsInformation with codProveedor from distinctCodProveedores; use queryOperationalData if you need more fields from a specific domain table.' +
+      schemaAppend,
     parameters: {
       type: 'object',
       properties: {
@@ -880,8 +922,9 @@ function buildDiscoverWithoutProviderToolDefinition() {
  * Registers data tools and removes legacy executeSQLQuery / stale copies of these tools.
  * @param {import('@azure/ai-agents').AgentsClient} client
  * @param {string} agentId
+ * @param {{ structures?: Object, bypassCache?: boolean }} [options] - Pass structures from updateAgentPromptWithTableStructures to avoid an extra DB round-trip and refresh cache.
  */
-export async function ensureAgentDataToolsExist(client, agentId) {
+export async function ensureAgentDataToolsExist(client, agentId, options = {}) {
   try {
     const agent = await client.getAgent(agentId);
     const existing = agent.tools || [];
@@ -894,12 +937,23 @@ export async function ensureAgentDataToolsExist(client, agentId) {
       return true;
     });
 
+    const structures = await loadStructuresForDataTools(options);
+    const operationalSchemaAppend = structures
+      ? formatTableStructuresForToolDescriptions(structures, OPERATIONAL_TABLES)
+      : '';
+    const productsSchemaAppend = structures
+      ? formatTableStructuresForToolDescriptions(structures, [PRODUCTS_TABLE])
+      : '';
+    const providersSchemaAppend = structures
+      ? formatTableStructuresForToolDescriptions(structures, ['providers'])
+      : '';
+
     const newTools = [
       ...filtered,
-      buildSearchProvidersToolDefinition(),
-      buildDiscoverWithoutProviderToolDefinition(),
-      buildQueryOperationalToolDefinition(),
-      buildQueryProductsToolDefinition()
+      buildSearchProvidersToolDefinition(providersSchemaAppend),
+      buildDiscoverWithoutProviderToolDefinition(operationalSchemaAppend),
+      buildQueryOperationalToolDefinition(operationalSchemaAppend),
+      buildQueryProductsToolDefinition(productsSchemaAppend)
     ];
 
     await client.updateAgent(agentId, {

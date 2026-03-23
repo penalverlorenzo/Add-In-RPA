@@ -11,6 +11,7 @@ import path from 'path';
 import { tmpdir } from 'os';
 import { saveAllDataToDB } from './agentDataService.js';
 import { updateAgentPromptWithTableStructures } from './agentPromptService.js';
+import { ensureAgentDataToolsExist } from './agentSQLToolService.js';
 
 /**
  * Creates AgentsClient
@@ -255,8 +256,13 @@ export async function updateAgentFilesAgents(body) {
   // 5. Update agent prompt with new table structures (always, after DB save)
   let promptUpdated = false;
   try {
-    await updateAgentPromptWithTableStructures();
+    const structures = await updateAgentPromptWithTableStructures();
     promptUpdated = true;
+    try {
+      await ensureAgentDataToolsExist(client, config.agent.agentId, { structures });
+    } catch (toolError) {
+      console.error('❌ Error actualizando data tools del agente:', toolError.message);
+    }
   } catch (error) {
     console.error('❌ Error actualizando prompt del agente:', error.message);
     // Don't fail the entire operation if prompt update fails
