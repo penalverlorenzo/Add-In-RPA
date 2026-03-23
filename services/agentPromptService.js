@@ -54,6 +54,7 @@ En la tabla "hotels", la columna "Categoria" representa la categoría del hotel 
 - Puedes hacer JOINs entre las tablas cuando sea necesario
 - Respeta los límites de resultados (máximo 1000 filas)
 - Los nombres de tablas son exactamente: "hotels", "services", "packages", "winery", "products_information", "providers" (en minúsculas)
+- En **orderBy**, usa únicamente columnas que existan en la estructura de la tabla de esa consulta (arriba en {{TABLE_STRUCTURES}}). Con el JOIN automático a products_information puedes ordenar también por columnas de esa tabla o por el alias de salida **pi_** seguido del nombre de columna (por ejemplo pi_InfoID si esa columna existe). No inventes nombres de columna (por ejemplo "Dias") si no aparecen en el esquema; el servidor rechazará ORDER BY con columnas desconocidas.
 
 **1. Comportamiento general**
 
@@ -196,8 +197,6 @@ function getMySQLPool() {
       connectionLimit: 10,
       queueLimit: 0,
       connectTimeout: 10000,
-      acquireTimeout: 10000,
-      timeout: 10000,
       enableKeepAlive: true,
       keepAliveInitialDelay: 0
     };

@@ -27,8 +27,6 @@ async function getMySQLPool() {
     connectionLimit: 10,
     queueLimit: 0,
     connectTimeout: 10000,
-    acquireTimeout: 10000,
-    timeout: 10000,
     enableKeepAlive: true,
     keepAliveInitialDelay: 0
   };
@@ -144,6 +142,80 @@ function isValidColumnName(columnName) {
  */
 function isValidOrderBy(orderBy) {
   return /^[a-zA-Z0-9_.\s,]+(ASC|DESC)?$/i.test(orderBy.trim());
+}
+
+/**
+ * Bare identifiers referenced in ORDER BY (last segment if table-qualified).
+ * @param {string} orderBy
+ * @returns {string[]}
+ */
+function parseOrderByColumnIdentifiers(orderBy) {
+  if (!orderBy || typeof orderBy !== 'string') return [];
+  const segments = orderBy.split(',').map((s) => s.trim()).filter(Boolean);
+  const ids = [];
+  for (const seg of segments) {
+    let s = seg.replace(/\s+(ASC|DESC)\s*$/i, '').trim();
+    if (!s) continue;
+    s = s.replace(/`/g, '');
+    const last = s.includes('.') ? s.split('.').pop() : s;
+    if (last && /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(last)) {
+      ids.push(last);
+    }
+  }
+  return ids;
+}
+
+/**
+ * @param {string} id - bare identifier from ORDER BY
+ * @param {string[]} mainCols
+ * @param {string[]} piCols - products_information columns when auto-join applies
+ * @returns {boolean}
+ */
+function isAllowedOrderIdentifier(id, mainCols, piCols) {
+  const idLower = id.toLowerCase();
+  if ((mainCols || []).some((c) => c && c.toLowerCase() === idLower)) {
+    return true;
+  }
+  for (const c of piCols || []) {
+    if (!c) continue;
+    if (c.toLowerCase() === idLower) return true;
+    if (`pi_${c}`.toLowerCase() === idLower) return true;
+  }
+  return false;
+}
+
+/**
+ * Rejects invented sort columns so the model must stick to INFORMATION_SCHEMA-backed names.
+ * @param {string} orderBy
+ * @param {string[]} mainCols
+ * @param {string[]} piCols
+ */
+function validateOrderByAgainstSchema(orderBy, mainCols, piCols) {
+  const segments = orderBy.split(',').map((s) => s.trim()).filter(Boolean);
+  for (const seg of segments) {
+    const s = seg.replace(/\s+(ASC|DESC)\s*$/i, '').trim();
+    if (s && /^\d+$/.test(s)) {
+      throw new Error(
+        'ORDER BY column positions are not allowed; use only real column names from the table schema.'
+      );
+    }
+  }
+  const identifiers = parseOrderByColumnIdentifiers(orderBy);
+  if (identifiers.length === 0) {
+    return;
+  }
+  const unknown = [...new Set(identifiers)].filter(
+    (id) => !isAllowedOrderIdentifier(id, mainCols, piCols)
+  );
+  if (unknown.length > 0) {
+    const hint =
+      piCols && piCols.length > 0
+        ? ' or on joined product data (DB column names or pi_<column> aliases).'
+        : '.';
+    throw new Error(
+      `Invalid ORDER BY: unknown column(s): ${unknown.join(', ')}. Use only columns that exist on the queried table${hint}`
+    );
+  }
 }
 
 /**
@@ -291,6 +363,18 @@ export async function executeSQLQuery(params) {
       }
     }
 
+    let mainColsForOrderBy = mainColumnNames;
+    if (orderBy) {
+      if (mainColsForOrderBy.length === 0) {
+        mainColsForOrderBy = await getTableColumnNames(pool, validTableName);
+      }
+      validateOrderByAgainstSchema(
+        orderBy,
+        mainColsForOrderBy,
+        useProductJoin ? piColsForSelect : []
+      );
+    }
+
     let query;
     let queryParams;
 
@@ -434,6 +518,9 @@ export async function executeSQLQuery(params) {
 
     console.log(`🔍 Executing SQL query:`);
     console.log(`   Query: ${query}`);
+    console.log(
+      `   Note: ?? are identifier placeholders filled from bound parameters (safe); values use ?.`
+    );
     console.log(`   Parameters count: ${queryParams.length}`);
     console.log(`   Table: ${validTableName}`);
     console.log(`   Columns: ${columns.join(', ')}`);
@@ -548,7 +635,8 @@ export async function ensureSQLToolExists(client, agentId) {
           },
           orderBy: {
             type: 'string',
-            description: 'Optional ORDER BY'
+            description:
+              'Optional ORDER BY using ONLY columns that exist on the main table (or products_information columns / pi_<col> aliases when the automatic product join applies). Do not invent names (e.g. Dias) unless that column exists in the schema.'
           },
           limit: {
             type: 'number',
