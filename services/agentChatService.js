@@ -192,16 +192,19 @@ export async function sendMessageToAgent(userMessage, agentId, threadId) {
               });
               
               const result = await executeSQLQuery(params);
-              
-              // Format result as JSON string
+
               const output = JSON.stringify(result);
-              
+
               toolOutputs.push({
                 toolCallId: toolCall.id,
                 output: output
               });
-              
-              console.log(`✅ SQL query executed successfully, returned ${result.rowCount || 0} rows`);
+
+              if (result.success === false) {
+                console.warn(`⚠️ SQL tool returned error: ${result.error || 'unknown'}`);
+              } else {
+                console.log(`✅ SQL query completed, returned ${result.rowCount ?? 0} rows`);
+              }
             } catch (error) {
               console.error(`❌ Error executing SQL tool: ${error.message}`);
               console.error(`   Stack: ${error.stack}`);
