@@ -2,7 +2,44 @@ import { AgentsClient } from '@azure/ai-agents';
 import { DefaultAzureCredential } from '@azure/identity';
 import masterDataService from './mysqlMasterDataService.js';
 import config from '../config/index.js';
-import { executeSQLQuery, ensureSQLToolExists } from './agentSQLToolService.js';
+import {
+  searchProvidersByName,
+  queryOperationalData,
+  queryProductsInformation,
+  ensureAgentDataToolsExist
+} from './agentSQLToolService.js';
+
+const DATA_TOOL_NAMES = ['searchProvidersByName', 'queryOperationalData', 'queryProductsInformation'];
+
+function parseToolCallArguments(rawArguments) {
+  if (rawArguments === undefined || rawArguments === null) {
+    return null;
+  }
+  if (typeof rawArguments === 'string') {
+    try {
+      return JSON.parse(rawArguments || '{}');
+    } catch (parseError) {
+      throw new Error(`Invalid JSON in arguments: ${parseError.message}`);
+    }
+  }
+  if (typeof rawArguments === 'object') {
+    return rawArguments;
+  }
+  throw new Error(`Unexpected arguments type: ${typeof rawArguments}`);
+}
+
+async function invokeDataTool(toolName, params) {
+  if (toolName === 'searchProvidersByName') {
+    return searchProvidersByName(params);
+  }
+  if (toolName === 'queryOperationalData') {
+    return queryOperationalData(params);
+  }
+  if (toolName === 'queryProductsInformation') {
+    return queryProductsInformation(params);
+  }
+  return null;
+}
 
 const projectEndpoint = config.agent.projectId;
 
@@ -64,8 +101,7 @@ export async function getOrCreateAgentThread(userId) {
 export async function sendMessageToAgent(userMessage, agentId, threadId) {
   const client = await createClient();
   
-  // Ensure SQL tool exists before sending message
-  await ensureSQLToolExists(client, agentId);
+  await ensureAgentDataToolsExist(client, agentId);
   
   // Try to get existing thread, if it doesn't exist or fails, create a new one
   let threadIdentifier;
@@ -116,97 +152,70 @@ export async function sendMessageToAgent(userMessage, agentId, threadId) {
         const toolOutputs = [];
         
         for (const toolCall of toolCalls) {
-          if (toolCall.type === "function" && toolCall.function?.name === "executeSQLQuery") {
-            console.log(`🔧 Executing SQL tool call: ${toolCall.id}`);
-            console.log(`📋 Function name: ${toolCall.function?.name}`);
-            
+          const fnName = toolCall.type === 'function' ? toolCall.function?.name : null;
+
+          if (toolCall.type === 'function' && fnName && DATA_TOOL_NAMES.includes(fnName)) {
+            console.log(`🔧 Executing data tool call: ${toolCall.id} (${fnName})`);
+
             try {
-              // Azure AI Agents uses "arguments" not "parameters"
               const rawArguments = toolCall.function?.arguments || toolCall.function?.parameters;
               console.log(`📝 Raw arguments: ${rawArguments}`);
               console.log(`📝 Arguments type: ${typeof rawArguments}`);
-              
-              // Check if arguments exist at all
+
               if (rawArguments === undefined || rawArguments === null) {
                 console.error(`❌ Arguments are undefined or null`);
-                console.error(`📋 Available keys in toolCall.function:`, Object.keys(toolCall.function || {}));
-                
-                // Return a helpful error message to the agent
                 toolOutputs.push({
                   toolCallId: toolCall.id,
                   output: JSON.stringify({
                     success: false,
-                    error: 'Missing required parameters. You must provide both "tableName" (one of: "hotels", "services", "packages", "winery", "products_information", "providers") and "columns" (array of column names) as parameters when calling executeSQLQuery.',
-                    example: {
-                      tableName: 'hotels',
-                      columns: ['HotelID', 'NombreHotel', 'Categoria', 'Precio', 'Moneda'],
-                      providerSearchText: 'Acme Travel',
-                      whereClause: 'Activo = ? AND Categoria = ?',
-                      whereParams: ['ACTIVADO', '5']
+                    error: `Missing arguments for ${fnName}.`,
+                    tools: {
+                      searchProvidersByName: { required: ['nameSearch'], example: { nameSearch: 'Acme', limit: 20 } },
+                      queryOperationalData: {
+                        required: ['domainTable', 'codProveedor', 'columns'],
+                        example: {
+                          domainTable: 'hotels',
+                          codProveedor: 'PROV0001',
+                          columns: ['HotelID', 'NombreHotel', 'Precio'],
+                          whereClause: 'Activo = ?',
+                          whereParams: ['ACTIVADO']
+                        }
+                      },
+                      queryProductsInformation: {
+                        required: ['codProveedor', 'columns'],
+                        example: {
+                          codProveedor: 'PROV0001',
+                          columns: ['Nombrecategoria', 'Descripcion', 'CodProveedor']
+                        }
+                      }
                     },
                     data: []
                   })
                 });
-                continue; // Skip to next tool call
+                continue;
               }
-              
-              // Parse function arguments - handle both string and object
-              let params;
-              if (typeof rawArguments === 'string') {
-                try {
-                  params = JSON.parse(rawArguments || "{}");
-                } catch (parseError) {
-                  console.error(`❌ Error parsing arguments JSON: ${parseError.message}`);
-                  console.error(`   Raw string: ${rawArguments}`);
-                  throw new Error(`Invalid JSON in arguments: ${parseError.message}`);
-                }
-              } else if (typeof rawArguments === 'object' && rawArguments !== null) {
-                params = rawArguments;
-              } else {
-                console.error(`❌ Unexpected arguments type: ${typeof rawArguments}`);
-                params = {};
-              }
-              
-              console.log(`📊 Parsed parameters:`, JSON.stringify(params, null, 2));
-              
-              // Validate required parameters before executing
-              if (!params.tableName) {
-                console.error(`❌ Missing required parameter: tableName`);
-                console.error(`📋 Available parameters:`, Object.keys(params));
-                throw new Error('Missing required parameter: tableName. Please specify which table to query (hotels, services, packages, winery, products_information, or providers).');
-              }
-              
-              if (!params.columns || !Array.isArray(params.columns) || params.columns.length === 0) {
-                console.error(`❌ Missing or invalid parameter: columns`);
-                throw new Error('Missing required parameter: columns. Please specify an array of column names to select.');
-              }
-              
-              // Execute SQL query
-              console.log(`🚀 Executing SQL query with params:`, {
-                tableName: params.tableName,
-                columns: params.columns,
-                hasJoins: !!params.joins && params.joins.length > 0,
-                hasWhere: !!params.whereClause,
-                hasOrderBy: !!params.orderBy,
-                limit: params.limit
-              });
-              
-              const result = await executeSQLQuery(params);
 
-              const output = JSON.stringify(result);
+              const params = parseToolCallArguments(rawArguments);
+              console.log(`📊 Parsed parameters:`, JSON.stringify(params, null, 2));
+
+              const result = await invokeDataTool(fnName, params);
+
+              if (!result) {
+                throw new Error(`No handler for tool ${fnName}`);
+              }
 
               toolOutputs.push({
                 toolCallId: toolCall.id,
-                output: output
+                output: JSON.stringify(result)
               });
 
               if (result.success === false) {
-                console.warn(`⚠️ SQL tool returned error: ${result.error || 'unknown'}`);
+                console.warn(`⚠️ Data tool ${fnName} returned error: ${result.error || 'unknown'}`);
               } else {
-                console.log(`✅ SQL query completed, returned ${result.rowCount ?? 0} rows`);
+                console.log(`✅ Tool ${fnName} completed, returned ${result.rowCount ?? 0} rows`);
               }
             } catch (error) {
-              console.error(`❌ Error executing SQL tool: ${error.message}`);
+              console.error(`❌ Error executing data tool: ${error.message}`);
               console.error(`   Stack: ${error.stack}`);
               toolOutputs.push({
                 toolCallId: toolCall.id,
@@ -214,9 +223,7 @@ export async function sendMessageToAgent(userMessage, agentId, threadId) {
                   success: false,
                   error: error.message,
                   data: [],
-                  suggestion: error.message.includes('tableName') 
-                    ? 'Please specify the table name (hotels, services, packages, winery, etc.) and columns to select.' 
-                    : 'Please check the parameters and try again.'
+                  suggestion: 'Check tool parameters and call searchProvidersByName first if CodProveedor is unknown.'
                 })
               });
             }
@@ -226,7 +233,7 @@ export async function sendMessageToAgent(userMessage, agentId, threadId) {
               toolCallId: toolCall.id,
               output: JSON.stringify({
                 success: false,
-                error: `Unknown tool call type: ${toolCall.type}${toolCall.function?.name ? ` (function: ${toolCall.function.name})` : ''}`
+                error: `Unknown tool: ${toolCall.function?.name || toolCall.type}. Expected one of: ${DATA_TOOL_NAMES.join(', ')}`
               })
             });
           }
