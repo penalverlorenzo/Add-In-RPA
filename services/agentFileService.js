@@ -26,11 +26,11 @@ function validateConfiguration() {
 
 /**
  * Validates the request body
- * @param {Object} body - Request body with Hoteles, Servicios, Paquetes, Bodegas (optional), ProductsInformation (optional), Descripciones (optional)
+ * @param {Object} body - Request body with Hoteles, Servicios, Paquetes, Bodegas (optional), Proveedores (optional, DB only), ProductsInformation (optional), Descripciones (optional)
  * @throws {Error} If validation fails
  */
 function validateBody(body) {
-  const { Hoteles, Servicios, Paquetes, Bodegas, ProductsInformation, Descripciones } = body;
+  const { Hoteles, Servicios, Paquetes, Bodegas, Proveedores, ProductsInformation, Descripciones } = body;
 
   if (!Hoteles || !Array.isArray(Hoteles)) {
     throw new Error('El campo "Hoteles" es requerido y debe ser un array');
@@ -47,6 +47,10 @@ function validateBody(body) {
   // Bodegas is optional
   if (Bodegas !== undefined && !Array.isArray(Bodegas)) {
     throw new Error('El campo "Bodegas" debe ser un array si se proporciona');
+  }
+
+  if (Proveedores !== undefined && !Array.isArray(Proveedores)) {
+    throw new Error('El campo "Proveedores" debe ser un array si se proporciona');
   }
 
   // DISABLED: ProductsInformation - re-enable when in use
@@ -169,7 +173,7 @@ async function uploadFile(client, vectorStoreId, fileData) {
 
 /**
  * Updates agent files in the vector store
- * @param {Object} body - Request body with Hoteles, Servicios, Paquetes arrays, Bodegas (optional), ProductsInformation (optional), Descripciones (optional)
+ * @param {Object} body - Request body with Hoteles, Servicios, Paquetes arrays, Bodegas (optional), Proveedores (optional, DB only), ProductsInformation (optional), Descripciones (optional)
  * @returns {Promise<Object>} Result with deleted files count, uploaded files info, and summary
  */
 export async function updateAgentFiles(body) {
@@ -179,11 +183,12 @@ export async function updateAgentFiles(body) {
   // Validate body
   validateBody(body);
 
-  const { Hoteles, Servicios, Paquetes, Bodegas, ProductsInformation, Descripciones } = body;
+  const { Hoteles, Servicios, Paquetes, Bodegas, Proveedores, ProductsInformation, Descripciones } = body;
   const bodegasInfo = Bodegas && Bodegas.length > 0 ? `, ${Bodegas.length} bodegas` : '';
+  const proveedoresInfo = Proveedores && Proveedores.length > 0 ? `, ${Proveedores.length} proveedores (solo BD)` : '';
   const productsInformationInfo = ProductsInformation && ProductsInformation.length > 0 ? `, ${ProductsInformation.length} products_information` : '';
   const descripcionesInfo = Descripciones && Descripciones.length > 0 ? `, ${Descripciones.length} descripciones` : '';
-  console.log(`📊 Datos recibidos: ${Hoteles.length} hoteles, ${Servicios.length} servicios, ${Paquetes.length} paquetes${bodegasInfo}${productsInformationInfo}${descripcionesInfo}`);
+  console.log(`📊 Datos recibidos: ${Hoteles.length} hoteles, ${Servicios.length} servicios, ${Paquetes.length} paquetes${bodegasInfo}${proveedoresInfo}${productsInformationInfo}${descripcionesInfo}`);
 
   // Create Azure OpenAI client
   const client = createClient();
@@ -242,7 +247,7 @@ export async function updateAgentFiles(body) {
   let dbResults = null;
   try {
     console.log('💾 Guardando datos en base de datos MySQL...');
-    dbResults = await saveAllDataToDB(Hoteles, Servicios, Paquetes, Bodegas, ProductsInformation, Descripciones); // ProductsInformation disabled
+    dbResults = await saveAllDataToDB(Hoteles, Servicios, Paquetes, Bodegas, ProductsInformation, Descripciones, Proveedores);
     console.log('✅ Datos guardados en base de datos MySQL');
   } catch (error) {
     console.error('❌ Error guardando datos en base de datos:', error.message);
@@ -254,7 +259,8 @@ export async function updateAgentFiles(body) {
       packages: { inserted: 0, updated: 0, errors: Paquetes.length, total: Paquetes.length },
       wineries: { inserted: 0, updated: 0, errors: Bodegas?.length || 0, total: Bodegas?.length || 0 },
       products_information: { inserted: 0, updated: 0, errors: ProductsInformation?.length || 0, total: ProductsInformation?.length || 0 }, // products_information disabled
-      descriptions: { inserted: 0, updated: 0, errors: Descripciones?.length || 0, total: Descripciones?.length || 0 }
+      descriptions: { inserted: 0, updated: 0, errors: Descripciones?.length || 0, total: Descripciones?.length || 0 },
+      providers: { inserted: 0, updated: 0, errors: Proveedores?.length || 0, total: Proveedores?.length || 0 }
     };
   }
 
@@ -266,6 +272,7 @@ export async function updateAgentFiles(body) {
       servicios: Servicios.length,
       paquetes: Paquetes.length,
       bodegas: Bodegas?.length ?? 0,
+      proveedores: Proveedores?.length ?? 0,
       products_information: ProductsInformation?.length ?? 0
     },
     database: dbResults

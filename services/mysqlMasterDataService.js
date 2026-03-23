@@ -30,8 +30,6 @@ function getMySQLConnection() {
             connectionLimit: 10,
             queueLimit: 0,
             connectTimeout: 10000, // 10 seconds
-            acquireTimeout: 10000, // 10 seconds
-            timeout: 10000, // 10 seconds
             enableKeepAlive: true,
             keepAliveInitialDelay: 0
         };

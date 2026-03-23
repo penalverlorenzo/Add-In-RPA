@@ -27,8 +27,6 @@ async function getMySQLPool() {
     connectionLimit: 10,
     queueLimit: 0,
     connectTimeout: 10000,
-    acquireTimeout: 10000,
-    timeout: 10000,
     enableKeepAlive: true,
     keepAliveInitialDelay: 0
   };
@@ -47,11 +45,85 @@ async function getMySQLPool() {
  * @param {string} tableName - Table name to validate
  * @returns {boolean} True if table is allowed
  */
-// products_information disabled for now; re-add when products_information is in use
-const ALLOWED_TABLES = ['hotels', 'services', 'packages', 'winery', 'products_information'];
+const ALLOWED_TABLES = ['hotels', 'services', 'packages', 'winery', 'products_information', 'providers'];
+
+/** Main domain tables that may carry CodProveedor and should get LEFT JOIN to products_information */
+const MAIN_TABLES_AUTO_PRODUCT_JOIN = ['hotels', 'services', 'packages', 'winery'];
+
+const MAIN_ALIAS = 'm';
+const PI_ALIAS = 'pi';
 
 function isValidTableName(tableName) {
   return ALLOWED_TABLES.includes(tableName.toLowerCase());
+}
+
+function escapeRegex(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * @param {import('mysql2/promise').Pool} pool
+ * @param {string} tableName
+ * @returns {Promise<string[]>}
+ */
+async function getTableColumnNames(pool, tableName) {
+  const [rows] = await pool.query(
+    `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
+     ORDER BY ORDINAL_POSITION`,
+    [config.mysql.database, tableName]
+  );
+  return rows.map((r) => r.COLUMN_NAME);
+}
+
+/**
+ * Prefix unqualified column references in WHERE/ORDER BY with main alias (e.g. Activo -> m.Activo).
+ * Skips tokens already prefixed with m. or pi.
+ * @param {string} fragment
+ * @param {string[]} mainColumnNames
+ * @returns {string}
+ */
+function qualifyClauseIdentifiersForMain(fragment, mainColumnNames) {
+  if (!fragment || typeof fragment !== 'string') return fragment;
+  let result = fragment;
+  const sorted = [...mainColumnNames].sort((a, b) => b.length - a.length);
+  const mainPrefix = `${MAIN_ALIAS}.`;
+  const piPrefix = `${PI_ALIAS}.`;
+  for (const col of sorted) {
+    if (!col || col.includes('.')) continue;
+    result = result.replace(new RegExp(`\\b${escapeRegex(col)}\\b`, 'g'), (match, offset, string) => {
+      if (string.slice(offset - mainPrefix.length, offset) === mainPrefix) return match;
+      if (string.slice(offset - piPrefix.length, offset) === piPrefix) return match;
+      return `${MAIN_ALIAS}.${match}`;
+    });
+  }
+  return result;
+}
+
+/**
+ * Whether to auto LEFT JOIN products_information on CodProveedor for this query.
+ * @param {Object} params
+ * @param {string} validTableName - normalized lowercase main table
+ * @param {Array} joins
+ * @returns {boolean}
+ */
+function shouldAutoJoinProductsInformation(params, validTableName, joins) {
+  if (params.includeProductInformation === false) {
+    return false;
+  }
+  if (!MAIN_TABLES_AUTO_PRODUCT_JOIN.includes(validTableName)) {
+    return false;
+  }
+  if (validTableName === 'products_information' || validTableName === 'providers') {
+    return false;
+  }
+  const hasPiJoin = (joins || []).some(
+    (j) => j.table && j.table.toLowerCase() === 'products_information'
+  );
+  if (hasPiJoin) {
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -60,7 +132,6 @@ function isValidTableName(tableName) {
  * @returns {boolean} True if column name is valid
  */
 function isValidColumnName(columnName) {
-  // Allow alphanumeric, underscore, and dot (for table.column)
   return /^[a-zA-Z0-9_.]+$/.test(columnName);
 }
 
@@ -70,8 +141,81 @@ function isValidColumnName(columnName) {
  * @returns {boolean} True if ORDER BY is valid
  */
 function isValidOrderBy(orderBy) {
-  // Allow alphanumeric, underscore, dot, space, ASC, DESC, comma
   return /^[a-zA-Z0-9_.\s,]+(ASC|DESC)?$/i.test(orderBy.trim());
+}
+
+/**
+ * Bare identifiers referenced in ORDER BY (last segment if table-qualified).
+ * @param {string} orderBy
+ * @returns {string[]}
+ */
+function parseOrderByColumnIdentifiers(orderBy) {
+  if (!orderBy || typeof orderBy !== 'string') return [];
+  const segments = orderBy.split(',').map((s) => s.trim()).filter(Boolean);
+  const ids = [];
+  for (const seg of segments) {
+    let s = seg.replace(/\s+(ASC|DESC)\s*$/i, '').trim();
+    if (!s) continue;
+    s = s.replace(/`/g, '');
+    const last = s.includes('.') ? s.split('.').pop() : s;
+    if (last && /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(last)) {
+      ids.push(last);
+    }
+  }
+  return ids;
+}
+
+/**
+ * @param {string} id - bare identifier from ORDER BY
+ * @param {string[]} mainCols
+ * @param {string[]} piCols - products_information columns when auto-join applies
+ * @returns {boolean}
+ */
+function isAllowedOrderIdentifier(id, mainCols, piCols) {
+  const idLower = id.toLowerCase();
+  if ((mainCols || []).some((c) => c && c.toLowerCase() === idLower)) {
+    return true;
+  }
+  for (const c of piCols || []) {
+    if (!c) continue;
+    if (c.toLowerCase() === idLower) return true;
+    if (`pi_${c}`.toLowerCase() === idLower) return true;
+  }
+  return false;
+}
+
+/**
+ * Rejects invented sort columns so the model must stick to INFORMATION_SCHEMA-backed names.
+ * @param {string} orderBy
+ * @param {string[]} mainCols
+ * @param {string[]} piCols
+ */
+function validateOrderByAgainstSchema(orderBy, mainCols, piCols) {
+  const segments = orderBy.split(',').map((s) => s.trim()).filter(Boolean);
+  for (const seg of segments) {
+    const s = seg.replace(/\s+(ASC|DESC)\s*$/i, '').trim();
+    if (s && /^\d+$/.test(s)) {
+      throw new Error(
+        'ORDER BY column positions are not allowed; use only real column names from the table schema.'
+      );
+    }
+  }
+  const identifiers = parseOrderByColumnIdentifiers(orderBy);
+  if (identifiers.length === 0) {
+    return;
+  }
+  const unknown = [...new Set(identifiers)].filter(
+    (id) => !isAllowedOrderIdentifier(id, mainCols, piCols)
+  );
+  if (unknown.length > 0) {
+    const hint =
+      piCols && piCols.length > 0
+        ? ' or on joined product data (DB column names or pi_<column> aliases).'
+        : '.';
+    throw new Error(
+      `Invalid ORDER BY: unknown column(s): ${unknown.join(', ')}. Use only columns that exist on the queried table${hint}`
+    );
+  }
 }
 
 /**
@@ -84,56 +228,62 @@ function isValidOrderBy(orderBy) {
  * @param {Array} params.whereParams - Parameters for WHERE clause
  * @param {string} params.orderBy - Optional ORDER BY clause
  * @param {number} params.limit - Optional LIMIT
+ * @param {boolean} [params.includeProductInformation] - If false, skip auto LEFT JOIN to products_information (default true)
  * @returns {Promise<Object>} Query results
  */
 export async function executeSQLQuery(params) {
   console.log(`🔍 executeSQLQuery called with params:`, JSON.stringify(params, null, 2));
-  
-  // Validate params object
+
   if (!params || typeof params !== 'object') {
     throw new Error('Parameters must be an object');
   }
-  
-  const { tableName, columns, joins = [], whereClause, whereParams = [], orderBy, limit } = params;
 
-  // Validate table name
+  const {
+    tableName,
+    columns,
+    joins = [],
+    whereClause,
+    whereParams = [],
+    orderBy,
+    limit
+  } = params;
+
   if (!tableName || typeof tableName !== 'string') {
-    console.error(`❌ Invalid tableName:`, { 
-      tableName, 
-      type: typeof tableName, 
-      isNull: tableName === null, 
-      isUndefined: tableName === undefined 
+    console.error(`❌ Invalid tableName:`, {
+      tableName,
+      type: typeof tableName,
+      isNull: tableName === null,
+      isUndefined: tableName === undefined
     });
-    throw new Error('Table name is required and must be a string. Please specify one of: hotels, services, packages, or winery.');
+    throw new Error(
+      'Table name is required and must be a string. Please specify one of: hotels, services, packages, winery, providers, or products_information.'
+    );
   }
 
-  // Normalize table name to lowercase for comparison
   const normalizedTableName = tableName.toLowerCase();
 
   if (!isValidTableName(normalizedTableName)) {
     console.error(`❌ Invalid table name: ${tableName}. Allowed: ${ALLOWED_TABLES.join(', ')}`);
     throw new Error(`Invalid table name: "${tableName}". Allowed tables are: ${ALLOWED_TABLES.join(', ')}.`);
   }
-  
-  // Use normalized name for query
+
   const validTableName = normalizedTableName;
 
-  // Validate columns
   if (!columns || !Array.isArray(columns) || columns.length === 0) {
     throw new Error('At least one column must be specified as an array');
   }
 
-  // Validate each column name
   for (const col of columns) {
     if (typeof col !== 'string') {
       throw new Error(`Column names must be strings. Invalid column: ${col}`);
     }
     if (!isValidColumnName(col)) {
-      throw new Error(`Invalid column name format: ${col}. Only alphanumeric, underscore, and dot are allowed.`);
+      throw new Error(
+        `Invalid column name format: ${col}. Only alphanumeric, underscore, and dot are allowed.`
+      );
     }
   }
 
-  // Validate joins
   if (joins && !Array.isArray(joins)) {
     throw new Error('Joins must be an array');
   }
@@ -145,29 +295,27 @@ export async function executeSQLQuery(params) {
       }
       const normalizedJoinTable = join.table.toLowerCase();
       if (!isValidTableName(normalizedJoinTable)) {
-        throw new Error(`Invalid JOIN table name: ${join.table}. Allowed tables are: ${ALLOWED_TABLES.join(', ')}.`);
+        throw new Error(
+          `Invalid JOIN table name: ${join.table}. Allowed tables are: ${ALLOWED_TABLES.join(', ')}.`
+        );
       }
       if (!join.on || typeof join.on !== 'string') {
         throw new Error('JOIN must have a valid ON clause');
       }
-      // Validate ON clause contains only safe characters (alphanumeric, underscore, dot, space, =, <, >, <=, >=, !=)
       if (!/^[a-zA-Z0-9_.\s=<>!]+$/.test(join.on)) {
         throw new Error(`Invalid JOIN ON clause format: ${join.on}`);
       }
     }
   }
 
-  // Validate WHERE clause
   if (whereClause && typeof whereClause !== 'string') {
     throw new Error('WHERE clause must be a string');
   }
 
-  // Validate WHERE params
   if (whereParams && !Array.isArray(whereParams)) {
     throw new Error('WHERE parameters must be an array');
   }
 
-  // Validate ORDER BY
   if (orderBy && typeof orderBy !== 'string') {
     throw new Error('ORDER BY must be a string');
   }
@@ -176,13 +324,12 @@ export async function executeSQLQuery(params) {
     throw new Error(`Invalid ORDER BY clause format: ${orderBy}`);
   }
 
-  // Validate and limit results for safety
-  let maxLimit = 1000; // Default limit
+  let maxLimit = 1000;
   if (limit !== undefined && limit !== null) {
     if (typeof limit !== 'number' || limit < 0) {
       throw new Error('LIMIT must be a non-negative number');
     }
-    maxLimit = Math.min(limit, 1000); // Cap at 1000
+    maxLimit = Math.min(limit, 1000);
   }
 
   const pool = await getMySQLPool();
@@ -191,72 +338,189 @@ export async function executeSQLQuery(params) {
   }
 
   try {
-    // Build SELECT clause with safe column names using placeholders
-    const selectClause = columns.map(() => `??`).join(', ');
-    const selectValues = columns;
+    let useProductJoin = false;
+    let mainColumnNames = [];
+    let piColsForSelect = [];
 
-    // Build FROM clause
-    let query = `SELECT ${selectClause} FROM ??`;
-    let queryParams = [...selectValues, validTableName];
-
-    // Build JOIN clauses
-    if (joins && joins.length > 0) {
-      for (const join of joins) {
-        const joinType = (join.type || 'INNER').toUpperCase();
-        if (!['INNER', 'LEFT', 'RIGHT', 'FULL'].includes(joinType)) {
-          throw new Error(`Invalid JOIN type: ${join.type}. Must be INNER, LEFT, RIGHT, or FULL`);
-        }
-        
-        // Normalize join table name
-        const normalizedJoinTable = join.table.toLowerCase();
-        
-        // Parse ON clause to use placeholders for column names
-        // ON clause format: "table1.column1 = table2.column2" or "column1 = column2"
-        // We'll try to replace column references with placeholders
-        let onClause = join.on;
-        const onParts = onClause.split(/\s*(=|<|>|<=|>=|!=)\s*/);
-        const onPlaceholders = [];
-        
-        // Simple parsing: if it looks like "table.column" or "column", use placeholder
-        for (let i = 0; i < onParts.length; i += 2) {
-          const part = onParts[i]?.trim();
-          if (part && isValidColumnName(part)) {
-            onPlaceholders.push(part);
-            onParts[i] = '??';
-          }
-        }
-        
-        if (onPlaceholders.length > 0) {
-          onClause = onParts.join(' ');
-        }
-        
-        query += ` ${joinType} JOIN ?? ON ${onClause}`;
-        queryParams.push(normalizedJoinTable);
-        if (onPlaceholders.length > 0) {
-          queryParams = queryParams.concat(onPlaceholders);
-        }
+    if (shouldAutoJoinProductsInformation(params, validTableName, joins)) {
+      const [mainCols, piCols] = await Promise.all([
+        getTableColumnNames(pool, validTableName),
+        getTableColumnNames(pool, 'products_information')
+      ]);
+      const hasMain = mainCols.includes('CodProveedor');
+      const hasPi = piCols.includes('CodProveedor');
+      if (hasMain && hasPi) {
+        useProductJoin = true;
+        mainColumnNames = mainCols;
+        piColsForSelect = piCols;
+        console.log(
+          `🔗 Auto LEFT JOIN: ${validTableName} AS ${MAIN_ALIAS} -> products_information AS ${PI_ALIAS} ON CodProveedor`
+        );
+      } else {
+        console.log(
+          `ℹ️ Skipping auto product JOIN: CodProveedor on main=${hasMain}, products_information=${hasPi}`
+        );
       }
     }
 
-    // Build WHERE clause (use placeholders for values)
-    if (whereClause) {
-      query += ` WHERE ${whereClause}`;
-      queryParams = queryParams.concat(whereParams);
-    }
-
-    // Build ORDER BY clause (validated but not parameterized as it's a clause, not a value)
+    let mainColsForOrderBy = mainColumnNames;
     if (orderBy) {
-      query += ` ORDER BY ${orderBy}`;
+      if (mainColsForOrderBy.length === 0) {
+        mainColsForOrderBy = await getTableColumnNames(pool, validTableName);
+      }
+      validateOrderByAgainstSchema(
+        orderBy,
+        mainColsForOrderBy,
+        useProductJoin ? piColsForSelect : []
+      );
     }
 
-    // Build LIMIT clause
-    if (maxLimit) {
-      query += ` LIMIT ?`;
-      queryParams.push(maxLimit);
+    let query;
+    let queryParams;
+
+    if (useProductJoin) {
+      const selectFragments = [];
+      queryParams = [];
+
+      for (const col of columns) {
+        if (col.includes('.')) {
+          selectFragments.push('??');
+          queryParams.push(col);
+        } else {
+          selectFragments.push(`\`${MAIN_ALIAS}\`.??`);
+          queryParams.push(col);
+        }
+      }
+
+      for (const piCol of piColsForSelect) {
+        const outAlias = `pi_${piCol}`;
+        selectFragments.push(`\`${PI_ALIAS}\`.?? AS ??`);
+        queryParams.push(piCol, outAlias);
+      }
+
+      query = `SELECT ${selectFragments.join(', ')} FROM ?? AS \`${MAIN_ALIAS}\``;
+      queryParams.push(validTableName);
+
+      query += ` LEFT JOIN ?? AS \`${PI_ALIAS}\` ON \`${MAIN_ALIAS}\`.\`CodProveedor\` = \`${PI_ALIAS}\`.\`CodProveedor\``;
+      queryParams.push('products_information');
+
+      if (joins && joins.length > 0) {
+        for (const join of joins) {
+          const joinType = (join.type || 'INNER').toUpperCase();
+          if (!['INNER', 'LEFT', 'RIGHT', 'FULL'].includes(joinType)) {
+            throw new Error(`Invalid JOIN type: ${join.type}. Must be INNER, LEFT, RIGHT, or FULL`);
+          }
+
+          const normalizedJoinTable = join.table.toLowerCase();
+          let onClause = join.on;
+          const onParts = onClause.split(/\s*(=|<|>|<=|>=|!=)\s*/);
+          const onPlaceholders = [];
+
+          for (let i = 0; i < onParts.length; i += 2) {
+            const part = onParts[i]?.trim();
+            if (part && isValidColumnName(part)) {
+              onPlaceholders.push(part);
+              onParts[i] = '??';
+            }
+          }
+
+          if (onPlaceholders.length > 0) {
+            onClause = onParts.join(' ');
+          }
+
+          query += ` ${joinType} JOIN ?? ON ${onClause}`;
+          queryParams.push(normalizedJoinTable);
+          if (onPlaceholders.length > 0) {
+            queryParams = queryParams.concat(onPlaceholders);
+          }
+        }
+      }
+
+      let qualifiedWhere = whereClause;
+      if (whereClause && mainColumnNames.length > 0) {
+        qualifiedWhere = qualifyClauseIdentifiersForMain(whereClause, mainColumnNames);
+      }
+
+      if (qualifiedWhere) {
+        query += ` WHERE ${qualifiedWhere}`;
+        queryParams = queryParams.concat(whereParams);
+      }
+
+      let qualifiedOrderBy = orderBy;
+      if (orderBy && mainColumnNames.length > 0) {
+        qualifiedOrderBy = qualifyClauseIdentifiersForMain(orderBy, mainColumnNames);
+      }
+
+      if (qualifiedOrderBy) {
+        if (!isValidOrderBy(qualifiedOrderBy)) {
+          throw new Error(`Invalid ORDER BY clause format after qualification: ${qualifiedOrderBy}`);
+        }
+        query += ` ORDER BY ${qualifiedOrderBy}`;
+      }
+
+      if (maxLimit) {
+        query += ` LIMIT ?`;
+        queryParams.push(maxLimit);
+      }
+    } else {
+      const selectClause = columns.map(() => `??`).join(', ');
+      const selectValues = columns;
+
+      query = `SELECT ${selectClause} FROM ??`;
+      queryParams = [...selectValues, validTableName];
+
+      if (joins && joins.length > 0) {
+        for (const join of joins) {
+          const joinType = (join.type || 'INNER').toUpperCase();
+          if (!['INNER', 'LEFT', 'RIGHT', 'FULL'].includes(joinType)) {
+            throw new Error(`Invalid JOIN type: ${join.type}. Must be INNER, LEFT, RIGHT, or FULL`);
+          }
+
+          const normalizedJoinTable = join.table.toLowerCase();
+          let onClause = join.on;
+          const onParts = onClause.split(/\s*(=|<|>|<=|>=|!=)\s*/);
+          const onPlaceholders = [];
+
+          for (let i = 0; i < onParts.length; i += 2) {
+            const part = onParts[i]?.trim();
+            if (part && isValidColumnName(part)) {
+              onPlaceholders.push(part);
+              onParts[i] = '??';
+            }
+          }
+
+          if (onPlaceholders.length > 0) {
+            onClause = onParts.join(' ');
+          }
+
+          query += ` ${joinType} JOIN ?? ON ${onClause}`;
+          queryParams.push(normalizedJoinTable);
+          if (onPlaceholders.length > 0) {
+            queryParams = queryParams.concat(onPlaceholders);
+          }
+        }
+      }
+
+      if (whereClause) {
+        query += ` WHERE ${whereClause}`;
+        queryParams = queryParams.concat(whereParams);
+      }
+
+      if (orderBy) {
+        query += ` ORDER BY ${orderBy}`;
+      }
+
+      if (maxLimit) {
+        query += ` LIMIT ?`;
+        queryParams.push(maxLimit);
+      }
     }
 
     console.log(`🔍 Executing SQL query:`);
     console.log(`   Query: ${query}`);
+    console.log(
+      `   Note: ?? are identifier placeholders filled from bound parameters (safe); values use ?.`
+    );
     console.log(`   Parameters count: ${queryParams.length}`);
     console.log(`   Table: ${validTableName}`);
     console.log(`   Columns: ${columns.join(', ')}`);
@@ -266,14 +530,14 @@ export async function executeSQLQuery(params) {
     return {
       success: true,
       data: rows,
-      rowCount: rows.length
+      rowCount: rows.length,
+      ...(useProductJoin ? { productInformationJoinApplied: true } : {})
     };
   } catch (error) {
     console.error('❌ Error executing SQL query:', error.message);
     console.error('   Error code:', error.code);
     console.error('   Error errno:', error.errno);
-    
-    // Return user-friendly error message
+
     let errorMessage = error.message;
     if (error.code === 'ER_NO_SUCH_TABLE') {
       errorMessage = `Table does not exist: ${tableName}`;
@@ -282,7 +546,7 @@ export async function executeSQLQuery(params) {
     } else if (error.code === 'ER_PARSE_ERROR') {
       errorMessage = `SQL syntax error: ${error.message}`;
     }
-    
+
     return {
       success: false,
       error: errorMessage,
@@ -302,10 +566,9 @@ export async function ensureSQLToolExists(client, agentId) {
     const agent = await client.getAgent(agentId);
     const toolName = 'executeSQLQuery';
 
-    // Check if tool already exists
     if (agent.tools && Array.isArray(agent.tools)) {
-      const toolExists = agent.tools.some(tool => 
-        tool.type === 'function' && tool.function?.name === toolName
+      const toolExists = agent.tools.some(
+        (tool) => tool.type === 'function' && tool.function?.name === toolName
       );
 
       if (toolExists) {
@@ -314,21 +577,28 @@ export async function ensureSQLToolExists(client, agentId) {
       }
     }
 
-    // Create the SQL tool definition
     const sqlTool = ToolUtility.createFunctionTool({
       name: toolName,
-      description: 'Executes SQL SELECT queries on the MySQL database. REQUIRED parameters: tableName (must be "hotels", "services", "packages", or "winery") and columns (array of column names). Supports JOINs, WHERE clauses, ORDER BY, and LIMIT. Returns query results as JSON. Always filter by Activo = "ACTIVADO" when that column exists.',
+      description:
+        'Executes SQL SELECT queries on MySQL. REQUIRED: tableName and columns (array). For main tables hotels, services, packages, and winery, the server automatically LEFT JOINs products_information on CodProveedor when both tables have that column; product columns are returned with pi_ prefixes (e.g. pi_InfoID). Set includeProductInformation to false to skip that join. Use WHERE with column names as usual (they are qualified to the main table when the auto-join runs). Always filter by Activo = "ACTIVADO" when that column exists on the main table.',
       parameters: {
         type: 'object',
         properties: {
           tableName: {
             type: 'string',
-            description: 'REQUIRED: Name of the main table for the FROM clause. Must be exactly one of: "hotels", "services", "packages", or "winery" (lowercase).'
+            description:
+              'Main table: hotels, services, packages, winery, products_information, or providers (lowercase).'
           },
           columns: {
             type: 'array',
             items: { type: 'string' },
-            description: 'REQUIRED: Array of column names to select. Example: ["HotelID", "NombreHotel", "Precio", "Moneda"] for hotels table, or ["ServicioID", "NombreServicio", "Precio"] for services table.'
+            description:
+              'Columns to select from the main table. When auto product join applies, all products_information columns are also returned as pi_<columnName>.'
+          },
+          includeProductInformation: {
+            type: 'boolean',
+            description:
+              'Optional. Default true. If false, disables automatic LEFT JOIN to products_information for hotels/services/packages/winery.'
           },
           joins: {
             type: 'array',
@@ -351,34 +621,34 @@ export async function ensureSQLToolExists(client, agentId) {
               },
               required: ['table', 'on']
             },
-            description: 'Array of optional JOIN clauses'
+            description: 'Optional extra JOIN clauses (after any automatic product join)'
           },
           whereClause: {
             type: 'string',
-            description: 'Optional WHERE clause condition (e.g., "status = ? AND created_at > ?"). Use ? for parameter placeholders.'
+            description:
+              'Optional WHERE (e.g., "Activo = ?"). Unqualified column names are scoped to the main table when auto-join is used.'
           },
           whereParams: {
             type: 'array',
             items: { type: ['string', 'number', 'boolean'] },
-            description: 'Parameters for the WHERE clause placeholders'
+            description: 'Parameters for WHERE placeholders'
           },
           orderBy: {
             type: 'string',
-            description: 'Optional ORDER BY clause (e.g., "created_at DESC")'
+            description:
+              'Optional ORDER BY using ONLY columns that exist on the main table (or products_information columns / pi_<col> aliases when the automatic product join applies). Do not invent names (e.g. Dias) unless that column exists in the schema.'
           },
           limit: {
             type: 'number',
-            description: 'Optional limit for number of results (max 1000)'
+            description: 'Max rows (max 1000)'
           }
         },
         required: ['tableName', 'columns']
       }
     });
 
-    // Get existing tools
     const existingTools = agent.tools || [];
 
-    // Update agent with new tool
     await client.updateAgent(agentId, {
       tools: [...existingTools, sqlTool.definition]
     });
