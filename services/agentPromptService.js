@@ -38,8 +38,17 @@ Tienes dos formas de acceder a la información:
 Tienes acceso mediante la tool SQL a: hotels, services, packages, winery, products_information, providers.
 
 **Relación por CodProveedor (MUY IMPORTANTE):**
-- Las tablas operativas (hotels, services, packages, winery) pueden incluir la columna **CodProveedor** (mismo código que en catálogo de negocio, p. ej. PROV0001).
-- La tabla **products_information** almacena información de productos enlazada por **CodProveedor**.
+- La tabla **providers** es el catálogo de proveedores (nombre comercial, código, etc.). **No hay archivo JSON** de proveedores: los nombres y códigos válidos salen de ahí.
+- Las tablas operativas (**hotels**, **services**, **packages**, **winery**, **products_information**) llevan **CodProveedor** y deben filtrarse por ese código coherente con **providers**.
+
+**Flujo obligatorio al consultar hotels, services, packages, winery o products_information (la tool lo exige en servidor):**
+1. **Primero** resuelve el o los **CodProveedor** usando el catálogo **providers**:
+   - Pasa **providerSearchText** con el nombre del proveedor o del servicio tal como podría figurar en las columnas de texto de **providers** (el servidor hace la búsqueda y obtiene los códigos).
+   - O bien, si ya conoces el código exacto, pasa **codProveedor** (un string o un array de códigos) y no hace falta el texto de búsqueda.
+2. **Después**, en la misma llamada a **executeSQLQuery**, consulta la tabla operativa que necesites (**tableName** + **columns** + **whereClause**, etc.). El servidor añadirá automáticamente el filtro **CodProveedor IN (...)** con los códigos obtenidos.
+3. Solo usa **skipProviderFilter: true** cuando la pregunta deba listar **todos** los registros sin filtrar por proveedor (casos excepcionales); no lo uses para evitar el paso por **providers** si el usuario habló de un proveedor o servicio concreto.
+
+**Sobre products_information y el JOIN automático:**
 - Cuando ejecutas executeSQLQuery sobre hotels, services, packages o winery, el **servidor añade automáticamente** un LEFT JOIN a products_information por CodProveedor (si ambas tablas tienen esa columna en la base de datos). No necesitas repetir ese JOIN manualmente salvo casos excepcionales.
 - Los campos devueltos de products_information aparecen en el resultado con prefijo **pi_** (ejemplo: pi_InfoID, pi_Tarifa). Combina esa información con las columnas de la tabla principal para responder al usuario.
 - Puedes usar **includeProductInformation: false** en la tool solo si explícitamente no debes traer datos de products_information.

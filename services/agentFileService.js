@@ -84,14 +84,11 @@ function createClient() {
  * @returns {Promise<number>} Number of deleted files
  */
 async function deleteExistingFiles(client, vectorStoreId) {
-  console.log('🔍 Listando archivos existentes en el vector store...');
   const existingFiles = await client.files.list();
   const filesToDelete = existingFiles.data || [];
   
-  console.log(`📋 Encontrados ${filesToDelete.length} archivos existentes`);
 
   if (filesToDelete.length > 0) {
-    console.log('🗑️ Eliminando archivos existentes de Azure OpenAI...');
     const deletePromises = filesToDelete.map(async (file) => {
       try {
         // Get the file ID (it might be file.id or file.file_id depending on the API response)
@@ -101,17 +98,13 @@ async function deleteExistingFiles(client, vectorStoreId) {
         // This will automatically remove it from the vector store and free up storage space
         await client.vectorStores.files.del(vectorStoreId, fileId);
         await client.files.del(fileId);
-        console.log(`   ✅ Archivo eliminado de Azure OpenAI: ${fileId}`);
       } catch (error) {
-        console.error(`   ❌ Error al eliminar archivo ${file.file_id || file.id}:`, error.message);
         // Continuar aunque falle la eliminación de un archivo
       }
     });
     
     await Promise.all(deletePromises);
-    console.log('✅ Archivos existentes eliminados de Azure OpenAI');
   } else {
-    console.log('ℹ️ No hay archivos existentes para eliminar');
   }
 
   return filesToDelete.length;
@@ -135,21 +128,16 @@ async function uploadFile(client, vectorStoreId, fileData) {
     const fileStream = fs.createReadStream(tempFilePath);
 
     // Upload file with purpose 'assistants'
-    console.log(`   📤 Subiendo ${fileData.name}...`);
     const uploadedFile = await client.files.create({
       file: fileStream,
       purpose: 'assistants'
     });
-
-    console.log(`   ✅ Archivo subido: ${uploadedFile.id} (${fileData.name})`);
 
     // Associate file to vector store
     const vectorStoreFile = await client.vectorStores.files.create(vectorStoreId, {
       file_id: uploadedFile.id
     });
 
-    console.log(`   ✅ Archivo asociado al vector store: ${vectorStoreFile.id}`);
-    
     return {
       fileName: fileData.name,
       fileId: uploadedFile.id,
@@ -157,7 +145,6 @@ async function uploadFile(client, vectorStoreId, fileData) {
       itemCount: fileData.data.length
     };
   } catch (error) {
-    console.error(`   ❌ Error al subir ${fileData.name}:`, error.message);
     throw new Error(`Error al subir ${fileData.name}: ${error.message}`);
   } finally {
     // Clean up temporary file if it exists
@@ -198,7 +185,6 @@ export async function updateAgentFiles(body) {
   const deletedFilesCount = await deleteExistingFiles(client, vectorStoreId);
 
   // 2. Create JSON files in memory
-  console.log('📝 Creando archivos JSON...');
   const filesToUpload = [
     {
       name: 'hoteles.json',
@@ -233,7 +219,6 @@ export async function updateAgentFiles(body) {
    }
 
   // 3. Upload files to vector store
-  console.log('📤 Subiendo archivos al vector store...');
   const uploadedFiles = [];
 
   for (const fileData of filesToUpload) {
@@ -241,14 +226,10 @@ export async function updateAgentFiles(body) {
     uploadedFiles.push(uploadedFileInfo);
   }
 
-  console.log('✅ Todos los archivos han sido subidos exitosamente');
-
   // 4. Save data to MySQL database
   let dbResults = null;
   try {
-    console.log('💾 Guardando datos en base de datos MySQL...');
     dbResults = await saveAllDataToDB(Hoteles, Servicios, Paquetes, Bodegas, ProductsInformation, Descripciones, Proveedores);
-    console.log('✅ Datos guardados en base de datos MySQL');
   } catch (error) {
     console.error('❌ Error guardando datos en base de datos:', error.message);
     // Don't fail the entire operation if DB save fails

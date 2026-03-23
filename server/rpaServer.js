@@ -1096,8 +1096,6 @@ app.post('/webhook/onedrive', async (req, res) => {
             continue;
           }
 
-          console.log(`✅ File found: ${fileMetadata.name} (ID: ${fileMetadata.id})`);
-
           // Verify it's the correct file (double check)
           if (fileMetadata.name !== expectedFileName) {
             console.log(`⏭️ File name mismatch: found "${fileMetadata.name}", expected "${expectedFileName}"`);
@@ -1122,13 +1120,10 @@ app.post('/webhook/onedrive', async (req, res) => {
 
           const arrayBuffer = await downloadResponse.arrayBuffer();
           const fileBuffer = Buffer.from(arrayBuffer);
-          console.log(`✅ File downloaded: ${fileMetadata.name} (${fileBuffer.length} bytes)`);
-          
           // Convert Excel to JSON
           const jsonData = await convertExcelToJson(fileBuffer);
           
           // Process the JSON data through the existing flow
-          console.log('🔄 Processing JSON data through agent files update...');
           const result = await updateAgentFilesAgents(jsonData);
           
           console.log('✅ File processed successfully:', {

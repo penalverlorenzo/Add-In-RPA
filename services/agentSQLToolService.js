@@ -50,6 +50,9 @@ const ALLOWED_TABLES = ['hotels', 'services', 'packages', 'winery', 'products_in
 /** Main domain tables that may carry CodProveedor and should get LEFT JOIN to products_information */
 const MAIN_TABLES_AUTO_PRODUCT_JOIN = ['hotels', 'services', 'packages', 'winery'];
 
+/** Tables that must scope rows by CodProveedor via providers lookup or explicit code (not the providers catalog table itself). */
+const TABLES_REQUIRING_PROVIDER_LINK = ['hotels', 'services', 'packages', 'winery', 'products_information'];
+
 const MAIN_ALIAS = 'm';
 const PI_ALIAS = 'pi';
 
@@ -219,6 +222,90 @@ function validateOrderByAgainstSchema(orderBy, mainCols, piCols) {
 }
 
 /**
+ * VARCHAR/TEXT columns on providers used to match providerSearchText (excludes id).
+ * @param {import('mysql2/promise').Pool} pool
+ * @returns {Promise<string[]>}
+ */
+async function getProviderTextLikeColumns(pool) {
+  const [rows] = await pool.query(
+    `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'providers'
+     AND DATA_TYPE IN ('varchar', 'char', 'text', 'mediumtext', 'longtext')
+     ORDER BY ORDINAL_POSITION`,
+    [config.mysql.database]
+  );
+  return rows.map((r) => r.COLUMN_NAME).filter((c) => c && String(c).toLowerCase() !== 'id');
+}
+
+function escapeSqlLikePattern(s) {
+  return String(s).replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+}
+
+/**
+ * DISTINCT CodProveedor where any text column matches search (LIKE %search%).
+ * @param {import('mysql2/promise').Pool} pool
+ * @param {string} searchText
+ * @returns {Promise<string[]>}
+ */
+async function searchCodProveedoresByText(pool, searchText) {
+  const cols = await getProviderTextLikeColumns(pool);
+  if (cols.length === 0) {
+    throw new Error('No text columns found on providers table for name search.');
+  }
+  const like = `%${escapeSqlLikePattern(searchText)}%`;
+  const parts = cols.map(() => '?? LIKE ?').join(' OR ');
+  const query = `SELECT DISTINCT \`CodProveedor\` FROM \`providers\` WHERE ${parts}`;
+  const bind = [];
+  for (const c of cols) {
+    bind.push(c, like);
+  }
+  const [rows] = await pool.query(query, bind);
+  return rows
+    .map((r) => r.CodProveedor)
+    .filter((v) => v != null && String(v).trim() !== '');
+}
+
+/**
+ * Resolves which CodProveedor values scope the main query.
+ * @param {import('mysql2/promise').Pool} pool
+ * @param {Object} params
+ * @returns {Promise<string[]|null>} codes to filter, or null when skipProviderFilter
+ */
+async function resolveProviderCodProveedor(pool, params) {
+  if (params.skipProviderFilter === true) {
+    return null;
+  }
+  const { codProveedor, providerSearchText } = params;
+  if (codProveedor !== undefined && codProveedor !== null) {
+    const arr = Array.isArray(codProveedor) ? codProveedor : [codProveedor];
+    const out = arr.map((c) => String(c).trim()).filter(Boolean);
+    if (out.length === 0) {
+      throw new Error('codProveedor was provided but is empty.');
+    }
+    return out;
+  }
+  if (providerSearchText !== undefined && providerSearchText !== null && String(providerSearchText).trim() !== '') {
+    return searchCodProveedoresByText(pool, String(providerSearchText).trim());
+  }
+  throw new Error(
+    'For hotels, services, packages, winery, and products_information you must supply one of: providerSearchText (search provider/service name in providers), codProveedor (known code(s)), or skipProviderFilter: true to list all rows without a provider filter.'
+  );
+}
+
+/**
+ * @param {import('mysql2/promise').Pool} pool
+ * @param {string} tableName
+ */
+async function assertTableHasCodProveedor(pool, tableName) {
+  const cols = await getTableColumnNames(pool, tableName);
+  if (!cols.includes('CodProveedor')) {
+    throw new Error(
+      `Table "${tableName}" has no CodProveedor column; cannot apply provider filter. Query providers directly instead.`
+    );
+  }
+}
+
+/**
  * Executes a SQL query safely
  * @param {Object} params - Query parameters
  * @param {string} params.tableName - Main table name
@@ -229,6 +316,9 @@ function validateOrderByAgainstSchema(orderBy, mainCols, piCols) {
  * @param {string} params.orderBy - Optional ORDER BY clause
  * @param {number} params.limit - Optional LIMIT
  * @param {boolean} [params.includeProductInformation] - If false, skip auto LEFT JOIN to products_information (default true)
+ * @param {string} [params.providerSearchText] - Search text against providers text columns; resolves CodProveedor before querying main table
+ * @param {string|string[]} [params.codProveedor] - Known provider code(s); skips providers name search
+ * @param {boolean} [params.skipProviderFilter] - If true, do not require provider resolution (list-all / admin)
  * @returns {Promise<Object>} Query results
  */
 export async function executeSQLQuery(params) {
@@ -363,6 +453,48 @@ export async function executeSQLQuery(params) {
       }
     }
 
+    let effectiveWhere = whereClause;
+    let effectiveWhereParams = [...whereParams];
+    /** @type {{ strategy: string, matchedCodProveedores: string[]|null }|null} */
+    let providerResolutionMeta = null;
+
+    if (TABLES_REQUIRING_PROVIDER_LINK.includes(validTableName)) {
+      if (params.skipProviderFilter !== true) {
+        await assertTableHasCodProveedor(pool, validTableName);
+      }
+      const strategy =
+        params.skipProviderFilter === true
+          ? 'skipped'
+          : params.codProveedor !== undefined && params.codProveedor !== null
+            ? 'explicit'
+            : 'search';
+      const resolvedCodes = await resolveProviderCodProveedor(pool, params);
+      if (resolvedCodes === null) {
+        providerResolutionMeta = { strategy: 'skipped', matchedCodProveedores: null };
+      } else if (resolvedCodes.length === 0) {
+        providerResolutionMeta = { strategy, matchedCodProveedores: [] };
+        console.log(`📋 Provider resolution: no CodProveedor matched (strategy=${strategy})`);
+        return {
+          success: true,
+          data: [],
+          rowCount: 0,
+          providerResolution: providerResolutionMeta
+        };
+      } else {
+        const inClause = `CodProveedor IN (${resolvedCodes.map(() => '?').join(', ')})`;
+        if (effectiveWhere && effectiveWhere.trim()) {
+          effectiveWhere = `(${effectiveWhere}) AND (${inClause})`;
+        } else {
+          effectiveWhere = inClause;
+        }
+        effectiveWhereParams = [...effectiveWhereParams, ...resolvedCodes];
+        providerResolutionMeta = { strategy, matchedCodProveedores: resolvedCodes };
+        console.log(
+          `📋 Provider resolution: ${resolvedCodes.length} CodProveedor value(s) (strategy=${strategy})`
+        );
+      }
+    }
+
     let mainColsForOrderBy = mainColumnNames;
     if (orderBy) {
       if (mainColsForOrderBy.length === 0) {
@@ -436,14 +568,14 @@ export async function executeSQLQuery(params) {
         }
       }
 
-      let qualifiedWhere = whereClause;
-      if (whereClause && mainColumnNames.length > 0) {
-        qualifiedWhere = qualifyClauseIdentifiersForMain(whereClause, mainColumnNames);
+      let qualifiedWhere = effectiveWhere;
+      if (effectiveWhere && mainColumnNames.length > 0) {
+        qualifiedWhere = qualifyClauseIdentifiersForMain(effectiveWhere, mainColumnNames);
       }
 
       if (qualifiedWhere) {
         query += ` WHERE ${qualifiedWhere}`;
-        queryParams = queryParams.concat(whereParams);
+        queryParams = queryParams.concat(effectiveWhereParams);
       }
 
       let qualifiedOrderBy = orderBy;
@@ -501,9 +633,9 @@ export async function executeSQLQuery(params) {
         }
       }
 
-      if (whereClause) {
-        query += ` WHERE ${whereClause}`;
-        queryParams = queryParams.concat(whereParams);
+      if (effectiveWhere) {
+        query += ` WHERE ${effectiveWhere}`;
+        queryParams = queryParams.concat(effectiveWhereParams);
       }
 
       if (orderBy) {
@@ -531,7 +663,8 @@ export async function executeSQLQuery(params) {
       success: true,
       data: rows,
       rowCount: rows.length,
-      ...(useProductJoin ? { productInformationJoinApplied: true } : {})
+      ...(useProductJoin ? { productInformationJoinApplied: true } : {}),
+      ...(providerResolutionMeta ? { providerResolution: providerResolutionMeta } : {})
     };
   } catch (error) {
     console.error('❌ Error executing SQL query:', error.message);
@@ -580,7 +713,7 @@ export async function ensureSQLToolExists(client, agentId) {
     const sqlTool = ToolUtility.createFunctionTool({
       name: toolName,
       description:
-        'Executes SQL SELECT queries on MySQL. REQUIRED: tableName and columns (array). For main tables hotels, services, packages, and winery, the server automatically LEFT JOINs products_information on CodProveedor when both tables have that column; product columns are returned with pi_ prefixes (e.g. pi_InfoID). Set includeProductInformation to false to skip that join. Use WHERE with column names as usual (they are qualified to the main table when the auto-join runs). Always filter by Activo = "ACTIVADO" when that column exists on the main table.',
+        'Executes SQL SELECT queries on MySQL. REQUIRED: tableName and columns (array). For hotels, services, packages, winery, and products_information you MUST scope by provider: use providerSearchText to match name(s) in the providers table (server resolves CodProveedor), or pass codProveedor if codes are already known, or set skipProviderFilter true only when listing all rows without a provider filter. For main tables hotels, services, packages, and winery, the server automatically LEFT JOINs products_information on CodProveedor when both tables have that column; product columns are returned with pi_ prefixes (e.g. pi_InfoID). Set includeProductInformation to false to skip that join. Use WHERE with column names as usual (they are qualified to the main table when the auto-join runs). Always filter by Activo = "ACTIVADO" when that column exists on the main table.',
       parameters: {
         type: 'object',
         properties: {
@@ -594,6 +727,21 @@ export async function ensureSQLToolExists(client, agentId) {
             items: { type: 'string' },
             description:
               'Columns to select from the main table. When auto product join applies, all products_information columns are also returned as pi_<columnName>.'
+          },
+          providerSearchText: {
+            type: 'string',
+            description:
+              'Required for operational tables unless codProveedor or skipProviderFilter is used. Substring search against text columns on providers; server runs SELECT on providers first and filters the main table by the resulting CodProveedor value(s).'
+          },
+          codProveedor: {
+            oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }],
+            description:
+              'Optional. One or more provider codes if already known (skips name search on providers).'
+          },
+          skipProviderFilter: {
+            type: 'boolean',
+            description:
+              'Optional. If true, do not require providerSearchText/codProveedor; use only for queries that must return all rows regardless of provider (rare).'
           },
           includeProductInformation: {
             type: 'boolean',

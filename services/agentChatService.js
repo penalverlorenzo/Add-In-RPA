@@ -140,6 +140,7 @@ export async function sendMessageToAgent(userMessage, agentId, threadId) {
                     example: {
                       tableName: 'hotels',
                       columns: ['HotelID', 'NombreHotel', 'Categoria', 'Precio', 'Moneda'],
+                      providerSearchText: 'Acme Travel',
                       whereClause: 'Activo = ? AND Categoria = ?',
                       whereParams: ['ACTIVADO', '5']
                     },
