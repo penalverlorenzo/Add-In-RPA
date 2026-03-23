@@ -1,6 +1,6 @@
 /**
  * Agent SQL Tool Service
- * Three dedicated tools: provider search, operational tables, products_information
+ * Provider search, operational/products queries, and optional discovery without CodProveedor
  */
 
 import { ToolUtility } from '@azure/ai-agents';
@@ -38,8 +38,15 @@ async function getMySQLPool() {
 
 const OPERATIONAL_TABLES = ['hotels', 'services', 'packages', 'winery'];
 const PRODUCTS_TABLE = 'products_information';
+const FALLBACK_TABLES = [...OPERATIONAL_TABLES, PRODUCTS_TABLE];
+const FALLBACK_MAX_LIMIT_NO_WHERE = 50;
 
-const DATA_TOOL_NAMES = ['searchProvidersByName', 'queryOperationalData', 'queryProductsInformation'];
+const DATA_TOOL_NAMES = [
+  'searchProvidersByName',
+  'discoverDataWithoutProvider',
+  'queryOperationalData',
+  'queryProductsInformation'
+];
 
 async function getTableColumnNames(pool, tableName) {
   const [rows] = await pool.query(
@@ -172,6 +179,31 @@ function mapMysqlError(error, tableHint) {
     errorMessage = `SQL syntax error: ${error.message}`;
   }
   return errorMessage;
+}
+
+function countWherePlaceholders(whereClause) {
+  if (!whereClause || typeof whereClause !== 'string') return 0;
+  let n = 0;
+  for (let i = 0; i < whereClause.length; i++) {
+    if (whereClause[i] === '?') n++;
+  }
+  return n;
+}
+
+/**
+ * @param {Record<string, unknown>[]} rows
+ * @returns {string[]}
+ */
+function distinctCodProveedoresFromRows(rows) {
+  const set = new Set();
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue;
+    const v = row.CodProveedor ?? row.codProveedor;
+    if (v != null && String(v).trim() !== '') {
+      set.add(String(v).trim());
+    }
+  }
+  return [...set];
 }
 
 /**
@@ -493,11 +525,172 @@ export async function queryProductsInformation(params) {
   }
 }
 
+/**
+ * Fallback: query one table without server-side CodProveedor filter.
+ * Use when searchProvidersByName returns no rows or the user gave no provider but gave other criteria.
+ *
+ * @param {Object} params
+ * @param {string} params.targetTable - hotels | services | packages | winery | products_information
+ * @param {string[]} params.columns
+ * @param {string} [params.whereClause] - If empty, LIMIT is capped at FALLBACK_MAX_LIMIT_NO_WHERE
+ * @param {Array} [params.whereParams]
+ * @param {string} [params.orderBy]
+ * @param {number} [params.limit]
+ */
+export async function discoverDataWithoutProvider(params) {
+  console.log(`🔍 discoverDataWithoutProvider:`, JSON.stringify(params, null, 2));
+
+  if (!params || typeof params !== 'object') {
+    return { success: false, error: 'Parameters must be an object', data: [], rowCount: 0 };
+  }
+
+  const { targetTable, columns, whereClause, whereParams = [], orderBy, limit } = params;
+
+  if (!targetTable || typeof targetTable !== 'string') {
+    return {
+      success: false,
+      error: `targetTable is required. Allowed: ${FALLBACK_TABLES.join(', ')}`,
+      data: [],
+      rowCount: 0
+    };
+  }
+
+  const table = targetTable.toLowerCase();
+  if (!FALLBACK_TABLES.includes(table)) {
+    return {
+      success: false,
+      error: `Invalid targetTable "${targetTable}". Allowed: ${FALLBACK_TABLES.join(', ')}`,
+      data: [],
+      rowCount: 0
+    };
+  }
+
+  try {
+    validateColumnsArray(columns);
+  } catch (e) {
+    return { success: false, error: e.message, data: [], rowCount: 0 };
+  }
+
+  if (whereClause !== undefined && whereClause !== null && typeof whereClause !== 'string') {
+    return { success: false, error: 'whereClause must be a string', data: [], rowCount: 0 };
+  }
+  if (!Array.isArray(whereParams)) {
+    return { success: false, error: 'whereParams must be an array', data: [], rowCount: 0 };
+  }
+
+  const hasWhere = whereClause && String(whereClause).trim() !== '';
+  if (hasWhere) {
+    const ph = countWherePlaceholders(whereClause);
+    if (ph !== whereParams.length) {
+      return {
+        success: false,
+        error: `whereClause has ${ph} "?" placeholder(s) but whereParams has ${whereParams.length} value(s)`,
+        data: [],
+        rowCount: 0
+      };
+    }
+  }
+
+  if (orderBy && typeof orderBy !== 'string') {
+    return { success: false, error: 'orderBy must be a string', data: [], rowCount: 0 };
+  }
+  if (orderBy && !isValidOrderBy(orderBy)) {
+    return { success: false, error: `Invalid ORDER BY clause format: ${orderBy}`, data: [], rowCount: 0 };
+  }
+
+  let maxLimit;
+  try {
+    if (hasWhere) {
+      maxLimit = parseLimit(limit, 1000);
+    } else {
+      const raw =
+        limit !== undefined && limit !== null && typeof limit === 'number' && limit >= 0
+          ? limit
+          : FALLBACK_MAX_LIMIT_NO_WHERE;
+      maxLimit = Math.min(raw, FALLBACK_MAX_LIMIT_NO_WHERE);
+    }
+  } catch (e) {
+    return { success: false, error: e.message, data: [], rowCount: 0 };
+  }
+
+  const pool = await getMySQLPool();
+  if (!pool) {
+    return { success: false, error: 'MySQL connection pool not available', data: [], rowCount: 0 };
+  }
+
+  try {
+    const tableCols = await getTableColumnNames(pool, table);
+    let selectColumns = [...columns];
+    const hasCodCol = selectColumns.some((c) => c && c.toLowerCase() === 'codproveedor');
+    if (!hasCodCol && tableCols.some((c) => c === 'CodProveedor')) {
+      selectColumns = [...selectColumns, 'CodProveedor'];
+    }
+
+    for (const col of selectColumns) {
+      if (!isValidColumnName(col)) {
+        return { success: false, error: `Invalid column name: ${col}`, data: [], rowCount: 0 };
+      }
+      if (!tableCols.some((tc) => tc && tc.toLowerCase() === col.toLowerCase())) {
+        return { success: false, error: `Unknown column "${col}" on table "${table}"`, data: [], rowCount: 0 };
+      }
+    }
+
+    if (orderBy) {
+      validateOrderByAgainstSchema(orderBy, tableCols);
+    }
+
+    const selectClause = selectColumns.map(() => '??').join(', ');
+    let query = `SELECT ${selectClause} FROM ??`;
+    let queryParams = [...selectColumns, table];
+
+    if (hasWhere) {
+      query += ` WHERE ${whereClause}`;
+      queryParams = queryParams.concat(whereParams);
+    }
+
+    if (orderBy) {
+      query += ` ORDER BY ${orderBy}`;
+    }
+
+    if (maxLimit) {
+      query += ` LIMIT ?`;
+      queryParams.push(maxLimit);
+    }
+
+    console.log(`🔍 Executing discoverDataWithoutProvider table=${table} hasWhere=${hasWhere}`);
+    const [rows] = await pool.query(query, queryParams);
+    const distinctCodProveedores = distinctCodProveedoresFromRows(rows);
+
+    return {
+      success: true,
+      data: rows,
+      rowCount: rows.length,
+      targetTable: table,
+      distinctCodProveedores,
+      hint:
+        distinctCodProveedores.length > 0
+          ? 'Use distinctCodProveedores with queryOperationalData and queryProductsInformation for the strict flow.'
+          : 'No CodProveedor in result rows; widen search or ask the user for a provider code.'
+    };
+  } catch (error) {
+    console.error('❌ discoverDataWithoutProvider:', error.message);
+    if (error.message && error.message.startsWith('Invalid ORDER BY')) {
+      return { success: false, error: error.message, data: [], rowCount: 0 };
+    }
+    return {
+      success: false,
+      error: mapMysqlError(error, table),
+      data: [],
+      rowCount: 0
+    };
+  }
+}
+
 function buildSearchProvidersToolDefinition() {
   return ToolUtility.createFunctionTool({
     name: 'searchProvidersByName',
     description:
-      'Step 1: Search the providers catalog by name. Runs LIKE on text columns (e.g. Proveedor). Returns matching rows with CodProveedor and names. Call queryOperationalData and queryProductsInformation next using the chosen CodProveedor.',
+      'Step 1: Search the providers catalog by name. Runs LIKE on text columns (e.g. Proveedor). Returns matching rows with CodProveedor and names. If rowCount is 0 or the user gave no provider, call discoverDataWithoutProvider next when other search criteria exist. Otherwise use the chosen CodProveedor with queryOperationalData and queryProductsInformation.',
     parameters: {
       type: 'object',
       properties: {
@@ -600,8 +793,50 @@ function buildQueryProductsToolDefinition() {
   }).definition;
 }
 
+function buildDiscoverWithoutProviderToolDefinition() {
+  return ToolUtility.createFunctionTool({
+    name: 'discoverDataWithoutProvider',
+    description:
+      'Fallback when searchProvidersByName returns zero rows OR the user gave no provider name but gave other criteria (hotel, winery, product text, etc.). Queries ONE table (hotels, services, packages, winery, products_information) WITHOUT server-side CodProveedor filter. If whereClause is omitted, LIMIT is capped at 50. Response includes distinctCodProveedores extracted from rows—use those codes with queryOperationalData and queryProductsInformation. Call right after a failed or empty provider search when appropriate.',
+    parameters: {
+      type: 'object',
+      properties: {
+        targetTable: {
+          type: 'string',
+          enum: ['hotels', 'services', 'packages', 'winery', 'products_information'],
+          description: 'Single table to query'
+        },
+        columns: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Columns to SELECT; CodProveedor is auto-added if missing and the column exists'
+        },
+        whereClause: {
+          type: 'string',
+          description:
+            'Optional WHERE with ? placeholders. If empty, only a small sample is returned (limit max 50)'
+        },
+        whereParams: {
+          type: 'array',
+          items: { type: ['string', 'number', 'boolean'] },
+          description: 'Values for each ? in whereClause (must match count)'
+        },
+        orderBy: {
+          type: 'string',
+          description: 'Optional ORDER BY using only real columns on targetTable'
+        },
+        limit: {
+          type: 'number',
+          description: 'Max rows; max 1000 if whereClause is set, else max 50'
+        }
+      },
+      required: ['targetTable', 'columns']
+    }
+  }).definition;
+}
+
 /**
- * Registers the three data tools and removes legacy executeSQLQuery / stale copies of these tools.
+ * Registers data tools and removes legacy executeSQLQuery / stale copies of these tools.
  * @param {import('@azure/ai-agents').AgentsClient} client
  * @param {string} agentId
  */
@@ -621,6 +856,7 @@ export async function ensureAgentDataToolsExist(client, agentId) {
     const newTools = [
       ...filtered,
       buildSearchProvidersToolDefinition(),
+      buildDiscoverWithoutProviderToolDefinition(),
       buildQueryOperationalToolDefinition(),
       buildQueryProductsToolDefinition()
     ];

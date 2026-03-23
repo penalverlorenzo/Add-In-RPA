@@ -4,12 +4,18 @@ import masterDataService from './mysqlMasterDataService.js';
 import config from '../config/index.js';
 import {
   searchProvidersByName,
+  discoverDataWithoutProvider,
   queryOperationalData,
   queryProductsInformation,
   ensureAgentDataToolsExist
 } from './agentSQLToolService.js';
 
-const DATA_TOOL_NAMES = ['searchProvidersByName', 'queryOperationalData', 'queryProductsInformation'];
+const DATA_TOOL_NAMES = [
+  'searchProvidersByName',
+  'discoverDataWithoutProvider',
+  'queryOperationalData',
+  'queryProductsInformation'
+];
 
 function parseToolCallArguments(rawArguments) {
   if (rawArguments === undefined || rawArguments === null) {
@@ -31,6 +37,9 @@ function parseToolCallArguments(rawArguments) {
 async function invokeDataTool(toolName, params) {
   if (toolName === 'searchProvidersByName') {
     return searchProvidersByName(params);
+  }
+  if (toolName === 'discoverDataWithoutProvider') {
+    return discoverDataWithoutProvider(params);
   }
   if (toolName === 'queryOperationalData') {
     return queryOperationalData(params);
@@ -171,6 +180,16 @@ export async function sendMessageToAgent(userMessage, agentId, threadId) {
                     error: `Missing arguments for ${fnName}.`,
                     tools: {
                       searchProvidersByName: { required: ['nameSearch'], example: { nameSearch: 'Acme', limit: 20 } },
+                      discoverDataWithoutProvider: {
+                        required: ['targetTable', 'columns'],
+                        example: {
+                          targetTable: 'winery',
+                          columns: ['Bodega', 'Servicio', 'CodProveedor'],
+                          whereClause: 'Bodega LIKE ?',
+                          whereParams: ['%Zapata%'],
+                          limit: 25
+                        }
+                      },
                       queryOperationalData: {
                         required: ['domainTable', 'codProveedor', 'columns'],
                         example: {
@@ -223,7 +242,8 @@ export async function sendMessageToAgent(userMessage, agentId, threadId) {
                   success: false,
                   error: error.message,
                   data: [],
-                  suggestion: 'Check tool parameters and call searchProvidersByName first if CodProveedor is unknown.'
+                  suggestion:
+                    'Check tool parameters. If CodProveedor is unknown, try searchProvidersByName; if it returns no rows, use discoverDataWithoutProvider then queryOperationalData / queryProductsInformation.'
                 })
               });
             }
