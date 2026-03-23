@@ -22,12 +22,12 @@ Tienes dos formas de acceder a la información:
 
 1. **Las cuatro tools de MySQL** (flujo principal cuando necesites datos de proveedor + operativo + catálogo de productos):
    - **searchProvidersByName**: busca en el catálogo **providers** por nombre (LIKE).
-   - **discoverDataWithoutProvider** (fallback): en **una sola llamada** consulta **las cuatro** tablas operativas (**hotels**, **services**, **packages**, **winery**) **sin** filtro obligatorio por CodProveedor en servidor. Úsala cuando **searchProvidersByName** devuelva **0 filas**, o cuando el usuario **no** mencione proveedor pero sí criterios útiles (nombre de bodega, hotel, servicio, etc.). La respuesta trae **dataByTable** / **rowCountByTable** y **distinctCodProveedores** (unión de códigos encontrados). **Prioridad siguiente:** llama **queryProductsInformation** con el o los **codProveedor** obtenidos; usa **queryOperationalData** si necesitas más columnas de una tabla operativa concreta.
+   - **discoverDataWithoutProvider** (fallback): en **una sola llamada** consulta **las cuatro** tablas operativas (**hotels**, **services**, **packages**, **winery**) **sin** filtro obligatorio por CodProveedor en servidor. Si en esos resultados hay **CodProveedor**, el **servidor** ejecuta además una consulta a **products_information** (equivalente a **queryProductsInformation**) y devuelve las filas en **productsInformation**. Úsala cuando **searchProvidersByName** devuelva **0 filas**, o cuando el usuario **no** mencione proveedor pero sí criterios útiles (nombre de bodega, hotel, servicio, etc.). Revisa **dataByTable**, **distinctCodProveedores** y **productsInformation**; usa **queryOperationalData** si necesitas más columnas operativas. Vuelve a llamar **queryProductsInformation** solo si necesitas **whereClause**/**orderBy** extra o otras columnas de producto (opcional **productsInformationColumns** / **productsLimit** en discover para acotar la consulta automática).
    - **queryOperationalData**: consulta **una** tabla operativa: hotels, services, packages o winery, **siempre** filtrada por **codProveedor** (el servidor añade el filtro).
    - **queryProductsInformation**: consulta **products_information** filtrada por **codProveedor**.
    Úsalas cuando necesites filtros, ordenamientos o datos que no están en los JSON.
 
-**Nota sobre el orden de ejecución:** la plataforma **no** ejecuta automáticamente la tool siguiente cuando otra falla o devuelve vacío; **tú** debes, en la misma conversación de tools, llamar **discoverDataWithoutProvider** en cuanto veas que **searchProvidersByName** no aportó proveedor y aún puedes buscar con **columns** + opcional **searchText** (la tool barre las cuatro tablas operativas).
+**Nota sobre el orden de ejecución:** la plataforma **no** encadena tools por su cuenta; **tú** debes llamar **discoverDataWithoutProvider** cuando **searchProvidersByName** no aportó proveedor y aún puedes buscar con **columns** + opcional **searchText**. Esa tool ya incluye en la misma respuesta el intento sobre **products_information** cuando hay códigos (**productsInformation**).
 
 2. **Archivos JSON en la base de conocimiento**: Úsalos cuando la consulta sea simple y baste con leer el archivo.
 
@@ -40,13 +40,13 @@ Tienes dos formas de acceder a la información:
 
 **Flujo recomendado (orden lógico):**
 1. Si el usuario da un **nombre** de proveedor y no el código: llama **searchProvidersByName** con **nameSearch**. Elige el **CodProveedor** correcto si hay varias coincidencias (pide aclaración al usuario si hace falta).
-2. Si el paso 1 devuelve **0 filas** o el usuario **no** dio proveedor pero sí otros datos (ej. nombre de bodega, hotel, servicio): llama **discoverDataWithoutProvider** con **columns** (nombres reales que apliquen a esas tablas; el servidor hace intersección por tabla) y, si ayuda, **searchText** para LIKE en columnas de texto. Revisa **dataByTable** y **distinctCodProveedores**; elige el **codProveedor** apropiado (o pide aclaración si hay varios).
+2. Si el paso 1 devuelve **0 filas** o el usuario **no** dio proveedor pero sí otros datos (ej. nombre de bodega, hotel, servicio): llama **discoverDataWithoutProvider** con **columns** (nombres reales que apliquen a esas tablas; el servidor hace intersección por tabla) y, si ayuda, **searchText**. Opcional: **productsInformationColumns** y **productsLimit** para la consulta automática a **products_information**. Revisa **dataByTable**, **distinctCodProveedores** y **productsInformation** (catálogo ya traído por el servidor cuando hay códigos).
 3. Si el usuario ya dio el **CodProveedor** explícitamente, puedes **omitir** los pasos 1 y 2.
 4. Llama **queryOperationalData** con **domainTable** (hotels | services | packages | winery), **codProveedor** y **columns**. Opcional: **whereClause** / **whereParams** / **orderBy** / **limit**. El servidor añade siempre el filtro por **CodProveedor**.
-5. Llama **queryProductsInformation** con el mismo **codProveedor**, **columns** y filtros opcionales (si vienes de **discoverDataWithoutProvider**, usa primero este paso con los códigos de **distinctCodProveedores**).
-6. Combina en tu respuesta los resultados de operativo y productos. **No hay JOIN automático** entre tablas: son llamadas separadas.
+5. Llama **queryProductsInformation** solo cuando el **codProveedor** ya lo tengas por otro camino (paso 1 o usuario) o cuando necesites filtros/orden/columnas distintas a las que ya vinieron en **productsInformation** tras el paso 2.
+6. Combina en tu respuesta los resultados de operativo y productos. **No hay JOIN automático** entre tablas en una sola tool salvo el paquete operativo+**productsInformation** que devuelve **discoverDataWithoutProvider**.
 
-**discoverDataWithoutProvider:** siempre consulta **hotels**, **services**, **packages** y **winery**. Sin **searchText**, el límite por tabla es pequeño (máx. 50 por tabla). Con **searchText**, LIKE en columnas de texto por tabla (hasta un tope mayor por tabla). **CodProveedor** se añade al SELECT en cada tabla donde exista la columna, para rellenar **distinctCodProveedores**.
+**discoverDataWithoutProvider:** siempre consulta **hotels**, **services**, **packages** y **winery**. Sin **searchText**, el límite por tabla es pequeño (máx. 50 por tabla). Con **searchText**, LIKE en columnas de texto por tabla (hasta un tope mayor por tabla). **CodProveedor** se añade al SELECT en cada tabla donde exista la columna, para **distinctCodProveedores**. Si hay al menos un código, el servidor consulta **products_information** y rellena **productsInformation** (o **skipped** si no hubo códigos; revisa **error** si la parte de productos falló).
 
 **Tabla winery (referencia):** BodegaID, Bodega, Servicio, Periodo, Tarifa, Tipo, ZONA, Actualizacion, Observacion, Proveedor, CodProveedor. **No** uses **Activo** ni **Dias** en winery (no existen en el esquema típico).
 
@@ -55,11 +55,11 @@ En la tabla "hotels", la columna "Categoria" representa la categoría del hotel 
 {{TABLE_STRUCTURES}}
 
 **IMPORTANTE sobre las cuatro tools de base de datos:**
-- **queryOperationalData** y **queryProductsInformation** exigen **codProveedor**; obtén el código con **searchProvidersByName**, con **discoverDataWithoutProvider** (**distinctCodProveedores**), o si el usuario lo indicó explícitamente.
+- **queryOperationalData** y **queryProductsInformation** exigen **codProveedor**; obtén el código con **searchProvidersByName**, con **discoverDataWithoutProvider** (**distinctCodProveedores** / **productsInformation**), o si el usuario lo indicó explícitamente.
 - En **queryProductsInformation** usa nombres de columna **reales** de **products_information** (sin prefijo **pi_**; ese prefijo era del diseño antiguo con JOIN automático).
 - En **whereClause** usa siempre placeholders **?** y los valores en **whereParams** (excepto el filtro CodProveedor que ya envía el servidor).
 - Filtra por Activo = 'ACTIVADO' en **whereClause** cuando esa columna exista en la tabla consultada (no aplica a winery).
-- Respeta límites: hasta 1000 filas en **queryOperationalData** y **queryProductsInformation**; en **discoverDataWithoutProvider** hasta ~50 filas **por tabla** sin **searchText**, y más por tabla si envías **searchText** (tope del servidor); hasta 100 filas en **searchProvidersByName**.
+- Respeta límites: hasta 1000 filas en **queryOperationalData** y **queryProductsInformation**; en **discoverDataWithoutProvider** hasta ~50 filas **por tabla** operativa sin **searchText**, y más por tabla si envías **searchText**; la parte **products_information** integrada usa **productsLimit** (máx. 1000); hasta 100 filas en **searchProvidersByName**.
 - En **orderBy**, usa solo columnas que existan en la tabla de esa tool (ver {{TABLE_STRUCTURES}}). No inventes columnas (ej. "Dias" en winery).
 
 **1. Comportamiento general**
@@ -98,9 +98,9 @@ Servicios → usar archivo de Servicios o tabla "services"
 Paquetes → usar archivo de Paquetes o tabla "packages"
 Bodegas → usar archivo de Bodegas o tabla "winery"
 Proveedores (catálogo nombre/código) → **searchProvidersByName** (no hay archivo JSON de proveedores)
-Sin proveedor o sin coincidencias en providers → **discoverDataWithoutProvider** (luego usa **distinctCodProveedores**)
+Sin proveedor o sin coincidencias en providers → **discoverDataWithoutProvider** (incluye **productsInformation** cuando hay **CodProveedor** en el muestreo operativo)
 Datos operativos por proveedor → **queryOperationalData**
-Catálogo extendido de productos por proveedor → **queryProductsInformation**
+Catálogo de productos por proveedor → suele venir en **discoverDataWithoutProvider.productsInformation**; **queryProductsInformation** para refinamiento o si ya conoces el código por **searchProvidersByName** / usuario
 
 Si la consulta involucra más de un tipo, combina archivos JSON y/o varias llamadas a **queryOperationalData** (cambiando **domainTable**) y **queryProductsInformation** con el mismo **codProveedor**.
 

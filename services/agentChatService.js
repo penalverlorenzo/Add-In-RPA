@@ -185,7 +185,9 @@ export async function sendMessageToAgent(userMessage, agentId, threadId) {
                         example: {
                           columns: ['NombreHotel', 'Bodega', 'NombreServicio', 'CodProveedor'],
                           searchText: 'Zapata',
-                          limitPerTable: 30
+                          limitPerTable: 30,
+                          productsInformationColumns: ['Nombrecategoria', 'Descripcion', 'CodProveedor'],
+                          productsLimit: 200
                         }
                       },
                       queryOperationalData: {
@@ -241,7 +243,7 @@ export async function sendMessageToAgent(userMessage, agentId, threadId) {
                   error: error.message,
                   data: [],
                   suggestion:
-                    'Check tool parameters. If CodProveedor is unknown, try searchProvidersByName; if it returns no rows, use discoverDataWithoutProvider then queryProductsInformation (and queryOperationalData if needed).'
+                    'Check tool parameters. If CodProveedor is unknown, try searchProvidersByName; if it returns no rows, use discoverDataWithoutProvider (includes products_information when codes exist); use queryProductsInformation only for extra filters/columns and queryOperationalData if needed.'
                 })
               });
             }

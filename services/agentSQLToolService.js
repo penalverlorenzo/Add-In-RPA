@@ -187,6 +187,38 @@ function buildDiscoverSelectColumnsForTable(columnsInput, tableCols) {
   return selected.length > 0 ? selected : null;
 }
 
+/**
+ * @param {string[]|undefined|null} productsInformationColumns - if empty/omitted, all PI columns
+ * @param {string[]} piTableCols
+ * @returns {string[]}
+ */
+function resolveProductsInformationSelectColumns(productsInformationColumns, piTableCols) {
+  if (!piTableCols.length) {
+    throw new Error('products_information has no columns in schema metadata');
+  }
+  if (!productsInformationColumns || productsInformationColumns.length === 0) {
+    return [...piTableCols];
+  }
+  const lower = new Map(piTableCols.map((c) => [c.toLowerCase(), c]));
+  const selected = [];
+  const seen = new Set();
+  for (const col of productsInformationColumns) {
+    const canon = lower.get(String(col).toLowerCase());
+    if (!canon) {
+      throw new Error(`Unknown column "${col}" on products_information`);
+    }
+    if (!seen.has(canon)) {
+      selected.push(canon);
+      seen.add(canon);
+    }
+  }
+  const codCanon = lower.get('codproveedor');
+  if (codCanon && !seen.has(codCanon)) {
+    selected.push(codCanon);
+  }
+  return selected;
+}
+
 function escapeSqlLikePattern(s) {
   return String(s).replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
 }
@@ -595,6 +627,8 @@ export async function queryProductsInformation(params) {
  * @param {string[]} params.columns - Requested columns per table (intersection with each table; CodProveedor added when present)
  * @param {string} [params.searchText] - Optional substring; OR of LIKE on each table's text/varchar columns
  * @param {number} [params.limitPerTable] - Max rows per table (capped: 50 without searchText, 300 with searchText)
+ * @param {string[]} [params.productsInformationColumns] - Optional columns for bundled products_information query; if omitted/empty, all PI columns
+ * @param {number} [params.productsLimit] - Max rows for bundled products query (default 1000, max 1000)
  */
 export async function discoverDataWithoutProvider(params) {
   console.log(`🔍 discoverDataWithoutProvider:`, JSON.stringify(params, null, 2));
@@ -606,11 +640,12 @@ export async function discoverDataWithoutProvider(params) {
       dataByTable: {},
       rowCountByTable: {},
       rowCount: 0,
-      distinctCodProveedores: []
+      distinctCodProveedores: [],
+      productsInformation: null
     };
   }
 
-  const { columns, searchText, limitPerTable } = params;
+  const { columns, searchText, limitPerTable, productsInformationColumns, productsLimit } = params;
 
   try {
     validateColumnsArray(columns);
@@ -621,8 +656,52 @@ export async function discoverDataWithoutProvider(params) {
       dataByTable: {},
       rowCountByTable: {},
       rowCount: 0,
-      distinctCodProveedores: []
+      distinctCodProveedores: [],
+      productsInformation: null
     };
+  }
+
+  if (productsInformationColumns !== undefined && productsInformationColumns !== null) {
+    if (!Array.isArray(productsInformationColumns)) {
+      return {
+        success: false,
+        error: 'productsInformationColumns must be an array when provided',
+        dataByTable: {},
+        rowCountByTable: {},
+        rowCount: 0,
+        distinctCodProveedores: [],
+        productsInformation: null
+      };
+    }
+    if (productsInformationColumns.length > 0) {
+      try {
+        validateColumnsArray(productsInformationColumns);
+      } catch (e) {
+        return {
+          success: false,
+          error: e.message,
+          dataByTable: {},
+          rowCountByTable: {},
+          rowCount: 0,
+          distinctCodProveedores: [],
+          productsInformation: null
+        };
+      }
+    }
+  }
+
+  if (productsLimit !== undefined && productsLimit !== null) {
+    if (typeof productsLimit !== 'number' || productsLimit < 0) {
+      return {
+        success: false,
+        error: 'productsLimit must be a non-negative number',
+        dataByTable: {},
+        rowCountByTable: {},
+        rowCount: 0,
+        distinctCodProveedores: [],
+        productsInformation: null
+      };
+    }
   }
 
   if (limitPerTable !== undefined && limitPerTable !== null) {
@@ -633,7 +712,8 @@ export async function discoverDataWithoutProvider(params) {
         dataByTable: {},
         rowCountByTable: {},
         rowCount: 0,
-        distinctCodProveedores: []
+        distinctCodProveedores: [],
+        productsInformation: null
       };
     }
   }
@@ -645,7 +725,8 @@ export async function discoverDataWithoutProvider(params) {
       dataByTable: {},
       rowCountByTable: {},
       rowCount: 0,
-      distinctCodProveedores: []
+      distinctCodProveedores: [],
+      productsInformation: null
     };
   }
 
@@ -672,7 +753,23 @@ export async function discoverDataWithoutProvider(params) {
       dataByTable: {},
       rowCountByTable: {},
       rowCount: 0,
-      distinctCodProveedores: []
+      distinctCodProveedores: [],
+      productsInformation: null
+    };
+  }
+
+  let parsedProductsLimit;
+  try {
+    parsedProductsLimit = parseLimit(productsLimit, 1000);
+  } catch (e) {
+    return {
+      success: false,
+      error: e.message,
+      dataByTable: {},
+      rowCountByTable: {},
+      rowCount: 0,
+      distinctCodProveedores: [],
+      productsInformation: null
     };
   }
 
@@ -684,7 +781,8 @@ export async function discoverDataWithoutProvider(params) {
       dataByTable: {},
       rowCountByTable: {},
       rowCount: 0,
-      distinctCodProveedores: []
+      distinctCodProveedores: [],
+      productsInformation: null
     };
   }
 
@@ -758,9 +856,49 @@ export async function discoverDataWithoutProvider(params) {
       rowCountByTable,
       rowCount: 0,
       distinctCodProveedores: [],
-      errorsByTable
+      errorsByTable,
+      productsInformation: null
     };
   }
+
+  let productsInformation;
+  if (distinctCodProveedores.length === 0) {
+    productsInformation = {
+      success: true,
+      skipped: true,
+      data: [],
+      rowCount: 0,
+      codProveedorFilter: []
+    };
+  } else {
+    let piSelectColumns;
+    try {
+      const piTableCols = await getTableColumnNames(pool, PRODUCTS_TABLE);
+      piSelectColumns = resolveProductsInformationSelectColumns(
+        productsInformationColumns,
+        piTableCols
+      );
+    } catch (e) {
+      return {
+        success: false,
+        error: e.message,
+        dataByTable,
+        rowCountByTable,
+        rowCount: totalRows,
+        distinctCodProveedores,
+        errorsByTable: Object.keys(errorsByTable).length > 0 ? errorsByTable : undefined,
+        productsInformation: null
+      };
+    }
+
+    productsInformation = await queryProductsInformation({
+      codProveedor: distinctCodProveedores,
+      columns: piSelectColumns,
+      limit: parsedProductsLimit
+    });
+  }
+
+  const productsOk = productsInformation && productsInformation.success !== false;
 
   return {
     success: true,
@@ -769,9 +907,12 @@ export async function discoverDataWithoutProvider(params) {
     rowCount: totalRows,
     distinctCodProveedores,
     errorsByTable: Object.keys(errorsByTable).length > 0 ? errorsByTable : undefined,
+    productsInformation,
     hint:
       distinctCodProveedores.length > 0
-        ? 'Use distinctCodProveedor value(s) with queryProductsInformation (primary) for catalog rows, then queryOperationalData per domainTable if you need more operational fields.'
+        ? productsOk
+          ? 'Catalog rows are in productsInformation.data (server-ran queryProductsInformation for distinctCodProveedores). Use queryProductsInformation again only for extra WHERE/ORDER BY or different columns. Use queryOperationalData per domainTable for more operational fields.'
+          : 'Operational data is in dataByTable; productsInformation query failed—see productsInformation.error. Retry queryProductsInformation with codProveedor from distinctCodProveedores if needed.'
         : 'No CodProveedor in any table results; refine searchText, widen columns, or ask the user for a provider code.'
   };
 }
@@ -780,7 +921,7 @@ function buildSearchProvidersToolDefinition(schemaAppend = '') {
   return ToolUtility.createFunctionTool({
     name: 'searchProvidersByName',
     description:
-      'Step 1: Search the providers catalog by name. Runs LIKE on text columns (e.g. Proveedor). Returns matching rows with CodProveedor and names. If rowCount is 0 or the user gave no provider, call discoverDataWithoutProvider next when other search criteria exist (it queries all four operational tables). Otherwise use the chosen CodProveedor with queryProductsInformation and queryOperationalData.' +
+      'Step 1: Search the providers catalog by name. Runs LIKE on text columns (e.g. Proveedor). Returns matching rows with CodProveedor and names. If rowCount is 0 or the user gave no provider, call discoverDataWithoutProvider next when other search criteria exist (it queries all four operational tables and, when CodProveedor values are found, also runs a bundled products_information query). Otherwise use the chosen CodProveedor with queryProductsInformation and queryOperationalData.' +
       schemaAppend,
     parameters: {
       type: 'object',
@@ -891,7 +1032,7 @@ function buildDiscoverWithoutProviderToolDefinition(schemaAppend = '') {
   return ToolUtility.createFunctionTool({
     name: 'discoverDataWithoutProvider',
     description:
-      'Fallback when searchProvidersByName returns zero rows OR the user gave no provider name but gave other criteria. Always queries ALL four operational tables (hotels, services, packages, winery) in one call—no server-side CodProveedor filter. For each table, columns is intersected with that table schema and CodProveedor is included when the column exists. Optional searchText applies OR LIKE across text columns per table. Without searchText, limit per table is capped at 50. Response has dataByTable, rowCountByTable, and distinctCodProveedores (union). Next step: call queryProductsInformation with codProveedor from distinctCodProveedores; use queryOperationalData if you need more fields from a specific domain table.' +
+      'Fallback when searchProvidersByName returns zero rows OR the user gave no provider name but gave other criteria. Queries ALL four operational tables (hotels, services, packages, winery) in one call—no server-side CodProveedor filter. For each table, columns is intersected with that table schema and CodProveedor is included when the column exists. Optional searchText applies OR LIKE across text columns per table. Without searchText, limit per table is capped at 50. When distinctCodProveedores is non-empty, the server automatically runs the same style of query as queryProductsInformation (CodProveedor IN (...)) and returns rows in productsInformation. Omitted or empty productsInformationColumns means SELECT all columns of products_information (still capped by productsLimit). Use queryOperationalData for more operational fields; call queryProductsInformation again only for extra filters, ORDER BY, or a different column set.' +
       schemaAppend,
     parameters: {
       type: 'object',
@@ -911,6 +1052,16 @@ function buildDiscoverWithoutProviderToolDefinition(schemaAppend = '') {
           type: 'number',
           description:
             'Max rows per table (default 50 without searchText, max 50; default 100 with searchText, max 300)'
+        },
+        productsInformationColumns: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Optional columns for the bundled products_information query; if omitted or empty, all columns from that table are selected (subject to productsLimit). CodProveedor is auto-added when missing.'
+        },
+        productsLimit: {
+          type: 'number',
+          description: 'Max rows for the bundled products_information query (default 1000, max 1000)'
         }
       },
       required: ['columns']
@@ -948,10 +1099,12 @@ export async function ensureAgentDataToolsExist(client, agentId, options = {}) {
       ? formatTableStructuresForToolDescriptions(structures, ['providers'])
       : '';
 
+    const discoverSchemaAppend = `${operationalSchemaAppend}${productsSchemaAppend}`;
+
     const newTools = [
       ...filtered,
       buildSearchProvidersToolDefinition(providersSchemaAppend),
-      buildDiscoverWithoutProviderToolDefinition(operationalSchemaAppend),
+      buildDiscoverWithoutProviderToolDefinition(discoverSchemaAppend),
       buildQueryOperationalToolDefinition(operationalSchemaAppend),
       buildQueryProductsToolDefinition(productsSchemaAppend)
     ];
