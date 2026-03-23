@@ -181,13 +181,11 @@ export async function sendMessageToAgent(userMessage, agentId, threadId) {
                     tools: {
                       searchProvidersByName: { required: ['nameSearch'], example: { nameSearch: 'Acme', limit: 20 } },
                       discoverDataWithoutProvider: {
-                        required: ['targetTable', 'columns'],
+                        required: ['columns'],
                         example: {
-                          targetTable: 'winery',
-                          columns: ['Bodega', 'Servicio', 'CodProveedor'],
-                          whereClause: 'Bodega LIKE ?',
-                          whereParams: ['%Zapata%'],
-                          limit: 25
+                          columns: ['NombreHotel', 'Bodega', 'NombreServicio', 'CodProveedor'],
+                          searchText: 'Zapata',
+                          limitPerTable: 30
                         }
                       },
                       queryOperationalData: {
@@ -243,7 +241,7 @@ export async function sendMessageToAgent(userMessage, agentId, threadId) {
                   error: error.message,
                   data: [],
                   suggestion:
-                    'Check tool parameters. If CodProveedor is unknown, try searchProvidersByName; if it returns no rows, use discoverDataWithoutProvider then queryOperationalData / queryProductsInformation.'
+                    'Check tool parameters. If CodProveedor is unknown, try searchProvidersByName; if it returns no rows, use discoverDataWithoutProvider then queryProductsInformation (and queryOperationalData if needed).'
                 })
               });
             }

@@ -38,8 +38,8 @@ async function getMySQLPool() {
 
 const OPERATIONAL_TABLES = ['hotels', 'services', 'packages', 'winery'];
 const PRODUCTS_TABLE = 'products_information';
-const FALLBACK_TABLES = [...OPERATIONAL_TABLES, PRODUCTS_TABLE];
 const FALLBACK_MAX_LIMIT_NO_WHERE = 50;
+const DISCOVER_MAX_LIMIT_WITH_SEARCH = 300;
 
 const DATA_TOOL_NAMES = [
   'searchProvidersByName',
@@ -116,6 +116,40 @@ async function getProviderTextLikeColumns(pool) {
   return rows.map((r) => r.COLUMN_NAME).filter((c) => c && String(c).toLowerCase() !== 'id');
 }
 
+async function getTableTextLikeColumns(pool, tableName) {
+  const [rows] = await pool.query(
+    `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
+     AND DATA_TYPE IN ('varchar', 'char', 'text', 'mediumtext', 'longtext')
+     ORDER BY ORDINAL_POSITION`,
+    [config.mysql.database, tableName]
+  );
+  return rows.map((r) => r.COLUMN_NAME).filter((c) => c && String(c).toLowerCase() !== 'id');
+}
+
+/**
+ * @param {string[]} columnsInput
+ * @param {string[]} tableCols
+ * @returns {string[] | null}
+ */
+function buildDiscoverSelectColumnsForTable(columnsInput, tableCols) {
+  const tableColsLower = new Map(tableCols.map((c) => [c.toLowerCase(), c]));
+  const selected = [];
+  const seen = new Set();
+  for (const col of columnsInput) {
+    const canon = tableColsLower.get(String(col).toLowerCase());
+    if (canon && !seen.has(canon)) {
+      selected.push(canon);
+      seen.add(canon);
+    }
+  }
+  const codCanon = tableColsLower.get('codproveedor');
+  if (codCanon && !seen.has(codCanon)) {
+    selected.push(codCanon);
+  }
+  return selected.length > 0 ? selected : null;
+}
+
 function escapeSqlLikePattern(s) {
   return String(s).replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
 }
@@ -179,15 +213,6 @@ function mapMysqlError(error, tableHint) {
     errorMessage = `SQL syntax error: ${error.message}`;
   }
   return errorMessage;
-}
-
-function countWherePlaceholders(whereClause) {
-  if (!whereClause || typeof whereClause !== 'string') return 0;
-  let n = 0;
-  for (let i = 0; i < whereClause.length; i++) {
-    if (whereClause[i] === '?') n++;
-  }
-  return n;
 }
 
 /**
@@ -526,171 +551,199 @@ export async function queryProductsInformation(params) {
 }
 
 /**
- * Fallback: query one table without server-side CodProveedor filter.
+ * Fallback: query all operational tables (hotels, services, packages, winery) without server-side CodProveedor filter.
  * Use when searchProvidersByName returns no rows or the user gave no provider but gave other criteria.
  *
  * @param {Object} params
- * @param {string} params.targetTable - hotels | services | packages | winery | products_information
- * @param {string[]} params.columns
- * @param {string} [params.whereClause] - If empty, LIMIT is capped at FALLBACK_MAX_LIMIT_NO_WHERE
- * @param {Array} [params.whereParams]
- * @param {string} [params.orderBy]
- * @param {number} [params.limit]
+ * @param {string[]} params.columns - Requested columns per table (intersection with each table; CodProveedor added when present)
+ * @param {string} [params.searchText] - Optional substring; OR of LIKE on each table's text/varchar columns
+ * @param {number} [params.limitPerTable] - Max rows per table (capped: 50 without searchText, 300 with searchText)
  */
 export async function discoverDataWithoutProvider(params) {
   console.log(`🔍 discoverDataWithoutProvider:`, JSON.stringify(params, null, 2));
 
   if (!params || typeof params !== 'object') {
-    return { success: false, error: 'Parameters must be an object', data: [], rowCount: 0 };
-  }
-
-  const { targetTable, columns, whereClause, whereParams = [], orderBy, limit } = params;
-
-  if (!targetTable || typeof targetTable !== 'string') {
     return {
       success: false,
-      error: `targetTable is required. Allowed: ${FALLBACK_TABLES.join(', ')}`,
-      data: [],
-      rowCount: 0
+      error: 'Parameters must be an object',
+      dataByTable: {},
+      rowCountByTable: {},
+      rowCount: 0,
+      distinctCodProveedores: []
     };
   }
 
-  const table = targetTable.toLowerCase();
-  if (!FALLBACK_TABLES.includes(table)) {
-    return {
-      success: false,
-      error: `Invalid targetTable "${targetTable}". Allowed: ${FALLBACK_TABLES.join(', ')}`,
-      data: [],
-      rowCount: 0
-    };
-  }
+  const { columns, searchText, limitPerTable } = params;
 
   try {
     validateColumnsArray(columns);
   } catch (e) {
-    return { success: false, error: e.message, data: [], rowCount: 0 };
+    return {
+      success: false,
+      error: e.message,
+      dataByTable: {},
+      rowCountByTable: {},
+      rowCount: 0,
+      distinctCodProveedores: []
+    };
   }
 
-  if (whereClause !== undefined && whereClause !== null && typeof whereClause !== 'string') {
-    return { success: false, error: 'whereClause must be a string', data: [], rowCount: 0 };
-  }
-  if (!Array.isArray(whereParams)) {
-    return { success: false, error: 'whereParams must be an array', data: [], rowCount: 0 };
-  }
-
-  const hasWhere = whereClause && String(whereClause).trim() !== '';
-  if (hasWhere) {
-    const ph = countWherePlaceholders(whereClause);
-    if (ph !== whereParams.length) {
+  if (limitPerTable !== undefined && limitPerTable !== null) {
+    if (typeof limitPerTable !== 'number' || limitPerTable < 0) {
       return {
         success: false,
-        error: `whereClause has ${ph} "?" placeholder(s) but whereParams has ${whereParams.length} value(s)`,
-        data: [],
-        rowCount: 0
+        error: 'limitPerTable must be a non-negative number',
+        dataByTable: {},
+        rowCountByTable: {},
+        rowCount: 0,
+        distinctCodProveedores: []
       };
     }
   }
 
-  if (orderBy && typeof orderBy !== 'string') {
-    return { success: false, error: 'orderBy must be a string', data: [], rowCount: 0 };
-  }
-  if (orderBy && !isValidOrderBy(orderBy)) {
-    return { success: false, error: `Invalid ORDER BY clause format: ${orderBy}`, data: [], rowCount: 0 };
+  if (searchText !== undefined && searchText !== null && typeof searchText !== 'string') {
+    return {
+      success: false,
+      error: 'searchText must be a string when provided',
+      dataByTable: {},
+      rowCountByTable: {},
+      rowCount: 0,
+      distinctCodProveedores: []
+    };
   }
 
-  let maxLimit;
+  const hasSearch = searchText != null && String(searchText).trim() !== '';
+
+  let maxPerTable;
   try {
-    if (hasWhere) {
-      maxLimit = parseLimit(limit, 1000);
+    if (hasSearch) {
+      maxPerTable = parseLimit(
+        limitPerTable !== undefined && limitPerTable !== null ? limitPerTable : 100,
+        DISCOVER_MAX_LIMIT_WITH_SEARCH
+      );
     } else {
       const raw =
-        limit !== undefined && limit !== null && typeof limit === 'number' && limit >= 0
-          ? limit
+        limitPerTable !== undefined && limitPerTable !== null
+          ? limitPerTable
           : FALLBACK_MAX_LIMIT_NO_WHERE;
-      maxLimit = Math.min(raw, FALLBACK_MAX_LIMIT_NO_WHERE);
+      maxPerTable = Math.min(parseLimit(raw, FALLBACK_MAX_LIMIT_NO_WHERE), FALLBACK_MAX_LIMIT_NO_WHERE);
     }
   } catch (e) {
-    return { success: false, error: e.message, data: [], rowCount: 0 };
+    return {
+      success: false,
+      error: e.message,
+      dataByTable: {},
+      rowCountByTable: {},
+      rowCount: 0,
+      distinctCodProveedores: []
+    };
   }
 
   const pool = await getMySQLPool();
   if (!pool) {
-    return { success: false, error: 'MySQL connection pool not available', data: [], rowCount: 0 };
-  }
-
-  try {
-    const tableCols = await getTableColumnNames(pool, table);
-    let selectColumns = [...columns];
-    const hasCodCol = selectColumns.some((c) => c && c.toLowerCase() === 'codproveedor');
-    if (!hasCodCol && tableCols.some((c) => c === 'CodProveedor')) {
-      selectColumns = [...selectColumns, 'CodProveedor'];
-    }
-
-    for (const col of selectColumns) {
-      if (!isValidColumnName(col)) {
-        return { success: false, error: `Invalid column name: ${col}`, data: [], rowCount: 0 };
-      }
-      if (!tableCols.some((tc) => tc && tc.toLowerCase() === col.toLowerCase())) {
-        return { success: false, error: `Unknown column "${col}" on table "${table}"`, data: [], rowCount: 0 };
-      }
-    }
-
-    if (orderBy) {
-      validateOrderByAgainstSchema(orderBy, tableCols);
-    }
-
-    const selectClause = selectColumns.map(() => '??').join(', ');
-    let query = `SELECT ${selectClause} FROM ??`;
-    let queryParams = [...selectColumns, table];
-
-    if (hasWhere) {
-      query += ` WHERE ${whereClause}`;
-      queryParams = queryParams.concat(whereParams);
-    }
-
-    if (orderBy) {
-      query += ` ORDER BY ${orderBy}`;
-    }
-
-    if (maxLimit) {
-      query += ` LIMIT ?`;
-      queryParams.push(maxLimit);
-    }
-
-    console.log(`🔍 Executing discoverDataWithoutProvider table=${table} hasWhere=${hasWhere}`);
-    const [rows] = await pool.query(query, queryParams);
-    const distinctCodProveedores = distinctCodProveedoresFromRows(rows);
-
-    return {
-      success: true,
-      data: rows,
-      rowCount: rows.length,
-      targetTable: table,
-      distinctCodProveedores,
-      hint:
-        distinctCodProveedores.length > 0
-          ? 'Use distinctCodProveedores with queryOperationalData and queryProductsInformation for the strict flow.'
-          : 'No CodProveedor in result rows; widen search or ask the user for a provider code.'
-    };
-  } catch (error) {
-    console.error('❌ discoverDataWithoutProvider:', error.message);
-    if (error.message && error.message.startsWith('Invalid ORDER BY')) {
-      return { success: false, error: error.message, data: [], rowCount: 0 };
-    }
     return {
       success: false,
-      error: mapMysqlError(error, table),
-      data: [],
-      rowCount: 0
+      error: 'MySQL connection pool not available',
+      dataByTable: {},
+      rowCountByTable: {},
+      rowCount: 0,
+      distinctCodProveedores: []
     };
   }
+
+  const dataByTable = {};
+  const rowCountByTable = {};
+  const errorsByTable = {};
+  const searchTrimmed = hasSearch ? String(searchText).trim() : '';
+
+  tableLoop: for (const table of OPERATIONAL_TABLES) {
+    try {
+      const tableCols = await getTableColumnNames(pool, table);
+      const selectColumns = buildDiscoverSelectColumnsForTable(columns, tableCols);
+      if (!selectColumns) {
+        errorsByTable[table] = `No matching columns on "${table}" (and no CodProveedor column)`;
+        dataByTable[table] = [];
+        rowCountByTable[table] = 0;
+        continue;
+      }
+
+      for (const col of selectColumns) {
+        if (!isValidColumnName(col)) {
+          errorsByTable[table] = `Invalid column name: ${col}`;
+          dataByTable[table] = [];
+          rowCountByTable[table] = 0;
+          continue tableLoop;
+        }
+      }
+
+      const selectClause = selectColumns.map(() => '??').join(', ');
+      let query = `SELECT ${selectClause} FROM ??`;
+      let queryParams = [...selectColumns, table];
+
+      if (hasSearch) {
+        const textCols = await getTableTextLikeColumns(pool, table);
+        const usable = textCols.filter((c) => tableCols.includes(c));
+        if (usable.length > 0) {
+          const like = `%${escapeSqlLikePattern(searchTrimmed)}%`;
+          const orPart = usable.map(() => '?? LIKE ?').join(' OR ');
+          query += ` WHERE (${orPart})`;
+          for (const c of usable) {
+            queryParams.push(c, like);
+          }
+        }
+      }
+
+      query += ` LIMIT ?`;
+      queryParams.push(maxPerTable);
+
+      console.log(`🔍 discoverDataWithoutProvider table=${table} hasSearch=${hasSearch}`);
+      const [rows] = await pool.query(query, queryParams);
+      dataByTable[table] = rows;
+      rowCountByTable[table] = rows.length;
+    } catch (error) {
+      console.error(`❌ discoverDataWithoutProvider ${table}:`, error.message);
+      errorsByTable[table] = mapMysqlError(error, table);
+      dataByTable[table] = [];
+      rowCountByTable[table] = 0;
+    }
+  }
+
+  const allRows = OPERATIONAL_TABLES.flatMap((t) => dataByTable[t] || []);
+  const distinctCodProveedores = distinctCodProveedoresFromRows(allRows);
+  const totalRows = allRows.length;
+  const failedCount = OPERATIONAL_TABLES.filter((t) => errorsByTable[t]).length;
+
+  if (failedCount === OPERATIONAL_TABLES.length) {
+    return {
+      success: false,
+      error: `All operational tables failed: ${JSON.stringify(errorsByTable)}`,
+      dataByTable,
+      rowCountByTable,
+      rowCount: 0,
+      distinctCodProveedores: [],
+      errorsByTable
+    };
+  }
+
+  return {
+    success: true,
+    dataByTable,
+    rowCountByTable,
+    rowCount: totalRows,
+    distinctCodProveedores,
+    errorsByTable: Object.keys(errorsByTable).length > 0 ? errorsByTable : undefined,
+    hint:
+      distinctCodProveedores.length > 0
+        ? 'Use distinctCodProveedor value(s) with queryProductsInformation (primary) for catalog rows, then queryOperationalData per domainTable if you need more operational fields.'
+        : 'No CodProveedor in any table results; refine searchText, widen columns, or ask the user for a provider code.'
+  };
 }
 
 function buildSearchProvidersToolDefinition() {
   return ToolUtility.createFunctionTool({
     name: 'searchProvidersByName',
     description:
-      'Step 1: Search the providers catalog by name. Runs LIKE on text columns (e.g. Proveedor). Returns matching rows with CodProveedor and names. If rowCount is 0 or the user gave no provider, call discoverDataWithoutProvider next when other search criteria exist. Otherwise use the chosen CodProveedor with queryOperationalData and queryProductsInformation.',
+      'Step 1: Search the providers catalog by name. Runs LIKE on text columns (e.g. Proveedor). Returns matching rows with CodProveedor and names. If rowCount is 0 or the user gave no provider, call discoverDataWithoutProvider next when other search criteria exist (it queries all four operational tables). Otherwise use the chosen CodProveedor with queryProductsInformation and queryOperationalData.',
     parameters: {
       type: 'object',
       properties: {
@@ -797,40 +850,28 @@ function buildDiscoverWithoutProviderToolDefinition() {
   return ToolUtility.createFunctionTool({
     name: 'discoverDataWithoutProvider',
     description:
-      'Fallback when searchProvidersByName returns zero rows OR the user gave no provider name but gave other criteria (hotel, winery, product text, etc.). Queries ONE table (hotels, services, packages, winery, products_information) WITHOUT server-side CodProveedor filter. If whereClause is omitted, LIMIT is capped at 50. Response includes distinctCodProveedores extracted from rows—use those codes with queryOperationalData and queryProductsInformation. Call right after a failed or empty provider search when appropriate.',
+      'Fallback when searchProvidersByName returns zero rows OR the user gave no provider name but gave other criteria. Always queries ALL four operational tables (hotels, services, packages, winery) in one call—no server-side CodProveedor filter. For each table, columns is intersected with that table schema and CodProveedor is included when the column exists. Optional searchText applies OR LIKE across text columns per table. Without searchText, limit per table is capped at 50. Response has dataByTable, rowCountByTable, and distinctCodProveedores (union). Next step: call queryProductsInformation with codProveedor from distinctCodProveedores; use queryOperationalData if you need more fields from a specific domain table.',
     parameters: {
       type: 'object',
       properties: {
-        targetTable: {
-          type: 'string',
-          enum: ['hotels', 'services', 'packages', 'winery', 'products_information'],
-          description: 'Single table to query'
-        },
         columns: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Columns to SELECT; CodProveedor is auto-added if missing and the column exists'
+          description:
+            'Columns to SELECT per table (only columns that exist on each table are used; CodProveedor is auto-added per table when present)'
         },
-        whereClause: {
+        searchText: {
           type: 'string',
           description:
-            'Optional WHERE with ? placeholders. If empty, only a small sample is returned (limit max 50)'
+            'Optional substring matched with LIKE across each table varchar/text columns (OR). If omitted, returns a small capped sample per table.'
         },
-        whereParams: {
-          type: 'array',
-          items: { type: ['string', 'number', 'boolean'] },
-          description: 'Values for each ? in whereClause (must match count)'
-        },
-        orderBy: {
-          type: 'string',
-          description: 'Optional ORDER BY using only real columns on targetTable'
-        },
-        limit: {
+        limitPerTable: {
           type: 'number',
-          description: 'Max rows; max 1000 if whereClause is set, else max 50'
+          description:
+            'Max rows per table (default 50 without searchText, max 50; default 100 with searchText, max 300)'
         }
       },
-      required: ['targetTable', 'columns']
+      required: ['columns']
     }
   }).definition;
 }
